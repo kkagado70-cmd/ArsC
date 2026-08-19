@@ -37,7 +37,6 @@ public class XbowCart {
             if (stage != Stage.IDLE) reset(client, true);
             return;
         }
-
         if (pingSimulationTicks > 0) { pingSimulationTicks--; return; }
         if (hesitationTicks > 0) { hesitationTicks--; return; }
         if (isHesitating && hesitationTicks <= 0) isHesitating = false;
@@ -121,7 +120,6 @@ public class XbowCart {
         targetBlockHit = hit;
         stage = Stage.PLACE_RAIL;
         tickTimer = 1 + RANDOM.nextInt(2);
-
         if (currentMode == Mode.STEALTH || streamerMode) {
             if (RANDOM.nextInt(100) < 15) {
                 pingSimulationTicks = 2 + RANDOM.nextInt(4);
@@ -135,20 +133,15 @@ public class XbowCart {
         BlockPos ground = targetBlockHit.getBlockPos();
         Direction face = targetBlockHit.getDirection();
         BlockPos railPos = ground.relative(face);
-        // O carrinho deve ser colocado no bloco acima do trilho
         BlockPos cartPos = railPos.above();
+        BlockPos firePos = cartPos.above();
 
         BlockHitResult railHit = new BlockHitResult(
                 new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.5, railPos.getZ() + 0.5),
                 Direction.UP, railPos, false);
-
-        // Hit para colocar o carrinho no centro do bloco acima
         BlockHitResult cartHit = new BlockHitResult(
                 new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.5, cartPos.getZ() + 0.5),
                 Direction.UP, cartPos, false);
-
-        // Fogo no bloco acima do carrinho (opcional, pode ser no cart)
-        BlockPos firePos = cartPos.above();
         BlockHitResult fireHit = new BlockHitResult(
                 new Vec3(firePos.getX() + 0.5, firePos.getY() + 0.5, firePos.getZ() + 0.5),
                 Direction.UP, firePos, false);
@@ -244,7 +237,6 @@ public class XbowCart {
         float dYaw = wrapAngle(yaw - curYaw);
         float dPitch = pitch - curPitch;
 
-        // Reduz overshoot ao mínimo
         float overshoot = 0.02f + RANDOM.nextFloat() * 0.03f;
         dYaw += dYaw * overshoot;
         dPitch += dPitch * overshoot;
@@ -295,4 +287,4 @@ public class XbowCart {
     }
     public static void reset() { reset(Minecraft.getInstance(), true); }
     public static void toggle() { enabled = !enabled; if (!enabled) reset(); }
-                    }
+                        }
