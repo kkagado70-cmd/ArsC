@@ -1,6 +1,8 @@
 package com.example;
 
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import org.lwjgl.glfw.GLFW;
@@ -10,33 +12,22 @@ public class PreciseGuiScaleClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        openGuiKey = new KeyMapping(
+        openGuiKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.preciseguiscale.open_gui",
                 GLFW.GLFW_KEY_RIGHT_SHIFT,
-                KeyMapping.Category.MISC
-        );
+                "key.categories.misc"
+        ));
 
-        Thread tickThread = new Thread(() -> {
-            while (true) {
-                try {
-                    Thread.sleep(50);
-                    Minecraft client = Minecraft.getInstance();
-                    if (client.player == null) continue;
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (openGuiKey.consumeClick()) {
+                if (ClickGUI.isOpen()) ClickGUI.close();
+                else ClickGUI.open();
+            }
 
-                    if (openGuiKey.consumeClick()) {
-                        if (ClickGUI.isOpen()) ClickGUI.close();
-                        else ClickGUI.open();
-                    }
-
-                    if (AutoMace.enabled) AutoMace.onTick(client);
-                    if (XbowCart.enabled) XbowCart.onTick(client);
-
-                } catch (InterruptedException e) {
-                    break;
-                }
+            if (client.player != null) {
+                if (AutoMace.enabled) AutoMace.onTick(client);
+                if (XbowCart.enabled) XbowCart.onTick(client);
             }
         });
-        tickThread.setDaemon(true);
-        tickThread.start();
     }
 }
