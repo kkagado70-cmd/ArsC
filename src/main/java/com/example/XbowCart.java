@@ -17,7 +17,7 @@ public class XbowCart {
     public enum Mode { STEALTH, FAST, STREAMER }
 
     public static boolean enabled = false;
-    public static Mode currentMode = Mode.FAST;
+    public static Mode currentMode = Mode.STEALTH;
     public static boolean streamerMode = false;
 
     private static boolean triggered = false;
@@ -135,14 +135,15 @@ public class XbowCart {
         BlockPos ground = targetBlockHit.getBlockPos();
         Direction face = targetBlockHit.getDirection();
         BlockPos railPos = ground.relative(face);
-        BlockPos firePos = railPos.above();
+        BlockPos cartPos = railPos.above(); // CARRINHO DEVE FICAR EM CIMA DO TRILHO
+        BlockPos firePos = cartPos.above(); // FOGO EM CIMA DO CARRINHO (opcional, pode ser no cart)
 
         BlockHitResult railHit = new BlockHitResult(
                 new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.5, railPos.getZ() + 0.5),
                 Direction.UP, railPos, false);
         BlockHitResult cartHit = new BlockHitResult(
-                new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.05, railPos.getZ() + 0.5),
-                Direction.UP, railPos, false);
+                new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.05, cartPos.getZ() + 0.5),
+                Direction.UP, cartPos, false);
         BlockHitResult fireHit = new BlockHitResult(
                 new Vec3(firePos.getX() + 0.5, firePos.getY() + 0.5, firePos.getZ() + 0.5),
                 Direction.UP, firePos, false);
@@ -168,6 +169,7 @@ public class XbowCart {
                 int c = findItemSlot(client, Items.TNT_MINECART);
                 if (c != -1) {
                     client.player.getInventory().setSelectedSlot(c);
+                    // Usa cartHit com a posição correta
                     client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, cartHit);
                     client.player.swing(InteractionHand.MAIN_HAND);
                 }
@@ -184,7 +186,7 @@ public class XbowCart {
                     reset(client, true);
                     return;
                 }
-                computeAim(client, railPos);
+                computeAim(client, cartPos); // mira no carrinho
                 stage = Stage.AIM;
                 tickTimer = 1;
             }
@@ -192,7 +194,7 @@ public class XbowCart {
                 int x = findChargedCrossbow(client);
                 if (x != -1) {
                     client.player.getInventory().setSelectedSlot(x);
-                    applyFastAim(client, targetYaw, targetPitch);
+                    applySafeAim(client, targetYaw, targetPitch);
                     stage = Stage.DISCHARGE;
                     tickTimer = 1;
                 } else {
@@ -216,42 +218,44 @@ public class XbowCart {
         }
     }
 
-    private static void computeAim(Minecraft client, BlockPos railPos) {
+    private static void computeAim(Minecraft client, BlockPos cartPos) {
         Vec3 eye = client.player.getEyePosition();
-        Vec3 target = new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.22, railPos.getZ() + 0.5);
+        Vec3 target = new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.22, cartPos.getZ() + 0.5);
         double dx = target.x - eye.x, dy = target.y - eye.y, dz = target.z - eye.z;
         double dist = Math.sqrt(dx * dx + dz * dz);
         targetYaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90.0f;
         targetPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
-        float jitter = streamerMode ? 0.8f : 0.4f;
+        float jitter = streamerMode ? 0.6f : 0.3f;
         targetYaw += (RANDOM.nextFloat() - 0.5f) * jitter;
         targetPitch += (RANDOM.nextFloat() - 0.5f) * (jitter * 0.7f);
     }
 
-    private static void applyFastAim(Minecraft client, float yaw, float pitch) {
+    private static void applySafeAim(Minecraft client, float yaw, float pitch) {
         float curYaw = client.player.getYRot();
         float curPitch = client.player.getXRot();
-        float maxStep;
-        if (currentMode == Mode.FAST) {
-            maxStep = 60.0f + RANDOM.nextFloat() * 20.0f;
-        } else if (streamerMode) {
-            maxStep = 30.0f + RANDOM.nextFloat() * 10.0f;
-        } else {
-            maxStep = 45.0f + RANDOM.nextFloat() * 15.0f;
-        }
+        // Velocidade máxima reduzida para evitar flicks
+        float maxStep = 30.0f + RANDOM.nextFloat() * 10.0f;
+        if (streamerMode) maxStep = 20.0f + RANDOM.nextFloat() * 8.0f;
+        if (currentMode == Mode.FAST) maxStep = 40.0f + RANDOM.nextFloat() * 15.0f;
+
         float dYaw = wrapAngle(yaw - curYaw);
         float dPitch = pitch - curPitch;
-        float overshoot = 0.05f + RANDOM.nextFloat() * 0.1f;
-        float overshootYaw = dYaw * overshoot;
-        float overshootPitch = dPitch * overshoot;
-        dYaw = Math.max(-maxStep, Math.min(maxStep, dYaw + overshootYaw));
-        dPitch = Math.max(-maxStep * 0.7f, Math.min(maxStep * 0.7f, dPitch + overshootPitch));
+
+        // Overshoot mínimo
+        float overshoot = 0.02f + RANDOM.nextFloat() * 0.04f;
+        dYaw += dYaw * overshoot;
+        dPitch += dPitch * overshoot;
+
+        dYaw = Math.max(-maxStep, Math.min(maxStep, dYaw));
+        dPitch = Math.max(-maxStep * 0.6f, Math.min(maxStep * 0.6f, dPitch));
+
         float steppedYaw = curYaw + dYaw;
         float steppedPitch = curPitch + dPitch;
+
         client.player.setYRot(steppedYaw);
         client.player.setXRot(Math.max(-90.0f, Math.min(90.0f, steppedPitch)));
-        client.player.yRotO = steppedYaw - (RANDOM.nextFloat() - 0.5f) * 0.5f;
-        client.player.xRotO = steppedPitch - (RANDOM.nextFloat() - 0.5f) * 0.3f;
+        client.player.yRotO = steppedYaw - (RANDOM.nextFloat() - 0.5f) * 0.3f;
+        client.player.xRotO = steppedPitch - (RANDOM.nextFloat() - 0.5f) * 0.2f;
         client.player.yHeadRot = steppedYaw;
         client.player.yHeadRotO = steppedYaw;
     }
@@ -284,8 +288,8 @@ public class XbowCart {
     public static void toggleStreamer() {
         streamerMode = !streamerMode;
         if (streamerMode) currentMode = Mode.STREAMER;
-        else currentMode = Mode.FAST;
+        else currentMode = Mode.STEALTH;
     }
     public static void reset() { reset(Minecraft.getInstance(), true); }
     public static void toggle() { enabled = !enabled; if (!enabled) reset(); }
-                }
+        }
