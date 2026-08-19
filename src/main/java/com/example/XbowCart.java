@@ -14,6 +14,7 @@ import java.util.Random;
 
 public class XbowCart {
     public enum Stage { IDLE, PLACE_RAIL, PLACE_CART, LIGHT_FIRE, AIM, DISCHARGE, RESTORE }
+
     public static boolean enabled = false;
     private static boolean triggered = false;
     private static Stage stage = Stage.IDLE;
@@ -30,6 +31,7 @@ public class XbowCart {
             return;
         }
 
+        // Ativação: olhando para o chão com um trilho na mão
         if (stage == Stage.IDLE) {
             ItemStack mainHand = client.player.getMainHandItem();
             boolean holdingRail = mainHand.is(Items.RAIL) || mainHand.is(Items.POWERED_RAIL) ||
@@ -119,7 +121,7 @@ public class XbowCart {
         BlockPos groundPos = targetBlockHit.getBlockPos();
         Direction clickedFace = targetBlockHit.getDirection();
         BlockPos railPos = groundPos.relative(clickedFace);
-        BlockPos firePos = railPos.above();
+        BlockPos firePos = railPos.above(); // fogo em cima do trilho
 
         BlockHitResult railHit = new BlockHitResult(
                 new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.5, railPos.getZ() + 0.5),
@@ -245,4 +247,4 @@ public class XbowCart {
         originalSlot = -1;
         triggered = false;
     }
-                }
+                               }
