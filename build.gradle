@@ -5,6 +5,10 @@ plugins {
 
 repositories {
     mavenCentral()
+    maven {
+        name = 'Fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
 }
 
 dependencies {
@@ -13,7 +17,7 @@ dependencies {
         officialMojangMappings()
     }
     modImplementation "net.fabricmc:fabric-loader:0.18.4"
-    // SEM FABRIC API – ela já está no jogo
+    modImplementation "net.fabricmc.fabric-api:fabric-api:+"
 }
 
 java {
