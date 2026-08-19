@@ -28,21 +28,12 @@ processResources {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
-// Configuração explícita do JAR
 jar {
-    from sourceSets.main.output   // inclui as classes compiladas
-    from sourceSets.main.resources // inclui os recursos
+    from sourceSets.main.output
+    from sourceSets.main.resources
     manifest {
         attributes 'Implementation-Title': project.name,
-                   'Implementation-Version': project.version,
-                   'Main-Class': null // não é necessário para mod
-    }
-    // Garante que o JAR não fique vazio
-    doFirst {
-        println "Including classes from: ${sourceSets.main.output.classesDirs}"
-        println "Including resources from: ${sourceSets.main.output.resourcesDir}"
+                   'Implementation-Version': project.version
+        // Main-Class removido – não é necessário para mods
     }
 }
-
-// Para garantir que o JAR seja gerado após a compilação
-tasks.build.dependsOn tasks.jar
