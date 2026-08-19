@@ -252,8 +252,8 @@ public class AutoMace {
     }
 
     private static int getEnchantmentLevel(RegistryAccess registryAccess, net.minecraft.resources.ResourceKey<Enchantment> enchantmentKey, ItemStack stack) {
-        Optional<Holder.Reference<Enchantment>> enchHolder =
-                registryAccess.registryOrThrow(Registries.ENCHANTMENT).getHolder(enchantmentKey);
+        var registryLookup = registryAccess.lookupOrThrow(Registries.ENCHANTMENT);
+        Optional<Holder.Reference<Enchantment>> enchHolder = registryLookup.get(enchantmentKey);
         return enchHolder.map(holder -> EnchantmentHelper.getItemEnchantmentLevel(holder, stack)).orElse(0);
     }
 
@@ -271,4 +271,4 @@ public class AutoMace {
             smoothPitch = client.player != null ? client.player.getXRot() : 0;
         }
     }
-            }
+}
