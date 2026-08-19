@@ -3,9 +3,8 @@ plugins {
     id 'maven-publish'
 }
 
-// Fallback para propriedades se não estiverem no gradle.properties
 ext {
-    mod_version = project.hasProperty('mod_version') ? project.mod_version : '1.0.0'
+    mod_version = project.hasProperty('mod_version') ? project.mod_version : '1.0.2'
     maven_group = project.hasProperty('maven_group') ? project.maven_group : 'com.scale'
     archives_base_name = project.hasProperty('archives_base_name') ? project.archives_base_name : 'precise-gui-scale'
     minecraft_version = project.hasProperty('minecraft_version') ? project.minecraft_version : '1.21.11'
