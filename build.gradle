@@ -3,17 +3,6 @@ plugins {
     id 'maven-publish'
 }
 
-sourceSets {
-    main {
-        java {
-            srcDir 'src/main/java'
-        }
-        resources {
-            srcDir 'src/main/resources'
-        }
-    }
-}
-
 repositories {
     mavenCentral()
 }
@@ -36,13 +25,24 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 processResources {
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE  // <-- adicione esta linha
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
+// Configuração explícita do JAR
 jar {
-    from sourceSets.main.output
+    from sourceSets.main.output   // inclui as classes compiladas
+    from sourceSets.main.resources // inclui os recursos
     manifest {
         attributes 'Implementation-Title': project.name,
-                   'Implementation-Version': project.version
+                   'Implementation-Version': project.version,
+                   'Main-Class': null // não é necessário para mod
+    }
+    // Garante que o JAR não fique vazio
+    doFirst {
+        println "Including classes from: ${sourceSets.main.output.classesDirs}"
+        println "Including resources from: ${sourceSets.main.output.resourcesDir}"
     }
 }
+
+// Para garantir que o JAR seja gerado após a compilação
+tasks.build.dependsOn tasks.jar
