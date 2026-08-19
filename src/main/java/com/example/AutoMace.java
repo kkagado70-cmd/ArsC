@@ -1,4 +1,4 @@
-package com.example.client;
+package com.example;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.Holder;
@@ -23,9 +23,7 @@ import java.util.Random;
 
 public class AutoMace {
     public enum State { IDLE, SMASH_ATTACK }
-
     public static boolean enabled = false;
-
     private static State state = State.IDLE;
     private static long lastActionTime = 0;
     private static int originalSlot = -1;
@@ -34,10 +32,8 @@ public class AutoMace {
     private static LivingEntity activeTarget = null;
     private static int targetLockTicks = 0;
     private static final Random RANDOM = new Random();
-
     private static float smoothYaw = Float.NaN;
     private static float smoothPitch = Float.NaN;
-
     private static int missChance = 0;
 
     public static void onTick(Minecraft client) {
@@ -45,11 +41,7 @@ public class AutoMace {
             if (isSwapped) resetState(client);
             return;
         }
-
-        if (delayTicks > 0) {
-            delayTicks--;
-            return;
-        }
+        if (delayTicks > 0) { delayTicks--; return; }
 
         if (targetLockTicks <= 0 || activeTarget == null || !activeTarget.isAlive()) {
             activeTarget = findTarget(client);
@@ -57,12 +49,7 @@ public class AutoMace {
         } else {
             targetLockTicks--;
         }
-
-        if (activeTarget == null) {
-            resetState(client);
-            return;
-        }
-
+        if (activeTarget == null) { resetState(client); return; }
         if (client.player.getY() <= activeTarget.getY() + 0.5) {
             activeTarget = null;
             resetState(client);
@@ -75,20 +62,9 @@ public class AutoMace {
 
         if (isFalling) {
             applyAim(client, activeTarget);
-
             if (client.player.distanceTo(activeTarget) <= 3.05) {
-                float strength = client.player.getAttackStrengthScale(0.0f);
-                if (strength < 0.85f) return;
-
-                if (RANDOM.nextInt(100) < 3) {
-                    missChance = 2;
-                }
-
-                if (missChance > 0) {
-                    missChance--;
-                    client.player.setYRot(client.player.getYRot() + (RANDOM.nextFloat() - 0.5f) * 15f);
-                    return;
-                }
+                if (RANDOM.nextInt(100) < 3) missChance = 2;
+                if (missChance > 0) { missChance--; return; }
 
                 boolean isShielding = activeTarget instanceof Player p
                         && p.isUsingItem()
@@ -117,11 +93,9 @@ public class AutoMace {
                         client.player.getInventory().setSelectedSlot(maceSlot);
                         isSwapped = true;
                     }
-
                     client.gameMode.attack(client.player, activeTarget);
                     client.player.swing(InteractionHand.MAIN_HAND);
                     lastActionTime = System.currentTimeMillis();
-
                     delayTicks = 4 + RANDOM.nextInt(8);
                     resetState(client);
                 }
@@ -140,7 +114,6 @@ public class AutoMace {
                 e != client.player && e.isAlive() && !e.isDeadOrDying()
                         && client.player.getY() > e.getY() + 0.5
         );
-
         return entities.stream()
                 .min(Comparator.comparingDouble(e -> client.player.distanceToSqr(e)))
                 .orElse(null);
@@ -152,55 +125,42 @@ public class AutoMace {
         double jitterX = (RANDOM.nextDouble() - 0.5) * 0.06;
         double jitterY = (RANDOM.nextDouble() - 0.5) * 0.05;
         double jitterZ = (RANDOM.nextDouble() - 0.5) * 0.06;
-
         Vec3 targetPoint = new Vec3(
                 target.getX() + jitterX,
                 target.getY() + (target.getBbHeight() * heightOffset) + jitterY,
                 target.getZ() + jitterZ
         );
-
         double dx = targetPoint.x - eyePos.x;
         double dy = targetPoint.y - eyePos.y;
         double dz = targetPoint.z - eyePos.z;
         double dist = Math.sqrt(dx * dx + dz * dz);
-
         float targetYaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90.0f;
         float targetPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
-
         if (Float.isNaN(smoothYaw) || Float.isNaN(smoothPitch)) {
             smoothYaw = client.player.getYRot();
             smoothPitch = client.player.getXRot();
         }
-
         float attention = 0.6f + (float)(1.0 / (dist + 0.5)) * 0.3f;
         float yawDiff = wrapAngle(targetYaw - smoothYaw);
         float pitchDiff = targetPitch - smoothPitch;
-
         float maxTurn = 5.0f + RANDOM.nextFloat() * 3.0f;
         yawDiff = Math.max(-maxTurn, Math.min(maxTurn, yawDiff * attention));
         pitchDiff = Math.max(-maxTurn * 0.6f, Math.min(maxTurn * 0.6f, pitchDiff * attention));
-
         float noiseYaw = (RANDOM.nextFloat() - 0.5f) * 0.08f;
         float noisePitch = (RANDOM.nextFloat() - 0.5f) * 0.06f;
-
         float finalYaw = smoothYaw + yawDiff + noiseYaw;
         float finalPitch = Math.max(-90.0f, Math.min(90.0f, smoothPitch + pitchDiff + noisePitch));
-
         double sens = client.options.sensitivity().get() * 0.6 + 0.2;
         double gcd = Math.pow(sens, 1.2);
         gcd = Math.max(0.05, Math.min(0.4, gcd));
-
         float deltaYaw = finalYaw - client.player.getYRot();
         float deltaPitch = finalPitch - client.player.getXRot();
-
         if (Math.abs(deltaYaw) > 0.01 || Math.abs(deltaPitch) > 0.01) {
             deltaYaw = (float) (Math.round(deltaYaw / gcd) * gcd);
             deltaPitch = (float) (Math.round(deltaPitch / gcd) * gcd);
         }
-
         smoothYaw = client.player.getYRot() + deltaYaw;
         smoothPitch = client.player.getXRot() + deltaPitch;
-
         client.player.setYRot(smoothYaw);
         client.player.setXRot(smoothPitch);
         client.player.yRotO = smoothYaw - (RANDOM.nextFloat() - 0.5f) * 0.5f;
@@ -216,37 +176,27 @@ public class AutoMace {
     }
 
     private static int findAxeSlot(Minecraft client) {
-        int bestSlot = -1;
-        int bestLevel = -1;
+        int bestSlot = -1, bestLevel = -1;
         RegistryAccess registryAccess = client.level.registryAccess();
         for (int i = 0; i < 9; i++) {
             ItemStack stack = client.player.getInventory().getItem(i);
             if (stack.getItem() instanceof AxeItem) {
                 int level = getEnchantmentLevel(registryAccess, Enchantments.SHARPNESS, stack);
-                if (level > bestLevel) {
-                    bestLevel = level;
-                    bestSlot = i;
-                }
+                if (level > bestLevel) { bestLevel = level; bestSlot = i; }
             }
         }
         return bestSlot;
     }
 
     private static int findBestMaceSlot(Minecraft client, boolean preferDensity) {
-        int bestSlot = -1;
-        int maxLevel = -1;
+        int bestSlot = -1, maxLevel = -1;
         RegistryAccess registryAccess = client.level.registryAccess();
         var enchantKey = preferDensity ? Enchantments.DENSITY : Enchantments.BREACH;
-
         for (int i = 0; i < 9; i++) {
             ItemStack stack = client.player.getInventory().getItem(i);
             if (stack.isEmpty() || !stack.is(Items.MACE)) continue;
-
             int level = getEnchantmentLevel(registryAccess, enchantKey, stack);
-            if (level > maxLevel) {
-                maxLevel = level;
-                bestSlot = i;
-            }
+            if (level > maxLevel) { maxLevel = level; bestSlot = i; }
         }
         return bestSlot;
     }
