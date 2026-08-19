@@ -1,41 +1,18 @@
 {
-    "schemaVersion": 1,
-    "id": "guiscaler",
-    "version": "1.3.3",
-    "name": "GUI Scaler",
-    "description": "Automatically scales GUI based on window resolution",
-    "authors": [
-        "Netleak"
-    ],
-    "contact": {
-        "sources": "https://github.com/zendiik/gui-scaler",
-        "issues": "https://github.com/zendiik/gui-scaler/issues",
-        "homepage": "https://ko-fi.com/netleak"
-    },
-    "license": "GNU LGPL 3.0",
-    "icon": "guiscaler.png",
-    "environment": "client",
-    "entrypoints": {
-        "main": [
-          "eu.netleak.guiscaler.GuiScaler"
-        ],
-        "modmenu": [
-          "eu.netleak.guiscaler.GuiScalerModMenuIntegration"
-        ]
-    },
-    "mixins": [
-        "guiscaler.mixins.json",
-        "guiscaler.fabric.mixins.json"
-    ],
-    "depends": {
-        "fabricloader": ">=0.18",
-        "fabric-api": "*",
-        "minecraft": "1.21.11",
-        "java": ">=21",
-        "cloth-config": ">=21.0.0"
-    },
-    "suggests": {
-        "another-mod": "*"
-    }
+  "schemaVersion": 1,
+  "id": "precise-gui-scale",
+  "version": "1.0.2",
+  "name": "Precise GUI Scale",
+  "description": "Utility mod with AutoMace and XbowCart",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.example.PreciseGuiScaleClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.4",
+    "minecraft": "1.21.11",
+    "java": ">=21"
+  }
 }
-  
