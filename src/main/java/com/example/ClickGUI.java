@@ -57,7 +57,9 @@ public class ClickGUI extends Screen {
 
     @Override
     public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        this.renderBackground(context, mouseX, mouseY, delta);
+        // Screen.render() já cuida do renderBackground() internamente na 1.21.11.
+        // Chamar renderBackground() manualmente antes causava blur duplicado
+        // e o crash "Can only blur once per frame".
         super.render(context, mouseX, mouseY, delta);
     }
 
