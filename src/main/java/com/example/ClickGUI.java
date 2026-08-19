@@ -1,11 +1,8 @@
-package com.scale.preciseguiscale.gui;
+package com.example;
 
-import com.example.client.AutoMace;
-import com.example.client.XbowCart;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
@@ -13,7 +10,7 @@ public class ClickGUI extends Screen {
     private static ClickGUI instance;
 
     public ClickGUI() {
-        super(Component.literal("Precise GUI Scale - Config"));
+        super(Component.literal("Config"));
         instance = this;
     }
 
@@ -34,55 +31,33 @@ public class ClickGUI extends Screen {
     @Override
     protected void init() {
         super.init();
+        int cx = this.width / 2;
+        int cy = this.height / 2;
+        int bw = 140, bh = 20;
 
-        int centerX = this.width / 2;
-        int centerY = this.height / 2;
-        int buttonWidth = 150;
-        int buttonHeight = 20;
-
-        // Título
+        // AutoMace
         this.addRenderableWidget(Button.builder(
-                Component.literal("§6§lPrecise GUI Scale - Config"),
-                button -> {}
-        ).bounds(centerX - 100, centerY - 80, 200, 20).build());
+                Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")),
+                btn -> {
+                    AutoMace.enabled = !AutoMace.enabled;
+                    btn.setMessage(Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")));
+                }
+        ).bounds(cx - bw/2, cy - 30, bw, bh).build());
 
-        // AutoMace Toggle
-        this.addRenderableWidget(CycleButton.onOffBuilder(AutoMace.enabled)
-                .displayOnlyValue()
-                .create(centerX - 75, centerY - 40, buttonWidth, buttonHeight,
-                        Component.literal("AutoMace: "),
-                        (button, value) -> {
-                            AutoMace.enabled = value;
-                            if (value) {
-                                Minecraft.getInstance().player.displayClientMessage(
-                                        Component.literal("§aAutoMace ON"), true);
-                            } else {
-                                Minecraft.getInstance().player.displayClientMessage(
-                                        Component.literal("§cAutoMace OFF"), true);
-                            }
-                        }));
-
-        // XbowCart Toggle
-        this.addRenderableWidget(CycleButton.onOffBuilder(XbowCart.enabled)
-                .displayOnlyValue()
-                .create(centerX - 75, centerY - 10, buttonWidth, buttonHeight,
-                        Component.literal("XbowCart: "),
-                        (button, value) -> {
-                            XbowCart.enabled = value;
-                            if (value) {
-                                Minecraft.getInstance().player.displayClientMessage(
-                                        Component.literal("§aXbowCart ON"), true);
-                            } else {
-                                Minecraft.getInstance().player.displayClientMessage(
-                                        Component.literal("§cXbowCart OFF"), true);
-                            }
-                        }));
-
-        // Botão Fechar
+        // XbowCart
         this.addRenderableWidget(Button.builder(
-                Component.literal("§cFechar"),
-                button -> this.onClose()
-        ).bounds(centerX - 50, centerY + 30, 100, 20).build());
+                Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")),
+                btn -> {
+                    XbowCart.enabled = !XbowCart.enabled;
+                    btn.setMessage(Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")));
+                }
+        ).bounds(cx - bw/2, cy + 10, bw, bh).build());
+
+        // Fechar
+        this.addRenderableWidget(Button.builder(
+                Component.literal("Fechar"),
+                btn -> this.onClose()
+        ).bounds(cx - 40, cy + 50, 80, 20).build());
     }
 
     @Override
@@ -94,11 +69,5 @@ public class ClickGUI extends Screen {
     @Override
     public boolean isPauseScreen() {
         return false;
-    }
-
-    @Override
-    public void onClose() {
-        super.onClose();
-        // Salva as configurações se necessário
     }
 }
