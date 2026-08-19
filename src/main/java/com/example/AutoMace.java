@@ -23,6 +23,7 @@ import java.util.Random;
 
 public class AutoMace {
     public enum State { IDLE, SMASH_ATTACK }
+
     public static boolean enabled = false;
     private static State state = State.IDLE;
     private static long lastActionTime = 0;
@@ -56,15 +57,26 @@ public class AutoMace {
             return;
         }
 
-        boolean isFalling = client.player.fallDistance >= 3.0f
+        boolean isFalling = client.player.fallDistance >= (2.8f + RANDOM.nextFloat() * 0.4f)
                 && !client.player.onGround()
                 && !client.player.isInWater();
 
         if (isFalling) {
             applyAim(client, activeTarget);
-            if (client.player.distanceTo(activeTarget) <= 3.05) {
-                if (RANDOM.nextInt(100) < 3) missChance = 2;
-                if (missChance > 0) { missChance--; return; }
+            double hitDist = 2.9 + RANDOM.nextDouble() * 0.2;
+            if (client.player.distanceTo(activeTarget) <= hitDist) {
+                float strength = client.player.getAttackStrengthScale(0.0f);
+                if (strength < 0.85f) return;
+
+                // anti-flag: miss aleatório
+                if (RANDOM.nextInt(100) < (3 + (state == State.SMASH_ATTACK ? 2 : 0))) {
+                    missChance = 2;
+                }
+                if (missChance > 0) {
+                    missChance--;
+                    client.player.setYRot(client.player.getYRot() + (RANDOM.nextFloat() - 0.5f) * 20f);
+                    return;
+                }
 
                 boolean isShielding = activeTarget instanceof Player p
                         && p.isUsingItem()
@@ -86,7 +98,7 @@ public class AutoMace {
                 }
 
                 if (state == State.SMASH_ATTACK || state == State.IDLE) {
-                    boolean preferDensity = client.player.fallDistance > 6.5;
+                    boolean preferDensity = client.player.fallDistance > (6.5 + RANDOM.nextFloat() * 1.5f);
                     int maceSlot = findBestMaceSlot(client, preferDensity);
                     if (maceSlot != -1) {
                         if (originalSlot == -1) originalSlot = client.player.getInventory().getSelectedSlot();
