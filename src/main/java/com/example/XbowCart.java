@@ -135,15 +135,20 @@ public class XbowCart {
         BlockPos ground = targetBlockHit.getBlockPos();
         Direction face = targetBlockHit.getDirection();
         BlockPos railPos = ground.relative(face);
-        BlockPos cartPos = railPos.above(); // CARRINHO DEVE FICAR EM CIMA DO TRILHO
-        BlockPos firePos = cartPos.above(); // FOGO EM CIMA DO CARRINHO (opcional, pode ser no cart)
+        // O carrinho deve ser colocado no bloco acima do trilho
+        BlockPos cartPos = railPos.above();
 
         BlockHitResult railHit = new BlockHitResult(
                 new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.5, railPos.getZ() + 0.5),
                 Direction.UP, railPos, false);
+
+        // Hit para colocar o carrinho no centro do bloco acima
         BlockHitResult cartHit = new BlockHitResult(
-                new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.05, cartPos.getZ() + 0.5),
+                new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.5, cartPos.getZ() + 0.5),
                 Direction.UP, cartPos, false);
+
+        // Fogo no bloco acima do carrinho (opcional, pode ser no cart)
+        BlockPos firePos = cartPos.above();
         BlockHitResult fireHit = new BlockHitResult(
                 new Vec3(firePos.getX() + 0.5, firePos.getY() + 0.5, firePos.getZ() + 0.5),
                 Direction.UP, firePos, false);
@@ -169,7 +174,6 @@ public class XbowCart {
                 int c = findItemSlot(client, Items.TNT_MINECART);
                 if (c != -1) {
                     client.player.getInventory().setSelectedSlot(c);
-                    // Usa cartHit com a posição correta
                     client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, cartHit);
                     client.player.swing(InteractionHand.MAIN_HAND);
                 }
@@ -186,7 +190,7 @@ public class XbowCart {
                     reset(client, true);
                     return;
                 }
-                computeAim(client, cartPos); // mira no carrinho
+                computeAim(client, cartPos);
                 stage = Stage.AIM;
                 tickTimer = 1;
             }
@@ -233,16 +237,15 @@ public class XbowCart {
     private static void applySafeAim(Minecraft client, float yaw, float pitch) {
         float curYaw = client.player.getYRot();
         float curPitch = client.player.getXRot();
-        // Velocidade máxima reduzida para evitar flicks
-        float maxStep = 30.0f + RANDOM.nextFloat() * 10.0f;
+        float maxStep = 25.0f + RANDOM.nextFloat() * 10.0f;
         if (streamerMode) maxStep = 20.0f + RANDOM.nextFloat() * 8.0f;
-        if (currentMode == Mode.FAST) maxStep = 40.0f + RANDOM.nextFloat() * 15.0f;
+        if (currentMode == Mode.FAST) maxStep = 35.0f + RANDOM.nextFloat() * 15.0f;
 
         float dYaw = wrapAngle(yaw - curYaw);
         float dPitch = pitch - curPitch;
 
-        // Overshoot mínimo
-        float overshoot = 0.02f + RANDOM.nextFloat() * 0.04f;
+        // Reduz overshoot ao mínimo
+        float overshoot = 0.02f + RANDOM.nextFloat() * 0.03f;
         dYaw += dYaw * overshoot;
         dPitch += dPitch * overshoot;
 
@@ -292,4 +295,4 @@ public class XbowCart {
     }
     public static void reset() { reset(Minecraft.getInstance(), true); }
     public static void toggle() { enabled = !enabled; if (!enabled) reset(); }
-        }
+                    }
