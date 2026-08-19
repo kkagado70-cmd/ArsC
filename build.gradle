@@ -7,6 +7,7 @@ repositories {
     mavenCentral()
     maven { url "https://maven.shedaniel.me/" }
     maven { url "https://maven.terraformersmc.com/releases/" }
+    maven { url "https://maven.fabricmc.net/" }
 }
 
 dependencies {
@@ -15,7 +16,7 @@ dependencies {
         officialMojangMappings()
     }
     modImplementation "net.fabricmc:fabric-loader:0.18.4"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:0.112.0+1.21.11"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.95.0+1.21.11"
 }
 
 java {
