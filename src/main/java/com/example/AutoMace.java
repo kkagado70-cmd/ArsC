@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class AutoMace {
     public enum State { IDLE, TARGETING, APPROACHING, PRE_SMASH, SMASH_ATTACK, POST_SMASH }
-    public enum Mode { STEALTH, FAST, STREAMER } // FAST = rápida mas indetectável
+    public enum Mode { STEALTH, FAST, STREAMER }
 
     public static boolean enabled = false;
     public static Mode currentMode = Mode.FAST;
@@ -104,7 +104,7 @@ public class AutoMace {
 
         if (isFalling) {
             state = State.PRE_SMASH;
-            applyFastAim(client, activeTarget); // mira rápida
+            applyFastAim(client, activeTarget);
 
             double hitDist = calculateHitDistance(client);
             if (client.player.distanceTo(activeTarget) <= hitDist) {
@@ -181,7 +181,6 @@ public class AutoMace {
         Vec3 eyePos = client.player.getEyePosition();
         Vec3 predictedPos = predictTargetPosition(target);
 
-        // Ponto de mira com variação rápida (mas não perfeita)
         double heightOffset = 0.3 + RANDOM.nextDouble() * 0.4;
         double jX = (RANDOM.nextGaussian()) * 0.04;
         double jY = (RANDOM.nextGaussian()) * 0.035;
@@ -210,23 +209,19 @@ public class AutoMace {
             smoothPitch = client.player.getXRot();
         }
 
-        // Velocidade de mira: alta em modo FAST, menor em STREAMER
         float speedFactor = (currentMode == Mode.FAST) ? 1.0f : 0.6f;
         if (streamerMode) speedFactor = 0.5f;
 
-        // Overshoot (passar do alvo e voltar)
         float overshootAmount = 0.12f + RANDOM.nextFloat() * 0.08f;
         float overshootYaw = (rawYaw - smoothYaw) * overshootAmount * speedFactor;
         float overshootPitch = (rawPitch - smoothPitch) * overshootAmount * speedFactor;
 
-        // Suavização com atenção rápida
         float attention = 0.7f + (float)(1.0 / (dist + 0.5)) * 0.25f;
         if (state == State.SMASH_ATTACK) attention += 0.1f;
 
         float yawDiff = wrapAngle(rawYaw - smoothYaw);
         float pitchDiff = rawPitch - smoothPitch;
 
-        // Limite de velocidade angular (mais alto em modo FAST)
         float maxTurn = (currentMode == Mode.FAST) ? 8.0f + RANDOM.nextFloat() * 4.0f : 5.0f + RANDOM.nextFloat() * 2.0f;
         if (streamerMode) maxTurn *= 0.7f;
         if (pingSimulationTicks > 0) maxTurn *= 0.8f;
@@ -234,18 +229,15 @@ public class AutoMace {
         yawDiff = Math.max(-maxTurn, Math.min(maxTurn, yawDiff * attention));
         pitchDiff = Math.max(-maxTurn * 0.65f, Math.min(maxTurn * 0.65f, pitchDiff * attention));
 
-        // Aplica overshoot
         yawDiff += overshootYaw * 0.5f;
         pitchDiff += overshootPitch * 0.5f;
 
-        // Ruído térmico
         float noiseYaw = (RANDOM.nextFloat() - 0.5f) * 0.12f;
         float noisePitch = (RANDOM.nextFloat() - 0.5f) * 0.08f;
 
         float finalYaw = smoothYaw + yawDiff + noiseYaw;
         float finalPitch = Math.max(-90.0f, Math.min(90.0f, smoothPitch + pitchDiff + noisePitch));
 
-        // GCD (respeita o snapping do jogo)
         Options opt = client.options;
         double sens = opt.sensitivity().get() * 0.6 + 0.2;
         double gcd = Math.pow(sens, 1.2);
@@ -281,11 +273,11 @@ public class AutoMace {
         long elapsed = now - lastClickTime;
         int cps;
         if (currentMode == Mode.FAST) {
-            cps = 10 + RANDOM.nextInt(6); // 10-16 CPS (rápido)
+            cps = 10 + RANDOM.nextInt(6);
         } else if (streamerMode) {
-            cps = 8 + RANDOM.nextInt(4);  // 8-12 CPS
+            cps = 8 + RANDOM.nextInt(4);
         } else {
-            cps = 9 + RANDOM.nextInt(5);  // 9-14 CPS
+            cps = 9 + RANDOM.nextInt(5);
         }
         int delayMs = 1000 / cps;
         double jitter = 0.85 + RANDOM.nextDouble() * 0.3;
@@ -463,4 +455,16 @@ public class AutoMace {
                 client.player.getInventory().setSelectedSlot(originalSlot);
             }
         }
-        originalSlot = -1; isSwapped = false; state = State.ID
+        originalSlot = -1; isSwapped = false; state = State.IDLE;
+        if (Float.isNaN(smoothYaw)) {
+            smoothYaw = client.player != null ? client.player.getYRot() : 0;
+            smoothPitch = client.player != null ? client.player.getXRot() : 0;
+        }
+        attackCooldownTicks = 0; pingSimulationTicks = 0;
+        isHesitating = false; hesitationTicks = 0;
+        clickDelayTicks = 0;
+    }
+
+    private static void updateHeuristics(Minecraft client) {
+        if (totalTicks % 100 == 0 && successfulSmash > 0) {
+      
