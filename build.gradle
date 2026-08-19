@@ -1,5 +1,5 @@
 plugins {
-    id 'fabric-loom' version '1.10.0'
+    id 'fabric-loom' version '1.8.11'
     id 'maven-publish'
 }
 
@@ -27,12 +27,10 @@ tasks.withType(JavaCompile).configureEach {
     it.options.release = 21
 }
 
-// Se você quiser gerar um JAR com fontes (opcional)
 java {
     withSourcesJar()
 }
 
-// Para publicar o mod (opcional)
 publishing {
     publications {
         create("mavenJava", MavenPublication) {
