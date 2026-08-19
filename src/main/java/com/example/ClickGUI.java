@@ -35,7 +35,6 @@ public class ClickGUI extends Screen {
         int cy = this.height / 2;
         int bw = 140, bh = 20;
 
-        // AutoMace
         this.addRenderableWidget(Button.builder(
                 Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")),
                 btn -> {
@@ -44,7 +43,6 @@ public class ClickGUI extends Screen {
                 }
         ).bounds(cx - bw/2, cy - 30, bw, bh).build());
 
-        // XbowCart
         this.addRenderableWidget(Button.builder(
                 Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")),
                 btn -> {
@@ -53,7 +51,6 @@ public class ClickGUI extends Screen {
                 }
         ).bounds(cx - bw/2, cy + 10, bw, bh).build());
 
-        // Fechar
         this.addRenderableWidget(Button.builder(
                 Component.literal("Fechar"),
                 btn -> this.onClose()
