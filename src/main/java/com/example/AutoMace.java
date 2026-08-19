@@ -25,7 +25,7 @@ public class AutoMace {
     public enum Mode { STEALTH, FAST, STREAMER }
 
     public static boolean enabled = false;
-    public static Mode currentMode = Mode.FAST;
+    public static Mode currentMode = Mode.STEALTH;
     public static boolean streamerMode = false;
 
     private static State state = State.IDLE;
@@ -48,13 +48,11 @@ public class AutoMace {
     private static int pingSimulationTicks = 0;
     private static int attackCooldownTicks = 0;
     private static boolean isHesitating = false;
-
     private static int clickDelayTicks = 0;
     private static long lastClickTime = 0;
 
     private static final Map<LivingEntity, Vec3> targetVelocities = new HashMap<>();
     private static final Map<LivingEntity, Long> lastVelocityUpdate = new HashMap<>();
-
     private static int totalTicks = 0;
     private static int successfulSmash = 0;
     private static int missedSmash = 0;
@@ -75,7 +73,7 @@ public class AutoMace {
 
         if (targetLockTicks <= 0 || activeTarget == null || !activeTarget.isAlive()) {
             activeTarget = findOptimalTarget(client);
-            targetLockTicks = 5 + RANDOM.nextInt(10);
+            targetLockTicks = 6 + RANDOM.nextInt(10);
         } else {
             targetLockTicks--;
         }
@@ -86,10 +84,10 @@ public class AutoMace {
 
         updateTargetVelocity(client, activeTarget);
 
-        int hesitChance = (currentMode == Mode.FAST) ? 1 : (streamerMode ? 5 : 2);
+        int hesitChance = (currentMode == Mode.FAST) ? 2 : (streamerMode ? 6 : 3);
         if (RANDOM.nextInt(100) < hesitChance && !isHesitating && state == State.IDLE) {
             isHesitating = true;
-            hesitationTicks = 2 + RANDOM.nextInt(4);
+            hesitationTicks = 2 + RANDOM.nextInt(5);
             return;
         }
 
@@ -99,7 +97,7 @@ public class AutoMace {
 
         if (isFalling) {
             state = State.PRE_SMASH;
-            applyFastAim(client, activeTarget);
+            applySafeAim(client, activeTarget);
 
             double hitDist = calculateHitDistance(client);
             if (client.player.distanceTo(activeTarget) <= hitDist) {
@@ -126,11 +124,12 @@ public class AutoMace {
                     int axeSlot = findAxeSlot(client);
                     if (axeSlot != -1) {
                         if (originalSlot == -1) originalSlot = client.player.getInventory().getSelectedSlot();
+                        if (delayTicks == 0) { delayTicks = 2 + RANDOM.nextInt(3); return; }
                         client.player.getInventory().setSelectedSlot(axeSlot);
+                        delayTicks = 1 + RANDOM.nextInt(2);
                         performAttack(client);
                         isSwapped = true;
                         state = State.SMASH_ATTACK;
-                        delayTicks = 2 + RANDOM.nextInt(4);
                         lastActionTime = System.currentTimeMillis();
                         successfulSmash++;
                         return;
@@ -142,16 +141,18 @@ public class AutoMace {
                     int maceSlot = findBestMaceSlot(client, preferDensity);
                     if (maceSlot != -1) {
                         if (originalSlot == -1) originalSlot = client.player.getInventory().getSelectedSlot();
+                        if (delayTicks == 0) { delayTicks = 2 + RANDOM.nextInt(3); return; }
                         client.player.getInventory().setSelectedSlot(maceSlot);
                         isSwapped = true;
                     }
+                    if (delayTicks == 0) { delayTicks = 1 + RANDOM.nextInt(2); return; }
                     performAttack(client);
                     lastActionTime = System.currentTimeMillis();
                     state = State.POST_SMASH;
                     attackCooldownTicks = 2 + RANDOM.nextInt(3);
-                    pingSimulationTicks = 1 + RANDOM.nextInt(2);
+                    pingSimulationTicks = 1 + RANDOM.nextInt(3);
                     delayTicks = 4 + RANDOM.nextInt(8);
-                    hesitationTicks = 2 + RANDOM.nextInt(4);
+                    hesitationTicks = 2 + RANDOM.nextInt(5);
                     resetState(client);
                     successfulSmash++;
                 }
@@ -169,18 +170,19 @@ public class AutoMace {
         updateHeuristics(client);
     }
 
-    private static void applyFastAim(Minecraft client, LivingEntity target) {
+    // ============================================================
+    // MIRA SEGURA (sem 360, sem flicks)
+    // ============================================================
+    private static void applySafeAim(Minecraft client, LivingEntity target) {
         Vec3 eyePos = client.player.getEyePosition();
         Vec3 predictedPos = predictTargetPosition(target);
 
         double heightOffset = 0.3 + RANDOM.nextDouble() * 0.4;
-        double jX = (RANDOM.nextGaussian()) * 0.04;
-        double jY = (RANDOM.nextGaussian()) * 0.035;
-        double jZ = (RANDOM.nextGaussian()) * 0.04;
+        double jX = (RANDOM.nextGaussian()) * 0.06;
+        double jY = (RANDOM.nextGaussian()) * 0.055;
+        double jZ = (RANDOM.nextGaussian()) * 0.06;
 
-        if (streamerMode) {
-            jX *= 1.5; jY *= 1.5; jZ *= 1.5;
-        }
+        if (streamerMode) { jX *= 1.3; jY *= 1.3; jZ *= 1.3; }
 
         Vec3 targetPoint = new Vec3(
             predictedPos.x + jX,
@@ -201,35 +203,33 @@ public class AutoMace {
             smoothPitch = client.player.getXRot();
         }
 
-        float speedFactor = (currentMode == Mode.FAST) ? 1.0f : 0.6f;
-        if (streamerMode) speedFactor = 0.5f;
+        // Cálculo da diferença de ângulo COM CORREÇÃO
+        float yawDiff = rawYaw - smoothYaw;
+        // Normaliza para -180..180
+        while (yawDiff > 180) yawDiff -= 360;
+        while (yawDiff < -180) yawDiff += 360;
 
-        float overshootAmount = 0.12f + RANDOM.nextFloat() * 0.08f;
-        float overshootYaw = (rawYaw - smoothYaw) * overshootAmount * speedFactor;
-        float overshootPitch = (rawPitch - smoothPitch) * overshootAmount * speedFactor;
-
-        float attention = 0.7f + (float)(1.0 / (dist + 0.5)) * 0.25f;
-        if (state == State.SMASH_ATTACK) attention += 0.1f;
-
-        float yawDiff = wrapAngle(rawYaw - smoothYaw);
         float pitchDiff = rawPitch - smoothPitch;
+        while (pitchDiff > 180) pitchDiff -= 360;
+        while (pitchDiff < -180) pitchDiff += 360;
 
-        float maxTurn = (currentMode == Mode.FAST) ? 8.0f + RANDOM.nextFloat() * 4.0f : 5.0f + RANDOM.nextFloat() * 2.0f;
-        if (streamerMode) maxTurn *= 0.7f;
+        // Velocidade angular segura (máximo 4 graus/tick)
+        float maxTurn = 4.0f;
+        if (currentMode == Mode.FAST) maxTurn = 5.0f;
+        if (streamerMode) maxTurn = 3.0f;
         if (pingSimulationTicks > 0) maxTurn *= 0.8f;
 
-        yawDiff = Math.max(-maxTurn, Math.min(maxTurn, yawDiff * attention));
-        pitchDiff = Math.max(-maxTurn * 0.65f, Math.min(maxTurn * 0.65f, pitchDiff * attention));
+        float stepYaw = Math.max(-maxTurn, Math.min(maxTurn, yawDiff * 0.6f));
+        float stepPitch = Math.max(-maxTurn * 0.6f, Math.min(maxTurn * 0.6f, pitchDiff * 0.6f));
 
-        yawDiff += overshootYaw * 0.5f;
-        pitchDiff += overshootPitch * 0.5f;
+        // Ruído suave
+        float noiseYaw = (RANDOM.nextFloat() - 0.5f) * 0.15f;
+        float noisePitch = (RANDOM.nextFloat() - 0.5f) * 0.1f;
 
-        float noiseYaw = (RANDOM.nextFloat() - 0.5f) * 0.12f;
-        float noisePitch = (RANDOM.nextFloat() - 0.5f) * 0.08f;
+        float finalYaw = smoothYaw + stepYaw + noiseYaw;
+        float finalPitch = Math.max(-90.0f, Math.min(90.0f, smoothPitch + stepPitch + noisePitch));
 
-        float finalYaw = smoothYaw + yawDiff + noiseYaw;
-        float finalPitch = Math.max(-90.0f, Math.min(90.0f, smoothPitch + pitchDiff + noisePitch));
-
+        // GCD
         Options opt = client.options;
         double sens = opt.sensitivity().get() * 0.6 + 0.2;
         double gcd = Math.pow(sens, 1.2);
@@ -238,7 +238,7 @@ public class AutoMace {
         float dYaw = finalYaw - client.player.getYRot();
         float dPitch = finalPitch - client.player.getXRot();
 
-        if (Math.abs(dYaw) > 0.015 || Math.abs(dPitch) > 0.015) {
+        if (Math.abs(dYaw) > 0.02 || Math.abs(dPitch) > 0.02) {
             dYaw = (float) (Math.round(dYaw / gcd) * gcd);
             dPitch = (float) (Math.round(dPitch / gcd) * gcd);
         }
@@ -248,28 +248,24 @@ public class AutoMace {
 
         client.player.setYRot(smoothYaw);
         client.player.setXRot(smoothPitch);
-        client.player.yRotO = smoothYaw - (RANDOM.nextFloat() - 0.5f) * 0.5f;
-        client.player.xRotO = smoothPitch - (RANDOM.nextFloat() - 0.5f) * 0.35f;
+        client.player.yRotO = smoothYaw - (RANDOM.nextFloat() - 0.5f) * 0.4f;
+        client.player.xRotO = smoothPitch - (RANDOM.nextFloat() - 0.5f) * 0.3f;
         client.player.yHeadRot = smoothYaw;
         client.player.yHeadRotO = smoothYaw;
 
         updateHistory(smoothYaw, smoothPitch);
     }
 
+    // ============================================================
+    // CLICKSIM
+    // ============================================================
     private static boolean canClick() {
         long now = System.currentTimeMillis();
         if (lastClickTime == 0) { lastClickTime = now; return true; }
         long elapsed = now - lastClickTime;
-        int cps;
-        if (currentMode == Mode.FAST) {
-            cps = 10 + RANDOM.nextInt(6);
-        } else if (streamerMode) {
-            cps = 8 + RANDOM.nextInt(4);
-        } else {
-            cps = 9 + RANDOM.nextInt(5);
-        }
+        int cps = (currentMode == Mode.FAST) ? 8 + RANDOM.nextInt(6) : 8 + RANDOM.nextInt(5);
         int delayMs = 1000 / cps;
-        double jitter = 0.85 + RANDOM.nextDouble() * 0.3;
+        double jitter = 0.80 + RANDOM.nextDouble() * 0.35;
         int finalDelay = (int)(delayMs * jitter);
         if (elapsed >= finalDelay) {
             lastClickTime = now;
@@ -281,41 +277,38 @@ public class AutoMace {
     private static void performAttack(Minecraft client) {
         client.gameMode.attack(client.player, activeTarget);
         client.player.swing(InteractionHand.MAIN_HAND);
-        int cps = (currentMode == Mode.FAST) ? 12 + RANDOM.nextInt(6) : 9 + RANDOM.nextInt(5);
+        int cps = (currentMode == Mode.FAST) ? 10 + RANDOM.nextInt(6) : 8 + RANDOM.nextInt(5);
         int delayMs = 1000 / cps;
-        double jitter = 0.85 + RANDOM.nextDouble() * 0.3;
+        double jitter = 0.80 + RANDOM.nextDouble() * 0.35;
         clickDelayTicks = (int)((delayMs * jitter) / 50);
         if (clickDelayTicks < 1) clickDelayTicks = 1;
     }
 
+    // ============================================================
+    // HEURÍSTICAS
+    // ============================================================
     private static float calculateFallThreshold(Minecraft client) {
         float base = 2.8f;
-        float var = 0f;
-        if (currentMode == Mode.FAST) var = 0.1f + RANDOM.nextFloat() * 0.2f;
-        else if (streamerMode) var = 0.5f + RANDOM.nextFloat() * 0.5f;
-        else var = 0.3f + RANDOM.nextFloat() * 0.4f;
+        float var = 0.2f + RANDOM.nextFloat() * 0.3f;
+        if (streamerMode) var += 0.3f;
         if (pingSimulationTicks > 0) var += 0.2f;
         return base + var;
     }
 
     private static double calculateHitDistance(Minecraft client) {
         double base = 2.85;
-        double var = 0f;
-        if (currentMode == Mode.FAST) var = 0.05 + RANDOM.nextDouble() * 0.1;
-        else if (streamerMode) var = 0.2 + RANDOM.nextDouble() * 0.3;
-        else var = 0.1 + RANDOM.nextDouble() * 0.2;
+        double var = 0.1 + RANDOM.nextDouble() * 0.15;
         if (activeTarget != null && isTargetMoving()) var += 0.1;
         return base + var;
     }
 
     private static int calculateMissRate(Minecraft client) {
-        int base = (currentMode == Mode.FAST) ? 1 : 2;
+        int base = (currentMode == Mode.FAST) ? 2 : 3;
         int add = 0;
-        if (streamerMode) add += 4;
+        if (streamerMode) add += 5;
         if (activeTarget != null && isTargetMovingFast()) add += 2;
         if (state == State.SMASH_ATTACK) add -= 1;
-        if (successfulSmash > 10) add += (successfulSmash / 15);
-        add = Math.min(add, 12);
+        add = Math.min(add, 10);
         return base + add;
     }
 
@@ -334,8 +327,8 @@ public class AutoMace {
     private static Vec3 predictTargetPosition(LivingEntity target) {
         Vec3 pos = target.position();
         Vec3 vel = targetVelocities.getOrDefault(target, Vec3.ZERO);
-        double predFactor = 0.08 + RANDOM.nextDouble() * 0.12;
-        if (vel.length() > 0.5) predFactor += 0.05;
+        double predFactor = 0.06 + RANDOM.nextDouble() * 0.1;
+        if (vel.length() > 0.5) predFactor += 0.03;
         return pos.add(vel.scale(predFactor));
     }
 
@@ -352,15 +345,14 @@ public class AutoMace {
     }
 
     private static void applyMissAim(Minecraft client) {
-        float missYaw = (RANDOM.nextFloat() - 0.5f) * 25f;
-        float missPitch = (RANDOM.nextFloat() - 0.5f) * 12f;
-        if (streamerMode) { missYaw *= 1.3f; missPitch *= 1.3f; }
+        float missYaw = (RANDOM.nextFloat() - 0.5f) * 20f;
+        float missPitch = (RANDOM.nextFloat() - 0.5f) * 10f;
         client.player.setYRot(client.player.getYRot() + missYaw);
         client.player.setXRot(client.player.getXRot() + missPitch);
     }
 
     private static LivingEntity findOptimalTarget(Minecraft client) {
-        AABB box = client.player.getBoundingBox().inflate(7.0, 400, 7.0);
+        AABB box = client.player.getBoundingBox().inflate(6.5, 350, 6.5);
         List<LivingEntity> entities = client.level.getEntitiesOfClass(LivingEntity.class, box, e ->
             e != client.player && e.isAlive() && !e.isDeadOrDying()
             && client.player.getY() > e.getY() + 0.3 && !e.isInvisible() && e.getHealth() > 0
@@ -376,11 +368,11 @@ public class AutoMace {
         score += (20 - target.getHealth()) * 2;
         score -= client.player.distanceToSqr(target) * 0.05;
         Vec3 vel = targetVelocities.getOrDefault(target, Vec3.ZERO);
-        if (vel.length() > 0.2) score += 5;
-        if (target instanceof Player) score += 20;
+        if (vel.length() > 0.2) score += 3;
+        if (target instanceof Player) score += 15;
         if (target instanceof Player && ((Player) target).isUsingItem()
-            && ((Player) target).getUseItem().getItem() instanceof ShieldItem) score += 15;
-        if (activeTarget == target && state != State.IDLE) score -= 5;
+            && ((Player) target).getUseItem().getItem() instanceof ShieldItem) score += 10;
+        if (activeTarget == target && state != State.IDLE) score -= 3;
         return score;
     }
 
@@ -431,7 +423,7 @@ public class AutoMace {
 
     private static void resetState(Minecraft client) {
         if (isSwapped && originalSlot != -1 && client.player != null) {
-            if (System.currentTimeMillis() - lastActionTime > 150) {
+            if (System.currentTimeMillis() - lastActionTime > 200) {
                 client.player.getInventory().setSelectedSlot(originalSlot);
             }
         }
@@ -447,7 +439,7 @@ public class AutoMace {
 
     private static void updateHeuristics(Minecraft client) {
         if (totalTicks % 100 == 0 && successfulSmash > 0) {
-            if (successfulSmash > 100) { successfulSmash = 0; missedSmash = 0; }
+            if (successfulSmash > 50) { successfulSmash = 0; missedSmash = 0; }
         }
     }
 
@@ -459,8 +451,8 @@ public class AutoMace {
     public static void toggleStreamer() {
         streamerMode = !streamerMode;
         if (streamerMode) currentMode = Mode.STREAMER;
-        else currentMode = Mode.FAST;
+        else currentMode = Mode.STEALTH;
     }
     public static void reset() { resetState(Minecraft.getInstance()); }
     public static void toggle() { enabled = !enabled; if (!enabled) reset(); }
-}
+    }
