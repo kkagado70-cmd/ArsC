@@ -23,7 +23,7 @@ public class XbowCart {
     private static float targetYaw = 0.0f, targetPitch = 0.0f;
     private static int originalSlot = -1;
     private static final Random RANDOM = new Random();
-    private static float originalYaw = 0.0f, originalPitch = 0.0f;
+    // NÃO guardamos mais a câmera original
 
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null || client.gameMode == null) {
@@ -108,8 +108,7 @@ public class XbowCart {
             return;
         }
         originalSlot = client.player.getInventory().getSelectedSlot();
-        originalYaw = client.player.getYRot();
-        originalPitch = client.player.getXRot();
+        // NÃO salvamos a câmera original
         targetBlockHit = hit;
         stage = Stage.PLACE_RAIL;
         tickTimer = 1 + RANDOM.nextInt(2);
@@ -165,6 +164,10 @@ public class XbowCart {
                     client.player.getInventory().setSelectedSlot(flint);
                     client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, fireHit);
                     client.player.swing(InteractionHand.MAIN_HAND);
+                } else {
+                    // Se não tiver flint, reseta
+                    reset(client, true);
+                    return;
                 }
                 computeAim(client, railPos);
                 stage = Stage.AIM;
@@ -206,6 +209,7 @@ public class XbowCart {
         double dist = Math.sqrt(dx * dx + dz * dz);
         targetYaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90.0f;
         targetPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
+        // Jitter humano
         targetYaw += (RANDOM.nextFloat() - 0.5f) * 0.5f;
         targetPitch += (RANDOM.nextFloat() - 0.5f) * 0.3f;
     }
@@ -234,12 +238,7 @@ public class XbowCart {
     private static void reset(Minecraft client, boolean restore) {
         if (restore && originalSlot != -1 && client.player != null) {
             client.player.getInventory().setSelectedSlot(originalSlot);
-            client.player.setYRot(originalYaw);
-            client.player.setXRot(originalPitch);
-            client.player.yRotO = originalYaw;
-            client.player.xRotO = originalPitch;
-            client.player.yHeadRot = originalYaw;
-            client.player.yHeadRotO = originalYaw;
+            // NÃO restauramos a câmera – mantemos a mira no alvo
         }
         stage = Stage.IDLE;
         targetBlockHit = null;
@@ -247,4 +246,4 @@ public class XbowCart {
         originalSlot = -1;
         triggered = false;
     }
-                               }
+}
