@@ -233,7 +233,7 @@ public class XbowCart {
         float curPitch = client.player.getXRot();
         float maxStep;
         if (currentMode == Mode.FAST) {
-            maxStep = 60.0f + RANDOM.nextFloat() * 20.0f; // rápido
+            maxStep = 60.0f + RANDOM.nextFloat() * 20.0f;
         } else if (streamerMode) {
             maxStep = 30.0f + RANDOM.nextFloat() * 10.0f;
         } else {
@@ -241,7 +241,6 @@ public class XbowCart {
         }
         float dYaw = wrapAngle(yaw - curYaw);
         float dPitch = pitch - curPitch;
-        // Overshoot rápido (passa do alvo e volta)
         float overshoot = 0.05f + RANDOM.nextFloat() * 0.1f;
         float overshootYaw = dYaw * overshoot;
         float overshootPitch = dPitch * overshoot;
