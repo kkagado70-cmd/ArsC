@@ -1,26 +1,33 @@
-package com.scale.preciseguiscale;
+package com.example;
 
-import com.example.client.AutoMace;
-import com.example.client.XbowCart;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import org.lwjgl.glfw.GLFW;
 
 public class PreciseGuiScaleClient implements ClientModInitializer {
+    private static KeyMapping openGuiKey;
 
     @Override
     public void onInitializeClient() {
-        // Registra os keybinds
-        KeyBindings.register();
+        openGuiKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.preciseguiscale.open_gui",
+                KeyMapping.Type.KEYSYM,
+                GLFW.GLFW_KEY_RIGHT_SHIFT,
+                "key.categories.misc"
+        ));
 
-        // Tick handler para os mods
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (client.player == null) return;
-
-            if (AutoMace.enabled) {
-                AutoMace.onTick(client);
+            if (openGuiKey.consumeClick()) {
+                if (ClickGUI.isOpen()) ClickGUI.close();
+                else ClickGUI.open();
             }
-            if (XbowCart.enabled) {
-                XbowCart.onTick(client);
+
+            if (client.player != null) {
+                if (AutoMace.enabled) AutoMace.onTick(client);
+                if (XbowCart.enabled) XbowCart.onTick(client);
             }
         });
     }
