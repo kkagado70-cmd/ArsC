@@ -10,28 +10,24 @@ public class PreciseGuiScaleClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        // Registra o keybind
         openGuiKey = new KeyMapping(
                 "key.preciseguiscale.open_gui",
                 GLFW.GLFW_KEY_RIGHT_SHIFT,
                 "key.categories.misc"
         );
 
-        // Thread de tick (20 ticks por segundo)
         Thread tickThread = new Thread(() -> {
             while (true) {
                 try {
-                    Thread.sleep(50); // 20 TPS
+                    Thread.sleep(50);
                     Minecraft client = Minecraft.getInstance();
                     if (client.player == null) continue;
 
-                    // Processa keybind
                     if (openGuiKey.consumeClick()) {
                         if (ClickGUI.isOpen()) ClickGUI.close();
                         else ClickGUI.open();
                     }
 
-                    // Processa os mods
                     if (AutoMace.enabled) AutoMace.onTick(client);
                     if (XbowCart.enabled) XbowCart.onTick(client);
 
