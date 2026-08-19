@@ -1,5 +1,5 @@
 plugins {
-    id 'fabric-loom' version '1.8.11'
+    id 'fabric-loom' version '1.14-SNAPSHOT'
     id 'maven-publish'
 }
 
@@ -17,7 +17,7 @@ dependencies {
         officialMojangMappings()
     }
     modImplementation "net.fabricmc:fabric-loader:0.18.4"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:+"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.139.5+1.21.11"
 }
 
 java {
