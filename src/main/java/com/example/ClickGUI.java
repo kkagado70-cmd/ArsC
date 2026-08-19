@@ -1,33 +1,70 @@
 package com.example;
 
-import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
-import org.lwjgl.glfw.GLFW;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
 
-public class PreciseGuiScaleClient implements ClientModInitializer {
-    private static KeyMapping openGuiKey;
+public class ClickGUI extends Screen {
+    private static ClickGUI instance;
+
+    public ClickGUI() {
+        super(Component.literal("Config"));
+        instance = this;
+    }
+
+    public static void open() {
+        Minecraft.getInstance().setScreen(new ClickGUI());
+    }
+
+    public static void close() {
+        if (Minecraft.getInstance().screen instanceof ClickGUI) {
+            Minecraft.getInstance().screen.onClose();
+        }
+    }
+
+    public static boolean isOpen() {
+        return Minecraft.getInstance().screen instanceof ClickGUI;
+    }
 
     @Override
-    public void onInitializeClient() {
-        openGuiKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.preciseguiscale.open_gui",
-                GLFW.GLFW_KEY_RIGHT_SHIFT,
-                "key.categories.misc"
-        ));
+    protected void init() {
+        super.init();
+        int cx = this.width / 2;
+        int cy = this.height / 2;
+        int bw = 140, bh = 20;
 
-        ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (openGuiKey.consumeClick()) {
-                if (ClickGUI.isOpen()) ClickGUI.close();
-                else ClickGUI.open();
-            }
+        this.addRenderableWidget(Button.builder(
+                Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")),
+                btn -> {
+                    AutoMace.enabled = !AutoMace.enabled;
+                    btn.setMessage(Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")));
+                }
+        ).bounds(cx - bw/2, cy - 30, bw, bh).build());
 
-            if (client.player != null) {
-                if (AutoMace.enabled) AutoMace.onTick(client);
-                if (XbowCart.enabled) XbowCart.onTick(client);
-            }
-        });
+        this.addRenderableWidget(Button.builder(
+                Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")),
+                btn -> {
+                    XbowCart.enabled = !XbowCart.enabled;
+                    btn.setMessage(Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")));
+                }
+        ).bounds(cx - bw/2, cy + 10, bw, bh).build());
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal("Fechar"),
+                btn -> this.onClose()
+        ).bounds(cx - 40, cy + 50, 80, 20).build());
+    }
+
+    @Override
+    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+        this.renderBackground(context, mouseX, mouseY, delta);
+        super.render(context, mouseX, mouseY, delta);
+    }
+
+    @Override
+    public boolean isPauseScreen() {
+        return false;
     }
 }
