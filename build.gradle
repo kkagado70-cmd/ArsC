@@ -3,6 +3,17 @@ plugins {
     id 'maven-publish'
 }
 
+sourceSets {
+    main {
+        java {
+            srcDir 'src/main/java'
+        }
+        resources {
+            srcDir 'src/main/resources'
+        }
+    }
+}
+
 repositories {
     mavenCentral()
 }
@@ -22,4 +33,12 @@ java {
 
 tasks.withType(JavaCompile).configureEach {
     it.options.release = 21
+}
+
+jar {
+    from sourceSets.main.output
+    manifest {
+        attributes 'Implementation-Title': project.name,
+                   'Implementation-Version': project.version
+    }
 }
