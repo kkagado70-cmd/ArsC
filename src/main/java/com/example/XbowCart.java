@@ -288,4 +288,4 @@ public class XbowCart {
     }
     public static void reset() { reset(Minecraft.getInstance(), true); }
     public static void toggle() { enabled = !enabled; if (!enabled) reset(); }
-            }
+                }
