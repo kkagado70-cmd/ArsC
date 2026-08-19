@@ -2,7 +2,8 @@ package com.example.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.Holder;
-import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -14,7 +15,11 @@ import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.AABB;
-import java.util.*;
+import net.minecraft.world.phys.Vec3;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.Random;
 
 public class AutoMace {
     public enum State { IDLE, SMASH_ATTACK }
@@ -142,8 +147,65 @@ public class AutoMace {
     }
 
     private static void applyAim(Minecraft client, LivingEntity target) {
-        // Aim logic with smooth GCD-based turning
-        // ... (código de aim, igual ao anterior, sem alterações conceituais)
+        Vec3 eyePos = client.player.getEyePosition();
+        double heightOffset = 0.3 + RANDOM.nextDouble() * 0.5;
+        double jitterX = (RANDOM.nextDouble() - 0.5) * 0.06;
+        double jitterY = (RANDOM.nextDouble() - 0.5) * 0.05;
+        double jitterZ = (RANDOM.nextDouble() - 0.5) * 0.06;
+
+        Vec3 targetPoint = new Vec3(
+                target.getX() + jitterX,
+                target.getY() + (target.getBbHeight() * heightOffset) + jitterY,
+                target.getZ() + jitterZ
+        );
+
+        double dx = targetPoint.x - eyePos.x;
+        double dy = targetPoint.y - eyePos.y;
+        double dz = targetPoint.z - eyePos.z;
+        double dist = Math.sqrt(dx * dx + dz * dz);
+
+        float targetYaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90.0f;
+        float targetPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
+
+        if (Float.isNaN(smoothYaw) || Float.isNaN(smoothPitch)) {
+            smoothYaw = client.player.getYRot();
+            smoothPitch = client.player.getXRot();
+        }
+
+        float attention = 0.6f + (float)(1.0 / (dist + 0.5)) * 0.3f;
+        float yawDiff = wrapAngle(targetYaw - smoothYaw);
+        float pitchDiff = targetPitch - smoothPitch;
+
+        float maxTurn = 5.0f + RANDOM.nextFloat() * 3.0f;
+        yawDiff = Math.max(-maxTurn, Math.min(maxTurn, yawDiff * attention));
+        pitchDiff = Math.max(-maxTurn * 0.6f, Math.min(maxTurn * 0.6f, pitchDiff * attention));
+
+        float noiseYaw = (RANDOM.nextFloat() - 0.5f) * 0.08f;
+        float noisePitch = (RANDOM.nextFloat() - 0.5f) * 0.06f;
+
+        float finalYaw = smoothYaw + yawDiff + noiseYaw;
+        float finalPitch = Math.max(-90.0f, Math.min(90.0f, smoothPitch + pitchDiff + noisePitch));
+
+        double sens = client.options.sensitivity().get() * 0.6 + 0.2;
+        double gcd = Math.pow(sens, 1.2);
+        gcd = Math.max(0.05, Math.min(0.4, gcd));
+
+        float deltaYaw = finalYaw - client.player.getYRot();
+        float deltaPitch = finalPitch - client.player.getXRot();
+
+        if (Math.abs(deltaYaw) > 0.01 || Math.abs(deltaPitch) > 0.01) {
+            deltaYaw = (float) (Math.round(deltaYaw / gcd) * gcd);
+            deltaPitch = (float) (Math.round(deltaPitch / gcd) * gcd);
+        }
+
+        smoothYaw = client.player.getYRot() + deltaYaw;
+        smoothPitch = client.player.getXRot() + deltaPitch;
+
+        client.player.setYRot(smoothYaw);
+        client.player.setXRot(smoothPitch);
+        client.player.yRotO = smoothYaw - (RANDOM.nextFloat() - 0.5f) * 0.5f;
+        client.player.xRotO = smoothPitch - (RANDOM.nextFloat() - 0.5f) * 0.3f;
+        client.player.yHeadRot = smoothYaw;
     }
 
     private static float wrapAngle(float angle) {
@@ -154,34 +216,45 @@ public class AutoMace {
     }
 
     private static int findAxeSlot(Minecraft client) {
+        int bestSlot = -1;
+        int bestLevel = -1;
+        RegistryAccess registryAccess = client.level.registryAccess();
         for (int i = 0; i < 9; i++) {
             ItemStack stack = client.player.getInventory().getItem(i);
             if (stack.getItem() instanceof AxeItem) {
-                return i;
+                int level = getEnchantmentLevel(registryAccess, Enchantments.SHARPNESS, stack);
+                if (level > bestLevel) {
+                    bestLevel = level;
+                    bestSlot = i;
+                }
             }
         }
-        return -1;
+        return bestSlot;
     }
 
     private static int findBestMaceSlot(Minecraft client, boolean preferDensity) {
         int bestSlot = -1;
         int maxLevel = -1;
+        RegistryAccess registryAccess = client.level.registryAccess();
+        var enchantKey = preferDensity ? Enchantments.DENSITY : Enchantments.BREACH;
+
         for (int i = 0; i < 9; i++) {
             ItemStack stack = client.player.getInventory().getItem(i);
             if (stack.isEmpty() || !stack.is(Items.MACE)) continue;
 
-            var enchantKey = preferDensity ? Enchantments.DENSITY : Enchantments.BREACH;
-            Holder<Enchantment> holder = BuiltInRegistries.ENCHANTMENT.getHolder(enchantKey).orElse(null);
-            int level = 0;
-            if (holder != null) {
-                level = EnchantmentHelper.getItemEnchantmentLevel(holder, stack);
-            }
+            int level = getEnchantmentLevel(registryAccess, enchantKey, stack);
             if (level > maxLevel) {
                 maxLevel = level;
                 bestSlot = i;
             }
         }
         return bestSlot;
+    }
+
+    private static int getEnchantmentLevel(RegistryAccess registryAccess, net.minecraft.resources.ResourceKey<Enchantment> enchantmentKey, ItemStack stack) {
+        Optional<Holder.Reference<Enchantment>> enchHolder =
+                registryAccess.registryOrThrow(Registries.ENCHANTMENT).getHolder(enchantmentKey);
+        return enchHolder.map(holder -> EnchantmentHelper.getItemEnchantmentLevel(holder, stack)).orElse(0);
     }
 
     private static void resetState(Minecraft client) {
@@ -198,4 +271,4 @@ public class AutoMace {
             smoothPitch = client.player != null ? client.player.getXRot() : 0;
         }
     }
-}
+            }
