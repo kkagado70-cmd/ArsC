@@ -13,7 +13,6 @@ dependencies {
         officialMojangMappings()
     }
     modImplementation "net.fabricmc:fabric-loader:0.18.4"
-    // sem Fabric API
 }
 
 java {
