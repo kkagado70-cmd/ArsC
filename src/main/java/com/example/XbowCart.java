@@ -14,8 +14,12 @@ import java.util.Random;
 
 public class XbowCart {
     public enum Stage { IDLE, PLACE_RAIL, PLACE_CART, LIGHT_FIRE, AIM, DISCHARGE, RESTORE }
+    public enum Mode { STEALTH, FAST, STREAMER }
 
     public static boolean enabled = false;
+    public static Mode currentMode = Mode.FAST;
+    public static boolean streamerMode = false;
+
     private static boolean triggered = false;
     private static Stage stage = Stage.IDLE;
     private static int tickTimer = 0;
@@ -23,7 +27,10 @@ public class XbowCart {
     private static float targetYaw = 0.0f, targetPitch = 0.0f;
     private static int originalSlot = -1;
     private static final Random RANDOM = new Random();
-    // NÃO guardamos mais a câmera original
+
+    private static int hesitationTicks = 0;
+    private static int pingSimulationTicks = 0;
+    private static boolean isHesitating = false;
 
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null || client.gameMode == null) {
@@ -31,13 +38,16 @@ public class XbowCart {
             return;
         }
 
-        // Ativação: olhando para o chão com um trilho na mão
+        if (pingSimulationTicks > 0) { pingSimulationTicks--; return; }
+        if (hesitationTicks > 0) { hesitationTicks--; return; }
+        if (isHesitating && hesitationTicks <= 0) isHesitating = false;
+
         if (stage == Stage.IDLE) {
             ItemStack mainHand = client.player.getMainHandItem();
-            boolean holdingRail = mainHand.is(Items.RAIL) || mainHand.is(Items.POWERED_RAIL) ||
-                    mainHand.is(Items.DETECTOR_RAIL) || mainHand.is(Items.ACTIVATOR_RAIL);
-            if (holdingRail && client.hitResult instanceof BlockHitResult hit &&
-                    hit.getType() == HitResult.Type.BLOCK && hit.getDirection() == Direction.UP) {
+            boolean holdingRail = mainHand.is(Items.RAIL) || mainHand.is(Items.POWERED_RAIL)
+                    || mainHand.is(Items.DETECTOR_RAIL) || mainHand.is(Items.ACTIVATOR_RAIL);
+            if (holdingRail && client.hitResult instanceof BlockHitResult hit
+                    && hit.getType() == HitResult.Type.BLOCK && hit.getDirection() == Direction.UP) {
                 if (client.player.getEyePosition().distanceTo(hit.getLocation()) <= 5.0) {
                     triggered = true;
                 }
@@ -56,8 +66,8 @@ public class XbowCart {
     }
 
     private static boolean isRail(ItemStack s) {
-        return s.is(Items.RAIL) || s.is(Items.POWERED_RAIL) ||
-                s.is(Items.DETECTOR_RAIL) || s.is(Items.ACTIVATOR_RAIL);
+        return s.is(Items.RAIL) || s.is(Items.POWERED_RAIL)
+                || s.is(Items.DETECTOR_RAIL) || s.is(Items.ACTIVATOR_RAIL);
     }
 
     private static int findItemSlot(Minecraft client, net.minecraft.world.item.Item item) {
@@ -93,65 +103,71 @@ public class XbowCart {
     }
 
     private static void initiateCombo(Minecraft client, BlockHitResult hit) {
-        int railSlot = findRailSlot(client);
-        int cartSlot = findItemSlot(client, Items.TNT_MINECART);
-        int flintSlot = findItemSlot(client, Items.FLINT_AND_STEEL);
-        int xbowSlot = findChargedCrossbow(client);
-        if (railSlot == -1 || cartSlot == -1 || flintSlot == -1) return;
-        if (xbowSlot == -1) {
-            int crossbowSlot = findCrossbow(client);
-            if (crossbowSlot != -1) {
-                client.player.getInventory().setSelectedSlot(crossbowSlot);
+        int rail = findRailSlot(client);
+        int cart = findItemSlot(client, Items.TNT_MINECART);
+        int flint = findItemSlot(client, Items.FLINT_AND_STEEL);
+        int xbow = findChargedCrossbow(client);
+        if (rail == -1 || cart == -1 || flint == -1) return;
+        if (xbow == -1) {
+            int cb = findCrossbow(client);
+            if (cb != -1) {
+                client.player.getInventory().setSelectedSlot(cb);
                 client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
                 return;
             }
             return;
         }
         originalSlot = client.player.getInventory().getSelectedSlot();
-        // NÃO salvamos a câmera original
         targetBlockHit = hit;
         stage = Stage.PLACE_RAIL;
         tickTimer = 1 + RANDOM.nextInt(2);
+
+        if (currentMode == Mode.STEALTH || streamerMode) {
+            if (RANDOM.nextInt(100) < 15) {
+                pingSimulationTicks = 2 + RANDOM.nextInt(4);
+            }
+        }
     }
 
     private static void processStateTransition(Minecraft client) {
         if (targetBlockHit == null) { reset(client, true); return; }
 
-        BlockPos groundPos = targetBlockHit.getBlockPos();
-        Direction clickedFace = targetBlockHit.getDirection();
-        BlockPos railPos = groundPos.relative(clickedFace);
-        BlockPos firePos = railPos.above(); // fogo em cima do trilho
+        BlockPos ground = targetBlockHit.getBlockPos();
+        Direction face = targetBlockHit.getDirection();
+        BlockPos railPos = ground.relative(face);
+        BlockPos firePos = railPos.above();
 
         BlockHitResult railHit = new BlockHitResult(
                 new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.5, railPos.getZ() + 0.5),
-                Direction.UP, railPos, false
-        );
+                Direction.UP, railPos, false);
         BlockHitResult cartHit = new BlockHitResult(
                 new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.05, railPos.getZ() + 0.5),
-                Direction.UP, railPos, false
-        );
+                Direction.UP, railPos, false);
         BlockHitResult fireHit = new BlockHitResult(
                 new Vec3(firePos.getX() + 0.5, firePos.getY() + 0.5, firePos.getZ() + 0.5),
-                Direction.UP, firePos, false
-        );
+                Direction.UP, firePos, false);
 
         int delay = 1 + RANDOM.nextInt(2);
 
         switch (stage) {
             case PLACE_RAIL -> {
-                int rail = findRailSlot(client);
-                if (rail != -1) {
-                    client.player.getInventory().setSelectedSlot(rail);
+                int r = findRailSlot(client);
+                if (r != -1) {
+                    client.player.getInventory().setSelectedSlot(r);
                     client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, railHit);
                     client.player.swing(InteractionHand.MAIN_HAND);
                 }
                 stage = Stage.PLACE_CART;
                 tickTimer = delay + RANDOM.nextInt(2);
+                if (streamerMode && RANDOM.nextInt(100) < 15) {
+                    hesitationTicks = 2 + RANDOM.nextInt(4);
+                    isHesitating = true;
+                }
             }
             case PLACE_CART -> {
-                int cart = findItemSlot(client, Items.TNT_MINECART);
-                if (cart != -1) {
-                    client.player.getInventory().setSelectedSlot(cart);
+                int c = findItemSlot(client, Items.TNT_MINECART);
+                if (c != -1) {
+                    client.player.getInventory().setSelectedSlot(c);
                     client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, cartHit);
                     client.player.swing(InteractionHand.MAIN_HAND);
                 }
@@ -159,13 +175,12 @@ public class XbowCart {
                 tickTimer = delay + RANDOM.nextInt(2);
             }
             case LIGHT_FIRE -> {
-                int flint = findItemSlot(client, Items.FLINT_AND_STEEL);
-                if (flint != -1) {
-                    client.player.getInventory().setSelectedSlot(flint);
+                int f = findItemSlot(client, Items.FLINT_AND_STEEL);
+                if (f != -1) {
+                    client.player.getInventory().setSelectedSlot(f);
                     client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, fireHit);
                     client.player.swing(InteractionHand.MAIN_HAND);
                 } else {
-                    // Se não tiver flint, reseta
                     reset(client, true);
                     return;
                 }
@@ -174,16 +189,16 @@ public class XbowCart {
                 tickTimer = 1;
             }
             case AIM -> {
-                int xbow = findChargedCrossbow(client);
-                if (xbow != -1) {
-                    client.player.getInventory().setSelectedSlot(xbow);
-                    applySmoothAim(client, targetYaw, targetPitch);
+                int x = findChargedCrossbow(client);
+                if (x != -1) {
+                    client.player.getInventory().setSelectedSlot(x);
+                    applyFastAim(client, targetYaw, targetPitch);
                     stage = Stage.DISCHARGE;
                     tickTimer = 1;
                 } else {
-                    int crossbowSlot = findCrossbow(client);
-                    if (crossbowSlot != -1) {
-                        client.player.getInventory().setSelectedSlot(crossbowSlot);
+                    int cb = findCrossbow(client);
+                    if (cb != -1) {
+                        client.player.getInventory().setSelectedSlot(cb);
                         client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
                         reset(client, true);
                     } else reset(client, true);
@@ -194,6 +209,7 @@ public class XbowCart {
                 client.player.swing(InteractionHand.MAIN_HAND);
                 stage = Stage.RESTORE;
                 tickTimer = 1 + RANDOM.nextInt(2);
+                pingSimulationTicks = 1 + RANDOM.nextInt(3);
             }
             case RESTORE -> reset(client, true);
             default -> reset(client, false);
@@ -201,49 +217,76 @@ public class XbowCart {
     }
 
     private static void computeAim(Minecraft client, BlockPos railPos) {
-        Vec3 eyePos = client.player.getEyePosition();
+        Vec3 eye = client.player.getEyePosition();
         Vec3 target = new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.22, railPos.getZ() + 0.5);
-        double dx = target.x - eyePos.x;
-        double dy = target.y - eyePos.y;
-        double dz = target.z - eyePos.z;
+        double dx = target.x - eye.x, dy = target.y - eye.y, dz = target.z - eye.z;
         double dist = Math.sqrt(dx * dx + dz * dz);
         targetYaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90.0f;
         targetPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
-        // Jitter humano
-        targetYaw += (RANDOM.nextFloat() - 0.5f) * 0.5f;
-        targetPitch += (RANDOM.nextFloat() - 0.5f) * 0.3f;
+        float jitter = streamerMode ? 0.8f : 0.4f;
+        targetYaw += (RANDOM.nextFloat() - 0.5f) * jitter;
+        targetPitch += (RANDOM.nextFloat() - 0.5f) * (jitter * 0.7f);
     }
 
-    private static void applySmoothAim(Minecraft client, float yaw, float pitch) {
+    private static void applyFastAim(Minecraft client, float yaw, float pitch) {
         float curYaw = client.player.getYRot();
         float curPitch = client.player.getXRot();
-        float maxStep = 45.0f + RANDOM.nextFloat() * 15.0f;
-        float steppedYaw = curYaw + Math.max(-maxStep, Math.min(maxStep, wrapAngle(yaw - curYaw)));
-        float steppedPitch = curPitch + Math.max(-maxStep * 0.7f, Math.min(maxStep * 0.7f, pitch - curPitch));
+        float maxStep;
+        if (currentMode == Mode.FAST) {
+            maxStep = 60.0f + RANDOM.nextFloat() * 20.0f; // rápido
+        } else if (streamerMode) {
+            maxStep = 30.0f + RANDOM.nextFloat() * 10.0f;
+        } else {
+            maxStep = 45.0f + RANDOM.nextFloat() * 15.0f;
+        }
+        float dYaw = wrapAngle(yaw - curYaw);
+        float dPitch = pitch - curPitch;
+        // Overshoot rápido (passa do alvo e volta)
+        float overshoot = 0.05f + RANDOM.nextFloat() * 0.1f;
+        float overshootYaw = dYaw * overshoot;
+        float overshootPitch = dPitch * overshoot;
+        dYaw = Math.max(-maxStep, Math.min(maxStep, dYaw + overshootYaw));
+        dPitch = Math.max(-maxStep * 0.7f, Math.min(maxStep * 0.7f, dPitch + overshootPitch));
+        float steppedYaw = curYaw + dYaw;
+        float steppedPitch = curPitch + dPitch;
         client.player.setYRot(steppedYaw);
         client.player.setXRot(Math.max(-90.0f, Math.min(90.0f, steppedPitch)));
-        client.player.yRotO = steppedYaw;
-        client.player.xRotO = steppedPitch;
+        client.player.yRotO = steppedYaw - (RANDOM.nextFloat() - 0.5f) * 0.5f;
+        client.player.xRotO = steppedPitch - (RANDOM.nextFloat() - 0.5f) * 0.3f;
         client.player.yHeadRot = steppedYaw;
         client.player.yHeadRotO = steppedYaw;
     }
 
-    private static float wrapAngle(float angle) {
-        float wrapped = angle % 360.0f;
-        if (wrapped >= 180.0f) wrapped -= 360.0f;
-        if (wrapped < -180.0f) wrapped += 360.0f;
-        return wrapped;
+    private static float wrapAngle(float a) {
+        a %= 360f;
+        if (a >= 180f) a -= 360f;
+        if (a < -180f) a += 360f;
+        return a;
     }
 
     private static void reset(Minecraft client, boolean restore) {
         if (restore && originalSlot != -1 && client.player != null) {
             client.player.getInventory().setSelectedSlot(originalSlot);
-            // NÃO restauramos a câmera – mantemos a mira no alvo
         }
         stage = Stage.IDLE;
         targetBlockHit = null;
         tickTimer = 0;
         originalSlot = -1;
         triggered = false;
+        hesitationTicks = 0;
+        isHesitating = false;
+        pingSimulationTicks = 0;
     }
-}
+
+    public static void setMode(Mode mode) {
+        currentMode = mode;
+        streamerMode = (mode == Mode.STREAMER);
+    }
+    public static void toggleStreamer() {
+        streamerMode = !streamerMode;
+        if (streamerMode) currentMode = Mode.STREAMER;
+        else currentMode = Mode.FAST;
+    }
+    public static void reset() { reset(Minecraft.getInstance(), true); }
+    public static void toggle() { enabled = !enabled; if (!enabled) reset(); }
+            }
