@@ -5,9 +5,6 @@ plugins {
 
 repositories {
     mavenCentral()
-    maven { url "https://maven.shedaniel.me/" }
-    maven { url "https://maven.terraformersmc.com/releases/" }
-    maven { url "https://maven.fabricmc.net/" }
 }
 
 dependencies {
@@ -16,8 +13,7 @@ dependencies {
         officialMojangMappings()
     }
     modImplementation "net.fabricmc:fabric-loader:0.18.4"
-    // Use uma versão que sabemos que existe
-    modImplementation "net.fabricmc.fabric-api:fabric-api:+"
+    // sem Fabric API
 }
 
 java {
@@ -27,17 +23,4 @@ java {
 
 tasks.withType(JavaCompile).configureEach {
     it.options.release = 21
-}
-
-java {
-    withSourcesJar()
-}
-
-publishing {
-    publications {
-        create("mavenJava", MavenPublication) {
-            artifactId = project.archives_base_name
-            from components.java
-        }
-    }
 }
