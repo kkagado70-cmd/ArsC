@@ -7,11 +7,9 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 public class ClickGUI extends Screen {
-    private static ClickGUI instance;
 
     public ClickGUI() {
         super(Component.literal("Config"));
-        instance = this;
     }
 
     public static void open() {
@@ -19,8 +17,8 @@ public class ClickGUI extends Screen {
     }
 
     public static void close() {
-        if (Minecraft.getInstance().screen instanceof ClickGUI) {
-            Minecraft.getInstance().screen.onClose();
+        if (isOpen()) {
+            Minecraft.getInstance().setScreen(null);
         }
     }
 
@@ -41,7 +39,7 @@ public class ClickGUI extends Screen {
                     AutoMace.enabled = !AutoMace.enabled;
                     btn.setMessage(Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")));
                 }
-        ).bounds(cx - bw/2, cy - 30, bw, bh).build());
+        ).bounds(cx - bw / 2, cy - 30, bw, bh).build());
 
         this.addRenderableWidget(Button.builder(
                 Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")),
@@ -49,7 +47,7 @@ public class ClickGUI extends Screen {
                     XbowCart.enabled = !XbowCart.enabled;
                     btn.setMessage(Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")));
                 }
-        ).bounds(cx - bw/2, cy + 10, bw, bh).build());
+        ).bounds(cx - bw / 2, cy + 10, bw, bh).build());
 
         this.addRenderableWidget(Button.builder(
                 Component.literal("Fechar"),
