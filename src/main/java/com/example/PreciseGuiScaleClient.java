@@ -12,10 +12,11 @@ public class PreciseGuiScaleClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        // Usa KeyMapping.Category.MISC em vez de String
         openGuiKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.preciseguiscale.open_gui",
                 GLFW.GLFW_KEY_RIGHT_SHIFT,
-                "key.categories.misc"
+                KeyMapping.Category.MISC
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
