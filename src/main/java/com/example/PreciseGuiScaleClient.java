@@ -10,10 +10,12 @@ public class PreciseGuiScaleClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        // Usando KeyMapping.Category.MISC (categoria padrão para miscelânea)
         openGuiKey = new KeyMapping(
                 "key.preciseguiscale.open_gui",
+                KeyMapping.Type.KEYSYM,
                 GLFW.GLFW_KEY_RIGHT_SHIFT,
-                "key.categories.misc"
+                KeyMapping.Category.MISC
         );
 
         Thread tickThread = new Thread(() -> {
