@@ -1,8 +1,6 @@
 package com.example;
 
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import org.lwjgl.glfw.GLFW;
@@ -12,23 +10,37 @@ public class PreciseGuiScaleClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        openGuiKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+        // Registra o keybind
+        openGuiKey = new KeyMapping(
                 "key.preciseguiscale.open_gui",
-                KeyMapping.Type.KEYSYM,
                 GLFW.GLFW_KEY_RIGHT_SHIFT,
                 "key.categories.misc"
-        ));
+        );
 
-        ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (openGuiKey.consumeClick()) {
-                if (ClickGUI.isOpen()) ClickGUI.close();
-                else ClickGUI.open();
-            }
+        // Thread de tick (20 ticks por segundo)
+        Thread tickThread = new Thread(() -> {
+            while (true) {
+                try {
+                    Thread.sleep(50); // 20 TPS
+                    Minecraft client = Minecraft.getInstance();
+                    if (client.player == null) continue;
 
-            if (client.player != null) {
-                if (AutoMace.enabled) AutoMace.onTick(client);
-                if (XbowCart.enabled) XbowCart.onTick(client);
+                    // Processa keybind
+                    if (openGuiKey.consumeClick()) {
+                        if (ClickGUI.isOpen()) ClickGUI.close();
+                        else ClickGUI.open();
+                    }
+
+                    // Processa os mods
+                    if (AutoMace.enabled) AutoMace.onTick(client);
+                    if (XbowCart.enabled) XbowCart.onTick(client);
+
+                } catch (InterruptedException e) {
+                    break;
+                }
             }
         });
+        tickThread.setDaemon(true);
+        tickThread.start();
     }
 }
