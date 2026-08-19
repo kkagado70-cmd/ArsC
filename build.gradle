@@ -29,11 +29,11 @@ processResources {
 }
 
 jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE   // <-- adicione esta linha
     from sourceSets.main.output
     from sourceSets.main.resources
     manifest {
         attributes 'Implementation-Title': project.name,
                    'Implementation-Version': project.version
-        // Main-Class removido – não é necessário para mods
     }
 }
