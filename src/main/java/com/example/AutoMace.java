@@ -37,25 +37,21 @@ public class AutoMace {
     private static int targetLockTicks = 0;
     private static final Random RANDOM = new Random();
 
-    // Mira
     private static float smoothYaw = Float.NaN;
     private static float smoothPitch = Float.NaN;
     private static final Queue<Float> yawHistory = new ConcurrentLinkedQueue<>();
     private static final Queue<Float> pitchHistory = new ConcurrentLinkedQueue<>();
     private static final int HISTORY_SIZE = 15;
 
-    // Erro humano
     private static int missChance = 0;
     private static int hesitationTicks = 0;
     private static int pingSimulationTicks = 0;
     private static int attackCooldownTicks = 0;
     private static boolean isHesitating = false;
 
-    // ClickSim
     private static int clickDelayTicks = 0;
     private static long lastClickTime = 0;
 
-    // Predição
     private static final Map<LivingEntity, Vec3> targetVelocities = new HashMap<>();
     private static final Map<LivingEntity, Long> lastVelocityUpdate = new HashMap<>();
 
@@ -90,7 +86,6 @@ public class AutoMace {
 
         updateTargetVelocity(client, activeTarget);
 
-        // Hesitação (menos em modo FAST)
         int hesitChance = (currentMode == Mode.FAST) ? 1 : (streamerMode ? 5 : 2);
         if (RANDOM.nextInt(100) < hesitChance && !isHesitating && state == State.IDLE) {
             isHesitating = true;
@@ -174,9 +169,6 @@ public class AutoMace {
         updateHeuristics(client);
     }
 
-    // ============================================================
-    // MIRA RÁPIDA (mas com curvas humanas)
-    // ============================================================
     private static void applyFastAim(Minecraft client, LivingEntity target) {
         Vec3 eyePos = client.player.getEyePosition();
         Vec3 predictedPos = predictTargetPosition(target);
@@ -264,9 +256,6 @@ public class AutoMace {
         updateHistory(smoothYaw, smoothPitch);
     }
 
-    // ============================================================
-    // CLICKSIM
-    // ============================================================
     private static boolean canClick() {
         long now = System.currentTimeMillis();
         if (lastClickTime == 0) { lastClickTime = now; return true; }
@@ -299,9 +288,6 @@ public class AutoMace {
         if (clickDelayTicks < 1) clickDelayTicks = 1;
     }
 
-    // ============================================================
-    // HEURÍSTICAS
-    // ============================================================
     private static float calculateFallThreshold(Minecraft client) {
         float base = 2.8f;
         float var = 0f;
@@ -345,9 +331,6 @@ public class AutoMace {
         return vel.length() > 0.5;
     }
 
-    // ============================================================
-    // PREDIÇÃO E VELOCIDADE
-    // ============================================================
     private static Vec3 predictTargetPosition(LivingEntity target) {
         Vec3 pos = target.position();
         Vec3 vel = targetVelocities.getOrDefault(target, Vec3.ZERO);
@@ -368,9 +351,6 @@ public class AutoMace {
         lastVelocityUpdate.put(target, now);
     }
 
-    // ============================================================
-    // ERRO E RESET
-    // ============================================================
     private static void applyMissAim(Minecraft client) {
         float missYaw = (RANDOM.nextFloat() - 0.5f) * 25f;
         float missPitch = (RANDOM.nextFloat() - 0.5f) * 12f;
@@ -467,4 +447,20 @@ public class AutoMace {
 
     private static void updateHeuristics(Minecraft client) {
         if (totalTicks % 100 == 0 && successfulSmash > 0) {
-      
+            if (successfulSmash > 100) { successfulSmash = 0; missedSmash = 0; }
+        }
+    }
+
+    public static void setMode(Mode mode) {
+        currentMode = mode;
+        streamerMode = (mode == Mode.STREAMER);
+        resetState(Minecraft.getInstance());
+    }
+    public static void toggleStreamer() {
+        streamerMode = !streamerMode;
+        if (streamerMode) currentMode = Mode.STREAMER;
+        else currentMode = Mode.FAST;
+    }
+    public static void reset() { resetState(Minecraft.getInstance()); }
+    public static void toggle() { enabled = !enabled; if (!enabled) reset(); }
+}
