@@ -1,4 +1,4 @@
-package com.example.client;
+package com.example;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -14,18 +14,15 @@ import java.util.Random;
 
 public class XbowCart {
     public enum Stage { IDLE, PLACE_RAIL, PLACE_CART, LIGHT_FIRE, AIM, DISCHARGE, RESTORE }
-
     public static boolean enabled = false;
     private static boolean triggered = false;
     private static Stage stage = Stage.IDLE;
     private static int tickTimer = 0;
     private static BlockHitResult targetBlockHit = null;
-    private static float targetYaw = 0.0f;
-    private static float targetPitch = 0.0f;
+    private static float targetYaw = 0.0f, targetPitch = 0.0f;
     private static int originalSlot = -1;
     private static final Random RANDOM = new Random();
-    private static float originalYaw = 0.0f;
-    private static float originalPitch = 0.0f;
+    private static float originalYaw = 0.0f, originalPitch = 0.0f;
 
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null || client.gameMode == null) {
@@ -33,19 +30,16 @@ public class XbowCart {
             return;
         }
 
-        // Ativação: olhando para o chão com um trilho na mão
         if (stage == Stage.IDLE) {
             ItemStack mainHand = client.player.getMainHandItem();
             boolean holdingRail = mainHand.is(Items.RAIL) || mainHand.is(Items.POWERED_RAIL) ||
-                                  mainHand.is(Items.DETECTOR_RAIL) || mainHand.is(Items.ACTIVATOR_RAIL);
-
+                    mainHand.is(Items.DETECTOR_RAIL) || mainHand.is(Items.ACTIVATOR_RAIL);
             if (holdingRail && client.hitResult instanceof BlockHitResult hit &&
-                hit.getType() == HitResult.Type.BLOCK && hit.getDirection() == Direction.UP) {
+                    hit.getType() == HitResult.Type.BLOCK && hit.getDirection() == Direction.UP) {
                 if (client.player.getEyePosition().distanceTo(hit.getLocation()) <= 5.0) {
                     triggered = true;
                 }
             }
-
             if (triggered) {
                 triggered = false;
                 if (client.hitResult instanceof BlockHitResult hit) {
@@ -55,17 +49,13 @@ public class XbowCart {
             return;
         }
 
-        if (tickTimer > 0) {
-            tickTimer--;
-            return;
-        }
-
+        if (tickTimer > 0) { tickTimer--; return; }
         processStateTransition(client);
     }
 
     private static boolean isRail(ItemStack s) {
         return s.is(Items.RAIL) || s.is(Items.POWERED_RAIL) ||
-               s.is(Items.DETECTOR_RAIL) || s.is(Items.ACTIVATOR_RAIL);
+                s.is(Items.DETECTOR_RAIL) || s.is(Items.ACTIVATOR_RAIL);
     }
 
     private static int findItemSlot(Minecraft client, net.minecraft.world.item.Item item) {
@@ -105,9 +95,7 @@ public class XbowCart {
         int cartSlot = findItemSlot(client, Items.TNT_MINECART);
         int flintSlot = findItemSlot(client, Items.FLINT_AND_STEEL);
         int xbowSlot = findChargedCrossbow(client);
-
         if (railSlot == -1 || cartSlot == -1 || flintSlot == -1) return;
-
         if (xbowSlot == -1) {
             int crossbowSlot = findCrossbow(client);
             if (crossbowSlot != -1) {
@@ -117,7 +105,6 @@ public class XbowCart {
             }
             return;
         }
-
         originalSlot = client.player.getInventory().getSelectedSlot();
         originalYaw = client.player.getYRot();
         originalPitch = client.player.getXRot();
@@ -132,19 +119,19 @@ public class XbowCart {
         BlockPos groundPos = targetBlockHit.getBlockPos();
         Direction clickedFace = targetBlockHit.getDirection();
         BlockPos railPos = groundPos.relative(clickedFace);
-        BlockPos firePos = railPos.above(); // fogo em cima do trilho (no chão)
+        BlockPos firePos = railPos.above();
 
         BlockHitResult railHit = new BlockHitResult(
-            new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.5, railPos.getZ() + 0.5),
-            Direction.UP, railPos, false
+                new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.5, railPos.getZ() + 0.5),
+                Direction.UP, railPos, false
         );
         BlockHitResult cartHit = new BlockHitResult(
-            new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.05, railPos.getZ() + 0.5),
-            Direction.UP, railPos, false
+                new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.05, railPos.getZ() + 0.5),
+                Direction.UP, railPos, false
         );
         BlockHitResult fireHit = new BlockHitResult(
-            new Vec3(firePos.getX() + 0.5, firePos.getY() + 0.5, firePos.getZ() + 0.5),
-            Direction.UP, firePos, false
+                new Vec3(firePos.getX() + 0.5, firePos.getY() + 0.5, firePos.getZ() + 0.5),
+                Direction.UP, firePos, false
         );
 
         int delay = 1 + RANDOM.nextInt(2);
@@ -194,9 +181,7 @@ public class XbowCart {
                         client.player.getInventory().setSelectedSlot(crossbowSlot);
                         client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
                         reset(client, true);
-                    } else {
-                        reset(client, true);
-                    }
+                    } else reset(client, true);
                 }
             }
             case DISCHARGE -> {
@@ -213,16 +198,12 @@ public class XbowCart {
     private static void computeAim(Minecraft client, BlockPos railPos) {
         Vec3 eyePos = client.player.getEyePosition();
         Vec3 target = new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.22, railPos.getZ() + 0.5);
-
         double dx = target.x - eyePos.x;
         double dy = target.y - eyePos.y;
         double dz = target.z - eyePos.z;
         double dist = Math.sqrt(dx * dx + dz * dz);
-
         targetYaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90.0f;
         targetPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
-
-        // Pequeno ruído para humanizar
         targetYaw += (RANDOM.nextFloat() - 0.5f) * 0.5f;
         targetPitch += (RANDOM.nextFloat() - 0.5f) * 0.3f;
     }
@@ -230,11 +211,9 @@ public class XbowCart {
     private static void applySmoothAim(Minecraft client, float yaw, float pitch) {
         float curYaw = client.player.getYRot();
         float curPitch = client.player.getXRot();
-
         float maxStep = 45.0f + RANDOM.nextFloat() * 15.0f;
         float steppedYaw = curYaw + Math.max(-maxStep, Math.min(maxStep, wrapAngle(yaw - curYaw)));
         float steppedPitch = curPitch + Math.max(-maxStep * 0.7f, Math.min(maxStep * 0.7f, pitch - curPitch));
-
         client.player.setYRot(steppedYaw);
         client.player.setXRot(Math.max(-90.0f, Math.min(90.0f, steppedPitch)));
         client.player.yRotO = steppedYaw;
@@ -266,4 +245,4 @@ public class XbowCart {
         originalSlot = -1;
         triggered = false;
     }
-}
+                }
