@@ -13,9 +13,7 @@ repositories {
 
 dependencies {
     minecraft "com.mojang:minecraft:1.21.11"
-    mappings loom.layered {
-        officialMojangMappings()
-    }
+    mappings officialMojangMappings() // <-- simplificado, sem layered
     modImplementation "net.fabricmc:fabric-loader:0.18.4"
     modImplementation "net.fabricmc.fabric-api:fabric-api:+"
 }
