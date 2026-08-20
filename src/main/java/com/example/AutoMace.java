@@ -165,6 +165,7 @@ public class AutoMace {
         if (totalTicks % 100 == 0 && smashCount > 50) { smashCount = 0; }
     }
 
+    // ========== MIRA SEGURA (NUNCA GIRA 360°) ==========
     private static void applyAim(Minecraft client, LivingEntity target) {
         Vec3 eye = client.player.getEyePosition();
         Vec3 pred = predictPos(target);
@@ -178,13 +179,17 @@ public class AutoMace {
         double dist = Math.sqrt(dx * dx + dz * dz);
         float rawYaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90f;
         float rawPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
+
+        // Normaliza ângulos com segurança
         if (Float.isNaN(smoothYaw) || Float.isNaN(smoothPitch)) {
             smoothYaw = client.player.getYRot();
             smoothPitch = client.player.getXRot();
         }
+
         float yawDiff = rawYaw - smoothYaw;
         while (yawDiff > 180) yawDiff -= 360;
         while (yawDiff < -180) yawDiff += 360;
+
         float pitchDiff = rawPitch - smoothPitch;
         while (pitchDiff > 180) pitchDiff -= 360;
         while (pitchDiff < -180) pitchDiff += 360;
@@ -192,21 +197,26 @@ public class AutoMace {
         float attn = 0.55f + (float)(1.0 / (dist + 0.5)) * 0.25f;
         if (attn > 0.85f) attn = 0.85f;
         if (state == State.SMASH_ATTACK) attn += 0.05f;
+
         float maxTurn = (currentMode == Mode.FAST) ? 4f : 3f;
         if (streamerMode) maxTurn = 2.5f;
         if (pingTicks > 0) maxTurn *= 0.8f;
 
         float stepY = Math.max(-maxTurn, Math.min(maxTurn, yawDiff * attn));
         float stepP = Math.max(-maxTurn * 0.6f, Math.min(maxTurn * 0.6f, pitchDiff * attn));
+
+        // Overshoot apenas 5% das vezes
         if (RANDOM.nextInt(100) < 5 && Math.abs(yawDiff) > 2f) {
             float ov = 1.5f + RANDOM.nextFloat() * 2f;
             stepY += (yawDiff > 0 ? ov : -ov) * 0.3f;
         }
+
         float noiseY = (RANDOM.nextFloat() - 0.5f) * 0.12f;
         float noiseP = (RANDOM.nextFloat() - 0.5f) * 0.08f;
         float finalY = smoothYaw + stepY + noiseY;
         float finalP = Math.max(-90f, Math.min(90f, smoothPitch + stepP + noiseP));
 
+        // GCD
         Options opt = client.options;
         double sens = opt.sensitivity().get() * 0.6 + 0.2;
         double gcd = Math.pow(sens, 1.2);
@@ -217,6 +227,7 @@ public class AutoMace {
             dY = (float) (Math.round(dY / gcd) * gcd);
             dP = (float) (Math.round(dP / gcd) * gcd);
         }
+
         smoothYaw = client.player.getYRot() + dY;
         smoothPitch = client.player.getXRot() + dP;
         client.player.setYRot(smoothYaw);
@@ -229,6 +240,7 @@ public class AutoMace {
         yawHist.add(smoothYaw);
     }
 
+    // ========== CLICK SIM ==========
     private static boolean canClick() {
         long now = System.currentTimeMillis();
         if (lastClick == 0) { lastClick = now; return true; }
@@ -259,6 +271,7 @@ public class AutoMace {
         if (clickDelay < 1) clickDelay = 1;
     }
 
+    // ========== PREDIÇÃO DE MOVIMENTO ==========
     private static Vec3 predictPos(LivingEntity target) {
         Vec3 pos = target.position();
         Vec3 vel = velMap.getOrDefault(target, Vec3.ZERO);
@@ -291,6 +304,7 @@ public class AutoMace {
         return v.length() > 0.5;
     }
 
+    // ========== SELEÇÃO DE ALVO ==========
     private static LivingEntity findTarget(Minecraft client) {
         AABB box = client.player.getBoundingBox().inflate(6.5, 350, 6.5);
         List<LivingEntity> list = client.level.getEntitiesOfClass(LivingEntity.class, box, e ->
@@ -307,6 +321,7 @@ public class AutoMace {
         }).orElse(null);
     }
 
+    // ========== SLOTS E ENCANTAMENTOS ==========
     private static int findAxeSlot(Minecraft client) {
         RegistryAccess reg = client.level.registryAccess();
         for (int i = 0; i < 9; i++) {
@@ -338,6 +353,7 @@ public class AutoMace {
         return holder.map(h -> EnchantmentHelper.getItemEnchantmentLevel(h, stack)).orElse(0);
     }
 
+    // ========== RESET ==========
     private static void resetState(Minecraft client) {
         if (isSwapped && originalSlot != -1 && client.player != null) {
             if (System.currentTimeMillis() - lastActionTime > 200) {
@@ -365,4 +381,4 @@ public class AutoMace {
         }
     }
     public static void reset() { resetState(Minecraft.getInstance()); }
-            }
+    }
