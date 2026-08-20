@@ -30,19 +30,25 @@ public class XbowCart {
 
     private static boolean triggered = false;
     private static Stage stage = Stage.IDLE;
-    private static int tickTimer = 0;
+    private static int tickCounter = 0; // contador fixo para cada estágio
     private static BlockHitResult targetBlock = null;
     private static float targetYaw = 0, targetPitch = 0;
     private static int originalSlot = -1;
     private static final Random RANDOM = new Random();
 
-    private static final boolean STREAMER_MODE = true;
-    private static final float MAX_TURN_SPEED = 40.0f;
+    private static final int ACTION_DELAY = 3; // ticks por ação (tempo para o servidor registrar)
 
     private static boolean useSafe = false;
     private static int slabSlot = -1;
     private static BlockPos slabPos = null;
     private static BlockPos firePos = null;
+
+    // ===== DEBUG =====
+    private static void debug(Minecraft client, String msg) {
+        if (client.player != null) {
+            client.player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§6[Xbow] §f" + msg));
+        }
+    }
 
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null || client.gameMode == null) {
@@ -50,41 +56,48 @@ public class XbowCart {
             return;
         }
 
+        // ===== ESTÁGIO IDLE: ATIVAÇÃO =====
         if (stage == Stage.IDLE) {
             ItemStack hand = client.player.getMainHandItem();
             boolean holdingRail = hand.is(Items.RAIL) || hand.is(Items.POWERED_RAIL)
                     || hand.is(Items.DETECTOR_RAIL) || hand.is(Items.ACTIVATOR_RAIL);
+
             if (holdingRail && client.hitResult instanceof BlockHitResult hit
                     && hit.getType() == HitResult.Type.BLOCK && hit.getDirection() == Direction.UP) {
                 if (client.player.getEyePosition().distanceTo(hit.getLocation()) <= 6.0) {
                     triggered = true;
                 }
             }
+
             if (triggered) {
                 triggered = false;
+                debug(client, "Ativação detectada!");
+
                 if (client.hitResult instanceof BlockHitResult hit) {
-                    // Verifica itens obrigatórios ANTES de começar
+                    // ===== VERIFICA ITENS =====
                     int rail = findSlot(client, Items.RAIL, Items.POWERED_RAIL, Items.DETECTOR_RAIL, Items.ACTIVATOR_RAIL);
                     int cart = findSlot(client, Items.TNT_MINECART);
                     int flint = findSlot(client, Items.FLINT_AND_STEEL);
                     int xbow = findChargedCrossbow(client);
-                    if (rail == -1 || cart == -1 || flint == -1) {
-                        // Se faltar algum, não faz nada e reseta
-                        reset(client, false);
-                        return;
-                    }
+
+                    debug(client, "Rail: " + rail + ", Cart: " + cart + ", Flint: " + flint + ", Xbow: " + xbow);
+
+                    if (rail == -1) { debug(client, "§cERRO: Nenhum trilho!"); return; }
+                    if (cart == -1) { debug(client, "§cERRO: Nenhum TNT Minecart!"); return; }
+                    if (flint == -1) { debug(client, "§cERRO: Nenhum Flint and Steel!"); return; }
                     if (xbow == -1) {
                         int cb = findSlot(client, Items.CROSSBOW);
                         if (cb != -1) {
+                            debug(client, "Carregando crossbow...");
                             client.player.getInventory().setSelectedSlot(cb);
                             client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
                             return;
                         }
-                        reset(client, false);
+                        debug(client, "§cERRO: Nenhuma crossbow carregada ou encontrada!");
                         return;
                     }
 
-                    // Detecta slab para Safe Carting
+                    // ===== SLAB =====
                     useSafe = false;
                     slabSlot = -1;
                     slabPos = null;
@@ -108,23 +121,29 @@ public class XbowCart {
                         slabPos = basePos.relative(playerDir.getOpposite());
                         firePos = slabPos.relative(playerDir);
                         useSafe = true;
+                        debug(client, "§aSafe Carting ativado! Slab slot: " + slabSlot);
                     } else {
                         firePos = basePos.relative(playerDir.getOpposite());
+                        debug(client, "Sem slab, modo normal.");
                     }
 
                     originalSlot = client.player.getInventory().getSelectedSlot();
                     targetBlock = hit;
                     stage = Stage.PLACE_RAIL;
-                    tickTimer = 0;
+                    tickCounter = 0;
+                    debug(client, "Iniciando combo...");
                 }
             }
             return;
         }
 
-        if (tickTimer > 0) {
-            tickTimer--;
+        // ===== CONTADOR DE TICKS =====
+        if (tickCounter > 0) {
+            tickCounter--;
             return;
         }
+
+        // ===== EXECUTA A AÇÃO ATUAL =====
         processState(client);
     }
 
@@ -168,49 +187,51 @@ public class XbowCart {
                 new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.05, cartPos.getZ() + 0.5),
                 Direction.UP, cartPos, false);
 
-        int naturalDelay = STREAMER_MODE ? 1 + RANDOM.nextInt(1) : 1;
-
         switch (stage) {
             case PLACE_RAIL -> {
                 int r = findSlot(client, Items.RAIL, Items.POWERED_RAIL, Items.DETECTOR_RAIL, Items.ACTIVATOR_RAIL);
-                if (r == -1) { reset(client, true); return; }
+                if (r == -1) { debug(client, "§cRail sumiu!"); reset(client, true); return; }
                 client.player.getInventory().setSelectedSlot(r);
                 client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, railHit);
                 client.player.swing(InteractionHand.MAIN_HAND);
+                debug(client, "✓ Trilho colocado (slot " + r + ")");
                 stage = Stage.PLACE_CART;
-                tickTimer = naturalDelay;
+                tickCounter = ACTION_DELAY;
             }
             case PLACE_CART -> {
                 int c = findSlot(client, Items.TNT_MINECART);
-                if (c == -1) { reset(client, true); return; }
+                if (c == -1) { debug(client, "§cCarrinho sumiu!"); reset(client, true); return; }
                 client.player.getInventory().setSelectedSlot(c);
                 client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, cartHit);
                 client.player.swing(InteractionHand.MAIN_HAND);
+                debug(client, "✓ Carrinho colocado (slot " + c + ")");
                 stage = useSafe ? Stage.PLACE_SLAB : Stage.LIGHT_FIRE;
-                tickTimer = naturalDelay;
+                tickCounter = ACTION_DELAY;
             }
             case PLACE_SLAB -> {
-                if (slabSlot == -1 || slabPos == null) { reset(client, true); return; }
+                if (slabSlot == -1 || slabPos == null) { debug(client, "§cSlab sumiu!"); reset(client, true); return; }
                 BlockHitResult slabHit = new BlockHitResult(
                         new Vec3(slabPos.getX() + 0.5, slabPos.getY() + 0.5, slabPos.getZ() + 0.5),
                         Direction.UP, slabPos, false);
                 client.player.getInventory().setSelectedSlot(slabSlot);
                 client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, slabHit);
                 client.player.swing(InteractionHand.MAIN_HAND);
+                debug(client, "✓ Slab colocada (slot " + slabSlot + ")");
                 stage = Stage.LIGHT_FIRE;
-                tickTimer = naturalDelay;
+                tickCounter = ACTION_DELAY;
             }
             case LIGHT_FIRE -> {
                 int f = findSlot(client, Items.FLINT_AND_STEEL);
-                if (f == -1 || firePos == null) { reset(client, true); return; }
+                if (f == -1 || firePos == null) { debug(client, "§cFlint sumiu!"); reset(client, true); return; }
                 BlockHitResult fireHit = new BlockHitResult(
                         new Vec3(firePos.getX() + 0.5, firePos.getY() + 0.5, firePos.getZ() + 0.5),
                         Direction.UP, firePos, false);
                 client.player.getInventory().setSelectedSlot(f);
                 client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, fireHit);
                 client.player.swing(InteractionHand.MAIN_HAND);
+                debug(client, "✓ Fogo aceso (slot " + f + ")");
 
-                // Calcula mira no carrinho
+                // ===== CALCULA MIRA =====
                 Vec3 eye = client.player.getEyePosition();
                 Vec3 cartCenter = new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.22, cartPos.getZ() + 0.5);
                 double dx = cartCenter.x - eye.x;
@@ -219,12 +240,11 @@ public class XbowCart {
                 double dist = Math.sqrt(dx * dx + dz * dz);
                 targetYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
                 targetPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
-                if (STREAMER_MODE) {
-                    targetYaw += (RANDOM.nextFloat() - 0.5f) * 0.5f;
-                    targetPitch += (RANDOM.nextFloat() - 0.5f) * 0.3f;
-                }
+                targetYaw += (RANDOM.nextFloat() - 0.5f) * 0.5f;
+                targetPitch += (RANDOM.nextFloat() - 0.5f) * 0.3f;
+                debug(client, "✓ Mira calculada: Yaw=" + String.format("%.1f", targetYaw) + ", Pitch=" + String.format("%.1f", targetPitch));
                 stage = Stage.AIM;
-                tickTimer = naturalDelay;
+                tickCounter = ACTION_DELAY;
             }
             case AIM -> {
                 int x = findChargedCrossbow(client);
@@ -234,31 +254,37 @@ public class XbowCart {
                         client.player.getInventory().setSelectedSlot(cb);
                         client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
                     }
+                    debug(client, "§cCrossbow não carregada!");
                     reset(client, true);
                     return;
                 }
                 client.player.getInventory().setSelectedSlot(x);
                 float curY = client.player.getYRot();
                 float curP = client.player.getXRot();
-                float maxStep = MAX_TURN_SPEED + (STREAMER_MODE ? RANDOM.nextFloat() * 10f : 0f);
                 float dY = targetYaw - curY;
                 while (dY > 180) dY -= 360;
                 while (dY < -180) dY += 360;
                 float dP = targetPitch - curP;
+                float maxStep = 40f;
                 dY = Math.max(-maxStep, Math.min(maxStep, dY));
                 dP = Math.max(-maxStep * 0.6f, Math.min(maxStep * 0.6f, dP));
                 client.player.setYRot(curY + dY);
                 client.player.setXRot(Math.max(-90, Math.min(90, curP + dP)));
+                debug(client, "✓ Mirando...");
                 stage = Stage.DISCHARGE;
-                tickTimer = naturalDelay;
+                tickCounter = ACTION_DELAY;
             }
             case DISCHARGE -> {
                 client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
                 client.player.swing(InteractionHand.MAIN_HAND);
+                debug(client, "✓ Tiro disparado!");
                 stage = Stage.RESTORE;
-                tickTimer = naturalDelay;
+                tickCounter = ACTION_DELAY;
             }
-            case RESTORE -> reset(client, true);
+            case RESTORE -> {
+                debug(client, "§aCombo finalizado!");
+                reset(client, true);
+            }
             default -> reset(client, false);
         }
     }
@@ -269,7 +295,7 @@ public class XbowCart {
         }
         stage = Stage.IDLE;
         targetBlock = null;
-        tickTimer = 0;
+        tickCounter = 0;
         originalSlot = -1;
         triggered = false;
         useSafe = false;
@@ -280,7 +306,12 @@ public class XbowCart {
 
     public static void toggle() {
         enabled = !enabled;
-        if (!enabled) reset(Minecraft.getInstance(), true);
+        if (enabled) {
+            debug(Minecraft.getInstance(), "§aXbowCart ATIVADO");
+        } else {
+            debug(Minecraft.getInstance(), "§cXbowCart DESATIVADO");
+            reset(Minecraft.getInstance(), true);
+        }
     }
     public static void reset() { reset(Minecraft.getInstance(), true); }
-                    }
+}
