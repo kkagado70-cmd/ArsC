@@ -32,6 +32,9 @@ public class MixinAutoMace {
     private static Vec3 lastPos = null;
     private static float sy = Float.NaN, sp = Float.NaN;
 
+    // ===== INÉRCIA =====
+    private static float velYaw = 0, velPitch = 0;
+
     @Inject(method = "tick", at = @At("HEAD"))
     private void onTick(CallbackInfo ci) {
         Minecraft c = Minecraft.getInstance();
@@ -52,7 +55,7 @@ public class MixinAutoMace {
         Vec3 targetPos = target.getEyePosition(c.getDeltaTracker().getGameTimeDeltaPartialTick(false));
         if (lastPos != null) {
             Vec3 vel = target.position().subtract(lastPos);
-            targetPos = targetPos.add(vel.scale(0.5));
+            targetPos = targetPos.add(vel.scale(0.15));
         }
         lastPos = target.position();
 
@@ -61,22 +64,45 @@ public class MixinAutoMace {
         float tYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
         float tPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
 
-        if (Float.isNaN(sy) || Float.isNaN(sp)) { sy = c.player.getYRot(); sp = c.player.getXRot(); }
+        if (Float.isNaN(sy) || Float.isNaN(sp)) { sy = c.player.getYRot(); sp = c.player.getXRot(); velYaw = 0; velPitch = 0; }
 
         float yDiff = tYaw - sy; while(yDiff>180)yDiff-=360; while(yDiff<-180)yDiff+=360;
         float pDiff = tPitch - sp; while(pDiff>180)pDiff-=360; while(pDiff<-180)pDiff+=360;
 
-        float maxTurn = 6f + (R.nextFloat()-0.5f)*1.5f;
-        float attn = 0.7f + (float)(1.0/(dist+0.5))*0.2f; if(attn>0.9f) attn=0.9f;
-        float overshoot = 0.03f + R.nextFloat()*0.04f;
-        float stepY = yDiff*attn + yDiff*overshoot;
-        float stepP = pDiff*attn*0.6f + pDiff*overshoot*0.6f;
-        stepY = Math.max(-maxTurn, Math.min(maxTurn, stepY));
-        stepP = Math.max(-maxTurn*0.6f, Math.min(maxTurn*0.6f, stepP));
-        stepY += R.nextGaussian()*0.08f; stepP += R.nextGaussian()*0.06f;
+        // ===== MIRA SUAVE COM INÉRCIA =====
+        float maxTurn = 6.0f + R.nextFloat() * 2.0f; // 6-8 graus/tick
+        float attention = 0.4f + (float)(1.0/(dist+0.5))*0.2f; // 0.4-0.6 (mais baixo)
+        if(attention > 0.65f) attention = 0.65f;
 
-        sy += stepY; sp += stepP; sp = Math.max(-90, Math.min(90, sp));
-        c.player.setYRot(sy); c.player.setXRot(sp); c.player.yHeadRot = sy;
+        // Overshoot maior (passa do alvo e corrige)
+        float overshoot = 0.05f + R.nextFloat() * 0.03f; // 0.05-0.08
+
+        // Aceleração suave (baseada na diferença)
+        float targetVelY = yDiff * attention + yDiff * overshoot;
+        float targetVelP = pDiff * attention * 0.6f + pDiff * overshoot * 0.6f;
+
+        // Limita velocidade máxima
+        targetVelY = Math.max(-maxTurn, Math.min(maxTurn, targetVelY));
+        targetVelP = Math.max(-maxTurn*0.6f, Math.min(maxTurn*0.6f, targetVelP));
+
+        // Aplica inércia (suavização de velocidade)
+        float inertia = 0.85f; // 85% da velocidade anterior
+        velYaw = velYaw * inertia + targetVelY * (1 - inertia);
+        velPitch = velPitch * inertia + targetVelP * (1 - inertia);
+
+        // Jitter natural (micro-movimentos)
+        velYaw += R.nextGaussian() * 0.10f;
+        velPitch += R.nextGaussian() * 0.08f;
+
+        // Aplica rotação
+        sy += velYaw;
+        sp += velPitch;
+        sp = Math.max(-90, Math.min(90, sp));
+
+        c.player.setYRot(sy);
+        c.player.setXRot(sp);
+        c.player.yHeadRot = sy;
+        c.player.yHeadRotO = sy;
 
         if (c.player.distanceTo(target) > 3.0) return;
         if (System.currentTimeMillis() - lastAttack < 150) return;
@@ -95,7 +121,7 @@ public class MixinAutoMace {
         }
 
         if (stage == 0 || stage == 2) {
-            if (R.nextInt(100) < 5) c.player.setYRot(c.player.getYRot() + (R.nextFloat()-0.5f)*2f);
+            if (R.nextInt(100) < 5) c.player.setYRot(c.player.getYRot() + (R.nextFloat()-0.5f)*1.5f);
             c.gameMode.attack(c.player, target);
             c.player.swing(InteractionHand.MAIN_HAND);
             lastAttack = System.currentTimeMillis();
@@ -108,6 +134,7 @@ public class MixinAutoMace {
     private void reset(Minecraft c) {
         if (origSlot != -1 && c.player != null) c.player.getInventory().setSelectedSlot(origSlot);
         target = null; origSlot = -1; swapDelay = 0; stage = 0; lastPos = null;
+        velYaw = 0; velPitch = 0;
         if (Float.isNaN(sy)) { sy = c.player != null ? c.player.getYRot() : 0; sp = c.player != null ? c.player.getXRot() : 0; }
     }
 
