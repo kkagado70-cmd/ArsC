@@ -4,6 +4,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -69,7 +70,7 @@ public class XbowCart {
                     if (xbow == -1) {
                         int cb = findSlot(client, Items.CROSSBOW);
                         if (cb != -1) {
-                            client.player.getInventory().selected = cb;
+                            client.player.getInventory().setSelectedSlot(cb);
                             client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
                             return;
                         }
@@ -84,9 +85,12 @@ public class XbowCart {
 
                     for (int i = 0; i < 9; i++) {
                         ItemStack stack = client.player.getInventory().getItem(i);
-                        if (!stack.isEmpty() && stack.getItem() instanceof SlabBlock) {
-                            slabSlot = i;
-                            break;
+                        if (!stack.isEmpty() && stack.getItem() instanceof BlockItem) {
+                            BlockItem blockItem = (BlockItem) stack.getItem();
+                            if (blockItem.getBlock() instanceof SlabBlock) {
+                                slabSlot = i;
+                                break;
+                            }
                         }
                     }
 
@@ -104,7 +108,7 @@ public class XbowCart {
                         firePos = basePos.relative(playerDir.getOpposite());
                     }
 
-                    originalSlot = client.player.getInventory().selected;
+                    originalSlot = client.player.getInventory().getSelectedSlot();
                     targetBlock = hit;
                     stage = Stage.PLACE_RAIL;
                     tickTimer = 0;
@@ -150,9 +154,8 @@ public class XbowCart {
         Direction playerDir = client.player.getDirection();
         BlockPos basePos = targetBlock.getBlockPos().relative(targetBlock.getDirection());
 
-        // Posições fixas
         BlockPos railPos = basePos.above();
-        BlockPos cartPos = railPos; // carrinho em cima do trilho
+        BlockPos cartPos = railPos;
 
         BlockHitResult railHit = new BlockHitResult(
                 new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.5, railPos.getZ() + 0.5),
@@ -165,7 +168,7 @@ public class XbowCart {
             case PLACE_RAIL -> {
                 int r = findSlot(client, Items.RAIL, Items.POWERED_RAIL, Items.DETECTOR_RAIL, Items.ACTIVATOR_RAIL);
                 if (r != -1) {
-                    client.player.getInventory().selected = r;
+                    client.player.getInventory().setSelectedSlot(r);
                     client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, railHit);
                     client.player.swing(InteractionHand.MAIN_HAND);
                 }
@@ -175,11 +178,10 @@ public class XbowCart {
             case PLACE_CART -> {
                 int c = findSlot(client, Items.TNT_MINECART);
                 if (c != -1) {
-                    client.player.getInventory().selected = c;
+                    client.player.getInventory().setSelectedSlot(c);
                     client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, cartHit);
                     client.player.swing(InteractionHand.MAIN_HAND);
                 }
-                // Se for safe, vai colocar a slab; senão, pula para o fogo
                 stage = useSafe ? Stage.PLACE_SLAB : Stage.LIGHT_FIRE;
                 tickTimer = 1;
             }
@@ -188,7 +190,7 @@ public class XbowCart {
                     BlockHitResult slabHit = new BlockHitResult(
                             new Vec3(slabPos.getX() + 0.5, slabPos.getY() + 0.5, slabPos.getZ() + 0.5),
                             Direction.UP, slabPos, false);
-                    client.player.getInventory().selected = slabSlot;
+                    client.player.getInventory().setSelectedSlot(slabSlot);
                     client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, slabHit);
                     client.player.swing(InteractionHand.MAIN_HAND);
                 }
@@ -201,14 +203,13 @@ public class XbowCart {
                     BlockHitResult fireHit = new BlockHitResult(
                             new Vec3(firePos.getX() + 0.5, firePos.getY() + 0.5, firePos.getZ() + 0.5),
                             Direction.UP, firePos, false);
-                    client.player.getInventory().selected = f;
+                    client.player.getInventory().setSelectedSlot(f);
                     client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, fireHit);
                     client.player.swing(InteractionHand.MAIN_HAND);
                 } else {
                     reset(client, true);
                     return;
                 }
-                // Calcula mira no carrinho (flecha passa por cima da slab e pelo fogo)
                 Vec3 eye = client.player.getEyePosition();
                 Vec3 cartCenter = new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.22, cartPos.getZ() + 0.5);
                 double dx = cartCenter.x - eye.x;
@@ -217,7 +218,6 @@ public class XbowCart {
                 double dist = Math.sqrt(dx * dx + dz * dz);
                 targetYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
                 targetPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
-                // Pequeno jitter natural
                 targetYaw += (RANDOM.nextFloat() - 0.5f) * 0.3f;
                 targetPitch += (RANDOM.nextFloat() - 0.5f) * 0.2f;
                 stage = Stage.AIM;
@@ -226,7 +226,7 @@ public class XbowCart {
             case AIM -> {
                 int x = findChargedCrossbow(client);
                 if (x != -1) {
-                    client.player.getInventory().selected = x;
+                    client.player.getInventory().setSelectedSlot(x);
                     float curY = client.player.getYRot();
                     float curP = client.player.getXRot();
                     float maxStep = 40f;
@@ -243,7 +243,7 @@ public class XbowCart {
                 } else {
                     int cb = findSlot(client, Items.CROSSBOW);
                     if (cb != -1) {
-                        client.player.getInventory().selected = cb;
+                        client.player.getInventory().setSelectedSlot(cb);
                         client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
                         reset(client, true);
                     } else reset(client, true);
@@ -262,7 +262,7 @@ public class XbowCart {
 
     private static void reset(Minecraft client, boolean restore) {
         if (restore && originalSlot != -1 && client.player != null) {
-            client.player.getInventory().selected = originalSlot;
+            client.player.getInventory().setSelectedSlot(originalSlot);
         }
         stage = Stage.IDLE;
         targetBlock = null;
@@ -280,4 +280,4 @@ public class XbowCart {
         if (!enabled) reset(Minecraft.getInstance(), true);
     }
     public static void reset() { reset(Minecraft.getInstance(), true); }
-                        }
+}
