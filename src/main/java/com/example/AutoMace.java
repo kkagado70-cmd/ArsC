@@ -458,3 +458,4 @@ public class AutoMace {
 
     private static void updateHeuristics(Minecraft client) {
         if (totalTicks % 100 == 0 && successfulSmash >
+            }
