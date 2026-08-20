@@ -15,6 +15,7 @@ import java.util.Random;
 public class XbowCart {
     public enum Stage { IDLE, PLACE_RAIL, PLACE_CART, LIGHT_FIRE, AIM, DISCHARGE, RESTORE }
     public static boolean enabled = false;
+
     private static boolean triggered = false;
     private static Stage stage = Stage.IDLE;
     private static int tickTimer = 0;
@@ -100,11 +101,11 @@ public class XbowCart {
 
     private static void processState(Minecraft client) {
         if (targetBlock == null) { reset(client, true); return; }
-        BlockPos gnd = targetBlock.getBlockPos();
-        Direction face = targetBlock.getDirection();
-        BlockPos railPos = gnd.relative(face);
-        BlockPos cartPos = railPos.above();
-        BlockPos firePos = cartPos.above();
+
+        // Posições corretas: carrinho em cima do trilho
+        BlockPos railPos = targetBlock.getBlockPos().relative(targetBlock.getDirection());
+        BlockPos cartPos = railPos.above();      // <--- aqui está a correção
+        BlockPos firePos = cartPos.above();      // fogo em cima do carrinho
 
         BlockHitResult railHit = new BlockHitResult(
                 new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.5, railPos.getZ() + 0.5),
@@ -150,6 +151,7 @@ public class XbowCart {
                     reset(client, true);
                     return;
                 }
+                // Calcula mira no carrinho
                 Vec3 eye = client.player.getEyePosition();
                 Vec3 t = new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.22, cartPos.getZ() + 0.5);
                 double dx = t.x - eye.x, dy = t.y - eye.y, dz = t.z - eye.z;
@@ -212,5 +214,10 @@ public class XbowCart {
         hesitating = false;
         ping = 0;
     }
-    public static void toggle() { enabled = !enabled; if (!enabled) reset(Minecraft.getInstance(), true); }
-        }
+
+    public static void toggle() {
+        enabled = !enabled;
+        if (!enabled) reset(Minecraft.getInstance(), true);
+    }
+    public static void reset() { reset(Minecraft.getInstance(), true); }
+                    }
