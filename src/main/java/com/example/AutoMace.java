@@ -22,11 +22,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class AutoMace {
     public enum State { IDLE, PRE_SMASH, SMASH_ATTACK, POST_SMASH }
-    public enum Mode { STEALTH, FAST, STREAMER }
 
-    public static boolean enabled = false;
-    public static Mode currentMode = Mode.STEALTH;
-    public static boolean streamerMode = false;
+    // ===== MODOS REMOVIDOS – AGORA É APENAS "FUSION" =====
+    public static boolean enabled = false;  // ative com toggle
+    public static boolean streamerMode = true; // mantido para ajuste fino (opcional)
 
     private static State state = State.IDLE;
     private static long lastActionTime = 0;
@@ -37,11 +36,13 @@ public class AutoMace {
     private static int targetLockTicks = 0;
     private static final Random RANDOM = new Random();
 
+    // Mira suave
     private static float smoothYaw = Float.NaN;
     private static float smoothPitch = Float.NaN;
-    private static final Queue<Float> yawHist = new ConcurrentLinkedQueue<>();
-    private static final int HIST_SIZE = 10;
+    private static final Queue<Float> yawHistory = new ConcurrentLinkedQueue<>();
+    private static final int HIST_SIZE = 15;
 
+    // Sistema de erro humano (leve, estilo streamer)
     private static int missChance = 0;
     private static int hesitationTicks = 0;
     private static int pingTicks = 0;
@@ -50,8 +51,84 @@ public class AutoMace {
     private static int clickDelay = 0;
     private static long lastClick = 0;
 
-    private static final Map<LivingEntity, Vec3> velMap = new HashMap<>();
-    private static final Map<LivingEntity, Long> velTime = new HashMap<>();
+    // ===== KALMAN FILTER (HT1) =====
+    private static class KalmanFilter {
+        double x, y, z;
+        double vx, vy, vz;
+        double px = 1, py = 1, pz = 1;
+        final double q = 0.05;
+        final double r = 0.1;
+
+        void update(double mx, double my, double mz) {
+            x += vx; y += vy; z += vz;
+            px += q; py += q; pz += q;
+            double kx = px / (px + r);
+            double ky = py / (py + r);
+            double kz = pz / (pz + r);
+            x += kx * (mx - x);
+            y += ky * (my - y);
+            z += kz * (mz - z);
+            vx += kx * (mx - x);
+            vy += ky * (my - y);
+            vz += kz * (mz - z);
+            px *= (1 - kx);
+            py *= (1 - ky);
+            pz *= (1 - kz);
+        }
+
+        Vec3 predict(double dt) {
+            return new Vec3(x + vx * dt, y + vy * dt, z + vz * dt);
+        }
+    }
+    private static final Map<LivingEntity, KalmanFilter> kalmanMap = new HashMap<>();
+
+    // ===== CÁLCULO DE DANO (HT1) =====
+    private static double calculateMaceDamage(ItemStack mace, double fallDistance) {
+        if (mace.isEmpty() || !mace.is(Items.MACE)) return 0;
+        double baseDamage = 6.0;
+        double fallDamage = 0;
+        double remaining = fallDistance;
+        if (remaining > 0) {
+            double firstPhase = Math.min(remaining, 3);
+            fallDamage += firstPhase * 4;
+            remaining -= firstPhase;
+            if (remaining > 0) {
+                double secondPhase = Math.min(remaining, 5);
+                fallDamage += secondPhase * 2;
+                remaining -= secondPhase;
+            }
+            if (remaining > 0) {
+                fallDamage += remaining * 1;
+            }
+        }
+        int densityLevel = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.DENSITY, mace);
+        if (densityLevel > 0) {
+            fallDamage += fallDistance * 0.5 * densityLevel;
+        }
+        int breachLevel = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.BREACH, mace);
+        double totalDamage = baseDamage + fallDamage;
+        if (breachLevel > 0) {
+            totalDamage *= (1 + breachLevel * 0.07);
+        }
+        return totalDamage;
+    }
+
+    private static int findBestMaceByDamage(Minecraft client) {
+        int bestSlot = -1;
+        double bestDamage = -1;
+        double fallDist = client.player.fallDistance;
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = client.player.getInventory().getItem(i);
+            if (stack.isEmpty() || !stack.is(Items.MACE)) continue;
+            double damage = calculateMaceDamage(stack, fallDist);
+            if (damage > bestDamage) {
+                bestDamage = damage;
+                bestSlot = i;
+            }
+        }
+        return bestSlot;
+    }
+
     private static int totalTicks = 0, smashCount = 0;
 
     public static void onTick(Minecraft client) {
@@ -67,9 +144,10 @@ public class AutoMace {
         if (clickDelay > 0) { clickDelay--; return; }
         if (hesitating && hesitationTicks <= 0) hesitating = false;
 
+        // Alvo com lock rápido
         if (targetLockTicks <= 0 || activeTarget == null || !activeTarget.isAlive()) {
             activeTarget = findTarget(client);
-            targetLockTicks = 6 + RANDOM.nextInt(10);
+            targetLockTicks = 4 + RANDOM.nextInt(6);
         } else {
             targetLockTicks--;
         }
@@ -78,46 +156,54 @@ public class AutoMace {
             activeTarget = null; resetState(client); return;
         }
 
-        updateVelocity(activeTarget);
+        // Kalman: atualiza predição
+        KalmanFilter kf = kalmanMap.computeIfAbsent(activeTarget, k -> new KalmanFilter());
+        kf.update(activeTarget.getX(), activeTarget.getY(), activeTarget.getZ());
 
-        int hChance = (currentMode == Mode.FAST) ? 2 : (streamerMode ? 7 : 4);
-        if (RANDOM.nextInt(100) < hChance && !hesitating && state == State.IDLE) {
+        // Hesitação leve (estilo streamer) – 2% de chance
+        if (RANDOM.nextInt(100) < 2 && !hesitating && state == State.IDLE) {
             hesitating = true;
-            hesitationTicks = 2 + RANDOM.nextInt(6);
+            hesitationTicks = 1 + RANDOM.nextInt(3);
             return;
         }
 
-        float fallThr = 2.8f + 0.2f + RANDOM.nextFloat() * 0.4f;
-        if (streamerMode) fallThr += 0.3f;
+        // Fall threshold: 2.0–2.5 (mais agressivo que stealth)
+        float fallThr = 2.0f + RANDOM.nextFloat() * 0.5f;
         if (pingTicks > 0) fallThr += 0.2f;
         boolean falling = client.player.fallDistance >= fallThr
                 && !client.player.onGround() && !client.player.isInWater();
 
         if (falling) {
             state = State.PRE_SMASH;
-            applyAim(client, activeTarget);
-            double hitDist = 2.85 + 0.1 + RANDOM.nextDouble() * 0.2;
-            if (activeTarget != null && isMoving()) hitDist += 0.1;
+
+            // ===== MIRA FUSION (Kalman + velocidade FAST + naturalidade) =====
+            applyFusionAim(client, activeTarget, kf);
+
+            double hitDist = 2.85 + 0.05 + RANDOM.nextDouble() * 0.1;
+            if (activeTarget != null && isMoving(activeTarget)) hitDist += 0.05;
+
             if (client.player.distanceTo(activeTarget) <= hitDist) {
                 if (!canClick()) return;
                 float strength = client.player.getAttackStrengthScale(0.0f);
                 if (strength < 0.85f) return;
                 if (!activeTarget.isAlive()) { resetState(client); return; }
 
-                int missRate = (currentMode == Mode.FAST) ? 2 : 3;
-                if (streamerMode) missRate += 5;
-                if (activeTarget != null && isMovingFast()) missRate += 2;
+                // Taxa de erro: 1–3% (mix de HT1 e streamer)
+                int missRate = 1 + RANDOM.nextInt(3);
+                if (activeTarget != null && isMovingFast(activeTarget)) missRate += 1;
                 if (state == State.SMASH_ATTACK) missRate -= 1;
-                missRate = Math.min(missRate, 10);
+                missRate = Math.max(0, Math.min(missRate, 6));
+
                 if (RANDOM.nextInt(100) < missRate) {
                     missChance = 1 + RANDOM.nextInt(2);
                 }
                 if (missChance > 0) {
                     missChance--;
-                    client.player.setYRot(client.player.getYRot() + (RANDOM.nextFloat() - 0.5f) * 20f);
+                    client.player.setYRot(client.player.getYRot() + (RANDOM.nextFloat() - 0.5f) * 15f);
                     return;
                 }
 
+                // Shield break com machado (rápido)
                 boolean shielding = activeTarget instanceof Player p && p.isUsingItem()
                         && p.getUseItem().getItem() instanceof ShieldItem;
 
@@ -125,9 +211,9 @@ public class AutoMace {
                     int axe = findAxeSlot(client);
                     if (axe != -1) {
                         if (originalSlot == -1) originalSlot = client.player.getInventory().getSelectedSlot();
-                        if (delayTicks == 0) { delayTicks = 2 + RANDOM.nextInt(3); return; }
+                        if (delayTicks == 0) { delayTicks = 1 + RANDOM.nextInt(2); return; }
                         client.player.getInventory().setSelectedSlot(axe);
-                        delayTicks = 1 + RANDOM.nextInt(2);
+                        delayTicks = 1;
                         doAttack(client);
                         isSwapped = true;
                         state = State.SMASH_ATTACK;
@@ -137,50 +223,62 @@ public class AutoMace {
                     }
                 }
 
+                // ===== ATAQUE COM MAÇA (usa a melhor pelo dano) =====
                 if (state == State.SMASH_ATTACK || state == State.PRE_SMASH) {
-                    boolean preferDens = client.player.fallDistance > (6.0 + RANDOM.nextDouble() * 2.0);
-                    int mace = findBestMace(client, preferDens);
+                    int mace = findBestMaceByDamage(client);
+                    if (mace == -1) {
+                        mace = findBestMace(client, client.player.fallDistance > 4.0);
+                    }
                     if (mace != -1) {
                         if (originalSlot == -1) originalSlot = client.player.getInventory().getSelectedSlot();
-                        if (delayTicks == 0) { delayTicks = 2 + RANDOM.nextInt(3); return; }
+                        if (delayTicks == 0) { delayTicks = 1 + RANDOM.nextInt(2); return; }
                         client.player.getInventory().setSelectedSlot(mace);
                         isSwapped = true;
                     }
-                    if (delayTicks == 0) { delayTicks = 1 + RANDOM.nextInt(2); return; }
+                    if (delayTicks == 0) { delayTicks = 1; return; }
                     doAttack(client);
                     lastActionTime = System.currentTimeMillis();
                     state = State.POST_SMASH;
-                    cooldownTicks = 2 + RANDOM.nextInt(3);
-                    pingTicks = 1 + RANDOM.nextInt(3);
-                    delayTicks = 4 + RANDOM.nextInt(8);
-                    hesitationTicks = 2 + RANDOM.nextInt(5);
+                    cooldownTicks = 1 + RANDOM.nextInt(2);
+                    pingTicks = 1 + RANDOM.nextInt(2);
+                    delayTicks = 3 + RANDOM.nextInt(5);
+                    hesitationTicks = 1 + RANDOM.nextInt(3);
                     resetState(client);
                     smashCount++;
                 }
             }
         } else if (client.player.onGround()) {
-            if (state != State.IDLE) { delayTicks = 2 + RANDOM.nextInt(3); resetState(client); }
+            if (state != State.IDLE) { delayTicks = 1 + RANDOM.nextInt(2); resetState(client); }
             hesitating = false; hesitationTicks = 0;
         }
         if (totalTicks % 100 == 0 && smashCount > 50) { smashCount = 0; }
     }
 
-    // ========== MIRA SEGURA (NUNCA GIRA 360°) ==========
-    private static void applyAim(Minecraft client, LivingEntity target) {
+    // ===== MIRA FUSION =====
+    private static void applyFusionAim(Minecraft client, LivingEntity target, KalmanFilter kf) {
         Vec3 eye = client.player.getEyePosition();
-        Vec3 pred = predictPos(target);
-        double hOff = 0.3 + RANDOM.nextDouble() * 0.4;
-        double jX = RANDOM.nextGaussian() * 0.06;
-        double jY = RANDOM.nextGaussian() * 0.055;
-        double jZ = RANDOM.nextGaussian() * 0.06;
+        Vec3 predicted = kf.predict(1.0);
+
+        double heightOffset = 0.45 + RANDOM.nextDouble() * 0.1;
+        double jX = RANDOM.nextGaussian() * 0.03;
+        double jY = RANDOM.nextGaussian() * 0.025;
+        double jZ = RANDOM.nextGaussian() * 0.03;
         if (streamerMode) { jX *= 1.3; jY *= 1.3; jZ *= 1.3; }
-        Vec3 pt = new Vec3(pred.x + jX, pred.y + (target.getBbHeight() * hOff) + jY, pred.z + jZ);
-        double dx = pt.x - eye.x, dy = pt.y - eye.y, dz = pt.z - eye.z;
+
+        Vec3 targetPoint = new Vec3(
+            predicted.x + jX,
+            predicted.y + (target.getBbHeight() * heightOffset) + jY,
+            predicted.z + jZ
+        );
+
+        double dx = targetPoint.x - eye.x;
+        double dy = targetPoint.y - eye.y;
+        double dz = targetPoint.z - eye.z;
         double dist = Math.sqrt(dx * dx + dz * dz);
-        float rawYaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90f;
+
+        float rawYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
         float rawPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
 
-        // Normaliza ângulos com segurança
         if (Float.isNaN(smoothYaw) || Float.isNaN(smoothPitch)) {
             smoothYaw = client.player.getYRot();
             smoothPitch = client.player.getXRot();
@@ -194,25 +292,26 @@ public class AutoMace {
         while (pitchDiff > 180) pitchDiff -= 360;
         while (pitchDiff < -180) pitchDiff += 360;
 
-        float attn = 0.55f + (float)(1.0 / (dist + 0.5)) * 0.25f;
-        if (attn > 0.85f) attn = 0.85f;
+        // Atenção alta (FAST + HT1)
+        float attn = 0.85f;
         if (state == State.SMASH_ATTACK) attn += 0.05f;
+        if (attn > 0.95f) attn = 0.95f;
 
-        float maxTurn = (currentMode == Mode.FAST) ? 4f : 3f;
-        if (streamerMode) maxTurn = 2.5f;
+        // Velocidade máxima (FAST)
+        float maxTurn = 6.0f;
         if (pingTicks > 0) maxTurn *= 0.8f;
 
         float stepY = Math.max(-maxTurn, Math.min(maxTurn, yawDiff * attn));
         float stepP = Math.max(-maxTurn * 0.6f, Math.min(maxTurn * 0.6f, pitchDiff * attn));
 
-        // Overshoot apenas 5% das vezes
+        // Overshoot leve (natural)
         if (RANDOM.nextInt(100) < 5 && Math.abs(yawDiff) > 2f) {
-            float ov = 1.5f + RANDOM.nextFloat() * 2f;
-            stepY += (yawDiff > 0 ? ov : -ov) * 0.3f;
+            float ov = 1.0f + RANDOM.nextFloat() * 1.5f;
+            stepY += (yawDiff > 0 ? ov : -ov) * 0.2f;
         }
 
-        float noiseY = (RANDOM.nextFloat() - 0.5f) * 0.12f;
-        float noiseP = (RANDOM.nextFloat() - 0.5f) * 0.08f;
+        float noiseY = (RANDOM.nextFloat() - 0.5f) * 0.08f;
+        float noiseP = (RANDOM.nextFloat() - 0.5f) * 0.05f;
         float finalY = smoothYaw + stepY + noiseY;
         float finalP = Math.max(-90f, Math.min(90f, smoothPitch + stepP + noiseP));
 
@@ -232,31 +331,21 @@ public class AutoMace {
         smoothPitch = client.player.getXRot() + dP;
         client.player.setYRot(smoothYaw);
         client.player.setXRot(smoothPitch);
-        client.player.yRotO = smoothYaw - (RANDOM.nextFloat() - 0.5f) * 0.4f;
-        client.player.xRotO = smoothPitch - (RANDOM.nextFloat() - 0.5f) * 0.3f;
+        client.player.yRotO = smoothYaw - (RANDOM.nextFloat() - 0.5f) * 0.3f;
+        client.player.xRotO = smoothPitch - (RANDOM.nextFloat() - 0.5f) * 0.2f;
         client.player.yHeadRot = smoothYaw;
         client.player.yHeadRotO = smoothYaw;
-        if (yawHist.size() >= HIST_SIZE) yawHist.poll();
-        yawHist.add(smoothYaw);
+        if (yawHistory.size() >= HIST_SIZE) yawHistory.poll();
+        yawHistory.add(smoothYaw);
     }
 
-    // ========== CLICK SIM ==========
+    // ===== CLICK SIM (CPS 10–16, mix de FAST e HT1) =====
     private static boolean canClick() {
         long now = System.currentTimeMillis();
         if (lastClick == 0) { lastClick = now; return true; }
         long elapsed = now - lastClick;
-        int cps;
-        if (currentMode == Mode.FAST) {
-            cps = (int) (10 + RANDOM.nextGaussian() * 3);
-            cps = Math.max(7, Math.min(16, cps));
-        } else if (streamerMode) {
-            cps = (int) (8 + RANDOM.nextGaussian() * 2.5);
-            cps = Math.max(6, Math.min(13, cps));
-        } else {
-            cps = (int) (9 + RANDOM.nextGaussian() * 2.8);
-            cps = Math.max(7, Math.min(14, cps));
-        }
-        int delay = (int)((1000.0 / cps) * (0.80 + RANDOM.nextDouble() * 0.35));
+        int cps = 10 + RANDOM.nextInt(7);
+        int delay = (int)((1000.0 / cps) * (0.85 + RANDOM.nextDouble() * 0.20));
         if (elapsed >= delay) { lastClick = now; return true; }
         return false;
     }
@@ -265,46 +354,28 @@ public class AutoMace {
         if (activeTarget == null || !activeTarget.isAlive()) return;
         client.gameMode.attack(client.player, activeTarget);
         client.player.swing(InteractionHand.MAIN_HAND);
-        int cps = (currentMode == Mode.FAST) ? 10 + RANDOM.nextInt(6) : 8 + RANDOM.nextInt(5);
-        int delay = (int)((1000.0 / cps) * (0.80 + RANDOM.nextDouble() * 0.35));
+        int cps = 12 + RANDOM.nextInt(5);
+        int delay = (int)((1000.0 / cps) * (0.85 + RANDOM.nextDouble() * 0.20));
         clickDelay = delay / 50;
         if (clickDelay < 1) clickDelay = 1;
     }
 
-    // ========== PREDIÇÃO DE MOVIMENTO ==========
-    private static Vec3 predictPos(LivingEntity target) {
-        Vec3 pos = target.position();
-        Vec3 vel = velMap.getOrDefault(target, Vec3.ZERO);
-        double factor = 0.06 + RANDOM.nextDouble() * 0.1;
-        if (vel.length() > 0.5) factor += 0.03;
-        return pos.add(vel.scale(factor));
+    // ===== MOVIMENTO E PREDIÇÃO =====
+    private static boolean isMoving(LivingEntity target) {
+        if (target == null) return false;
+        Vec3 vel = kalmanMap.getOrDefault(target, new KalmanFilter()).predict(1)
+            .subtract(target.position());
+        return vel.length() > 0.05;
     }
 
-    private static void updateVelocity(LivingEntity target) {
-        long now = System.currentTimeMillis();
-        Vec3 cur = target.position();
-        Vec3 prev = velMap.getOrDefault(target, cur);
-        long dt = velTime.containsKey(target) ? now - velTime.get(target) : 50;
-        if (dt > 0) {
-            Vec3 vel = cur.subtract(prev).scale(1000.0 / dt);
-            velMap.put(target, vel);
-        }
-        velTime.put(target, now);
+    private static boolean isMovingFast(LivingEntity target) {
+        if (target == null) return false;
+        Vec3 vel = kalmanMap.getOrDefault(target, new KalmanFilter()).predict(1)
+            .subtract(target.position());
+        return vel.length() > 0.3;
     }
 
-    private static boolean isMoving() {
-        if (activeTarget == null) return false;
-        Vec3 v = velMap.getOrDefault(activeTarget, Vec3.ZERO);
-        return v.length() > 0.1;
-    }
-
-    private static boolean isMovingFast() {
-        if (activeTarget == null) return false;
-        Vec3 v = velMap.getOrDefault(activeTarget, Vec3.ZERO);
-        return v.length() > 0.5;
-    }
-
-    // ========== SELEÇÃO DE ALVO ==========
+    // ===== SELEÇÃO DE ALVO =====
     private static LivingEntity findTarget(Minecraft client) {
         AABB box = client.player.getBoundingBox().inflate(6.5, 350, 6.5);
         List<LivingEntity> list = client.level.getEntitiesOfClass(LivingEntity.class, box, e ->
@@ -313,15 +384,20 @@ public class AutoMace {
         );
         if (list.isEmpty()) return null;
         return list.stream().max((a, b) -> {
-            double sa = 100 + (20 - a.getHealth()) * 2 - client.player.distanceToSqr(a) * 0.05;
-            double sb = 100 + (20 - b.getHealth()) * 2 - client.player.distanceToSqr(b) * 0.05;
+            double fallDist = client.player.fallDistance;
+            double damageA = calculateMaceDamage(new ItemStack(Items.MACE), fallDist);
+            double damageB = calculateMaceDamage(new ItemStack(Items.MACE), fallDist);
+            double sa = (100 + damageA) - client.player.distanceToSqr(a) * 0.03;
+            double sb = (100 + damageB) - client.player.distanceToSqr(b) * 0.03;
             if (a instanceof Player) sa += 15;
             if (b instanceof Player) sb += 15;
+            sa += (20 - a.getHealth()) * 1.5;
+            sb += (20 - b.getHealth()) * 1.5;
             return Double.compare(sa, sb);
         }).orElse(null);
     }
 
-    // ========== SLOTS E ENCANTAMENTOS ==========
+    // ===== SLOTS E ENCANTAMENTOS =====
     private static int findAxeSlot(Minecraft client) {
         RegistryAccess reg = client.level.registryAccess();
         for (int i = 0; i < 9; i++) {
@@ -353,10 +429,10 @@ public class AutoMace {
         return holder.map(h -> EnchantmentHelper.getItemEnchantmentLevel(h, stack)).orElse(0);
     }
 
-    // ========== RESET ==========
+    // ===== RESET =====
     private static void resetState(Minecraft client) {
         if (isSwapped && originalSlot != -1 && client.player != null) {
-            if (System.currentTimeMillis() - lastActionTime > 200) {
+            if (System.currentTimeMillis() - lastActionTime > 150) {
                 client.player.getInventory().setSelectedSlot(originalSlot);
             }
         }
@@ -376,9 +452,10 @@ public class AutoMace {
                 smoothYaw = client.player.getYRot();
                 smoothPitch = client.player.getXRot();
             }
+            kalmanMap.clear();
         } else {
             resetState(Minecraft.getInstance());
         }
     }
     public static void reset() { resetState(Minecraft.getInstance()); }
-    }
+        }
