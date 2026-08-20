@@ -36,35 +36,25 @@ public class XbowCart {
         double vz = ARROW_SPEED * Math.cos(Math.toRadians(pitch)) * Math.cos(Math.toRadians(yaw));
         double x = origin.x, y = origin.y, z = origin.z;
         for (int t = 0; t < ticks; t++) {
-            x += vx;
-            y += vy;
-            z += vz;
+            x += vx; y += vy; z += vz;
             vy -= GRAVITY;
-            vx *= DRAG;
-            vy *= DRAG;
-            vz *= DRAG;
+            vx *= DRAG; vy *= DRAG; vz *= DRAG;
         }
         return new Vec3(x, y, z);
     }
 
-    private static float findPitchForFire(Vec3 eye, Vec3 firePoint, float yaw, float maxDist) {
-        float low = -90f, high = 90f;
-        float bestPitch = 0f;
+    private static float findOptimalPitch(Vec3 eye, Vec3 target, Vec3 firePoint, float yaw, int simTicks) {
+        float bestPitch = 0;
         double bestDist = Double.MAX_VALUE;
-        for (int iter = 0; iter < 50; iter++) {
-            float mid = (low + high) / 2f;
-            Vec3 hit = simulateArrow(eye, yaw, mid, (int)(maxDist * 1.5 + 10));
-            double dist = hit.distanceTo(firePoint);
-            if (dist < bestDist) {
-                bestDist = dist;
-                bestPitch = mid;
+        for (float p = -90; p <= 90; p += 0.5f) {
+            Vec3 hit = simulateArrow(eye, yaw, p, simTicks);
+            double distToTarget = hit.distanceTo(target);
+            double distToFire = hit.distanceTo(firePoint);
+            double score = distToTarget * 0.7 + distToFire * 0.3; // prioriza acertar o cart, mas passa pelo fogo
+            if (score < bestDist) {
+                bestDist = score;
+                bestPitch = p;
             }
-            if (hit.y > firePoint.y) {
-                high = mid;
-            } else {
-                low = mid;
-            }
-            if (dist < 0.1) break;
         }
         return bestPitch;
     }
@@ -146,8 +136,8 @@ public class XbowCart {
         if (targetBlock == null) { reset(client, true); return; }
 
         BlockPos railPos = targetBlock.getBlockPos().relative(targetBlock.getDirection());
-        BlockPos cartPos = railPos.above();
-        BlockPos firePos = cartPos.below();
+        BlockPos cartPos = railPos.above(); // CARRINHO EM CIMA DO TRILHO
+        BlockPos firePos = cartPos.below(); // FOGO ABAIXO DO CARRINHO (entre o trilho e o cart)
 
         BlockHitResult railHit = new BlockHitResult(
                 new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.5, railPos.getZ() + 0.5),
@@ -204,24 +194,10 @@ public class XbowCart {
                 double distToCart = Math.sqrt(dx*dx + dz*dz);
                 int simTicks = (int)(distToCart / ARROW_SPEED * 1.5) + 10;
 
-                float optimalPitch = findPitchForFire(eye, fireCenter, rawYaw, (float)distToCart);
-                float finalPitch = optimalPitch;
-
-                Vec3 simulatedHit = simulateArrow(eye, rawYaw, finalPitch, simTicks);
-                double distToCartSim = simulatedHit.distanceTo(cartCenter);
-                if (distToCartSim > 0.5) {
-                    for (float offset = -1f; offset <= 1f; offset += 0.2f) {
-                        Vec3 testHit = simulateArrow(eye, rawYaw, finalPitch + offset, simTicks);
-                        double testDist = testHit.distanceTo(cartCenter);
-                        if (testDist < distToCartSim) {
-                            distToCartSim = testDist;
-                            finalPitch += offset;
-                        }
-                    }
-                }
+                float optimalPitch = findOptimalPitch(eye, cartCenter, fireCenter, rawYaw, simTicks);
 
                 targetYaw = rawYaw + (RANDOM.nextFloat() - 0.5f) * 0.3f;
-                targetPitch = finalPitch + (RANDOM.nextFloat() - 0.5f) * 0.2f;
+                targetPitch = optimalPitch + (RANDOM.nextFloat() - 0.5f) * 0.2f;
 
                 stage = Stage.AIM;
                 tickTimer = 1;
@@ -283,4 +259,4 @@ public class XbowCart {
         if (!enabled) reset(Minecraft.getInstance(), true);
     }
     public static void reset() { reset(Minecraft.getInstance(), true); }
-        }
+                        }
