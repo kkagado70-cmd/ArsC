@@ -15,14 +15,12 @@ import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.EntityHitResult;
-import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import java.util.List;
 import java.util.Random;
 
 public class AutoMace {
-    // ===== CONFIGURAÇÕES (exatamente como no Echo) =====
+    // ===== CONFIGURAÇÕES =====
     private static final float FALL_THRESHOLD = 2.0f;
     private static final double RANGE = 7.0;
     private static final double ATTACK_RANGE = 3.0;
@@ -30,8 +28,9 @@ public class AutoMace {
     private static final float MAX_TURN_SPEED = 6.0f;
     private static final float ATTENTION = 0.7f;
 
-    // ===== ESTADO =====
-    private static boolean enabled = false;
+    // ===== ESTADO (público para acesso externo) =====
+    public static boolean enabled = false; // <-- AGORA PÚBLICO
+
     private static LivingEntity target = null;
     private static int originalSlot = -1;
     private static boolean isSwapped = false;
@@ -134,7 +133,7 @@ public class AutoMace {
         }
     }
 
-    // ===== SELEÇÃO DE ALVO (Echo) =====
+    // ===== SELEÇÃO DE ALVO =====
     private static LivingEntity findTarget(Minecraft client) {
         AABB box = client.player.getBoundingBox().inflate(RANGE, 400, RANGE);
         List<LivingEntity> entities = client.level.getEntitiesOfClass(LivingEntity.class, box, e ->
@@ -143,18 +142,16 @@ public class AutoMace {
                         && !e.isInvisible()
         );
         if (entities.isEmpty()) return null;
-        // Prioriza o mais próximo (Echo)
         return entities.stream()
                 .min((a, b) -> Double.compare(client.player.distanceToSqr(a), client.player.distanceToSqr(b)))
                 .orElse(null);
     }
 
-    // ===== MIRA WINDMOUSE (Echo) =====
+    // ===== MIRA WINDMOUSE =====
     private static void applyWindMouse(Minecraft client, LivingEntity target) {
         Vec3 eye = client.player.getEyePosition();
         Vec3 targetPos = target.getEyePosition(client.getDeltaTracker().getGameTimeDeltaPartialTick(false));
 
-        // Predição leve (10% da velocidade)
         if (lastTargetPos != null) {
             Vec3 vel = target.position().subtract(lastTargetPos);
             targetPos = targetPos.add(vel.scale(0.1));
@@ -184,7 +181,6 @@ public class AutoMace {
         while (pDiff > 180) pDiff -= 360;
         while (pDiff < -180) pDiff += 360;
 
-        // ===== WINDMOUSE (inércia) =====
         float attention = ATTENTION + (float)(1.0 / (dist + 0.5)) * 0.2f;
         if (attention > 0.9f) attention = 0.9f;
 
@@ -196,12 +192,10 @@ public class AutoMace {
         targetVelY = Math.max(-maxTurn, Math.min(maxTurn, targetVelY));
         targetVelP = Math.max(-maxTurn * 0.6f, Math.min(maxTurn * 0.6f, targetVelP));
 
-        // Inércia (WindMouse)
         float inertia = 0.85f;
         velYaw = velYaw * inertia + targetVelY * (1 - inertia);
         velPitch = velPitch * inertia + targetVelP * (1 - inertia);
 
-        // Jitter (micro-movimentos)
         velYaw += (RANDOM.nextFloat() - 0.5f) * 0.12f;
         velPitch += (RANDOM.nextFloat() - 0.5f) * 0.08f;
 
@@ -271,4 +265,4 @@ public class AutoMace {
             velPitch = 0;
         }
     }
-                                                                          }
+}
