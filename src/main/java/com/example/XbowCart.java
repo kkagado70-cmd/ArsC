@@ -259,4 +259,4 @@ public class XbowCart {
         if (!enabled) reset(Minecraft.getInstance(), true);
     }
     public static void reset() { reset(Minecraft.getInstance(), true); }
-}
+                    }
