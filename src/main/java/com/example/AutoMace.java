@@ -23,14 +23,13 @@ import java.util.Random;
 public class AutoMace {
     public static boolean enabled = false;
 
-    // ===== CONFIGURAÇÕES DE BYPASS (já ativadas por padrão) =====
-    private static final boolean STREAMER_MODE = true;      // hesitação e micro-erros
-    private static final float MAX_TURN_SPEED = 6.0f;       // graus por tick (humano)
-    private static final float ATTENTION = 0.7f;            // suavização da mira
-    private static final long ATTACK_DELAY_MS = 120;        // delay entre ataques (simula reação)
-    private static final double TARGET_RANGE = 7.0;         // alcance máximo (7 blocos)
-    private static final double ATTACK_RANGE = 3.0;         // distância para atacar
-    private static final float FALL_THRESHOLD = 2.0f;       // queda mínima para smash
+    private static final boolean STREAMER_MODE = true;
+    private static final float MAX_TURN_SPEED = 6.0f;
+    private static final float ATTENTION = 0.7f;
+    private static final long ATTACK_DELAY_MS = 120;
+    private static final double TARGET_RANGE = 7.0;
+    private static final double ATTACK_RANGE = 3.0;
+    private static final float FALL_THRESHOLD = 2.0f;
 
     private static long lastAttackTime = 0;
     private static int originalSlot = -1;
@@ -53,41 +52,33 @@ public class AutoMace {
             return;
         }
 
-        // ===== VERIFICA QUEDA =====
         boolean isFalling = !client.player.onGround() && client.player.fallDistance >= FALL_THRESHOLD;
         if (isFalling) {
             applySmoothAim(client, target);
 
             double dist = client.player.distanceTo(target);
             if (dist <= ATTACK_RANGE) {
-                // ===== DELAY HUMANO (evita spam) =====
                 if (System.currentTimeMillis() - lastAttackTime < ATTACK_DELAY_MS) return;
 
-                // ===== HESITAÇÃO (streamer mode) =====
                 if (STREAMER_MODE && RANDOM.nextInt(100) < 3) {
-                    // Pequena hesitação de 1-2 ticks
                     return;
                 }
 
-                // ===== MICRO-ERRO (jitter proposital) =====
                 if (STREAMER_MODE && RANDOM.nextInt(100) < 5) {
                     client.player.setYRot(client.player.getYRot() + (RANDOM.nextFloat() - 0.5f) * 2f);
                 }
 
-                // ===== TROCA PARA A MELHOR MACE =====
                 int maceSlot = findBestMaceSlot(client);
                 if (maceSlot != -1) {
-                    if (originalSlot == -1) originalSlot = client.player.getInventory().selected;
-                    client.player.getInventory().selected = maceSlot;
+                    if (originalSlot == -1) originalSlot = client.player.getInventory().getSelectedSlot();
+                    client.player.getInventory().setSelectedSlot(maceSlot);
                     isSwapped = true;
                 }
 
-                // ===== ATAQUE =====
                 client.gameMode.attack(client.player, target);
                 client.player.swing(InteractionHand.MAIN_HAND);
                 lastAttackTime = System.currentTimeMillis();
 
-                // ===== VOLTA PARA O SLOT ORIGINAL (com delay suave) =====
                 resetState(client);
             }
         } else {
@@ -133,11 +124,9 @@ public class AutoMace {
         while (pitchDiff > 180) pitchDiff -= 360;
         while (pitchDiff < -180) pitchDiff += 360;
 
-        // ===== VELOCIDADE DE MIRA (humana) =====
         float stepYaw = Math.max(-MAX_TURN_SPEED, Math.min(MAX_TURN_SPEED, yawDiff * ATTENTION));
         float stepPitch = Math.max(-MAX_TURN_SPEED * 0.6f, Math.min(MAX_TURN_SPEED * 0.6f, pitchDiff * ATTENTION));
 
-        // ===== JITTER NATURAL (micro-movimentos) =====
         if (STREAMER_MODE) {
             stepYaw += (RANDOM.nextFloat() - 0.5f) * 0.15f;
             stepPitch += (RANDOM.nextFloat() - 0.5f) * 0.10f;
@@ -177,7 +166,7 @@ public class AutoMace {
 
     private static void resetState(Minecraft client) {
         if (isSwapped && originalSlot != -1 && client.player != null) {
-            client.player.getInventory().selected = originalSlot;
+            client.player.getInventory().setSelectedSlot(originalSlot);
         }
         originalSlot = -1;
         isSwapped = false;
@@ -192,4 +181,4 @@ public class AutoMace {
         if (!enabled) resetState(Minecraft.getInstance());
     }
     public static void reset() { resetState(Minecraft.getInstance()); }
-    }
+}
