@@ -63,11 +63,16 @@ public class XbowCart {
             if (triggered) {
                 triggered = false;
                 if (client.hitResult instanceof BlockHitResult hit) {
+                    // Verifica itens obrigatórios ANTES de começar
                     int rail = findSlot(client, Items.RAIL, Items.POWERED_RAIL, Items.DETECTOR_RAIL, Items.ACTIVATOR_RAIL);
                     int cart = findSlot(client, Items.TNT_MINECART);
                     int flint = findSlot(client, Items.FLINT_AND_STEEL);
                     int xbow = findChargedCrossbow(client);
-                    if (rail == -1 || cart == -1 || flint == -1) return;
+                    if (rail == -1 || cart == -1 || flint == -1) {
+                        // Se faltar algum, não faz nada e reseta
+                        reset(client, false);
+                        return;
+                    }
                     if (xbow == -1) {
                         int cb = findSlot(client, Items.CROSSBOW);
                         if (cb != -1) {
@@ -75,9 +80,11 @@ public class XbowCart {
                             client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
                             return;
                         }
+                        reset(client, false);
                         return;
                     }
 
+                    // Detecta slab para Safe Carting
                     useSafe = false;
                     slabSlot = -1;
                     slabPos = null;
@@ -166,49 +173,44 @@ public class XbowCart {
         switch (stage) {
             case PLACE_RAIL -> {
                 int r = findSlot(client, Items.RAIL, Items.POWERED_RAIL, Items.DETECTOR_RAIL, Items.ACTIVATOR_RAIL);
-                if (r != -1) {
-                    client.player.getInventory().setSelectedSlot(r);
-                    client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, railHit);
-                    client.player.swing(InteractionHand.MAIN_HAND);
-                }
+                if (r == -1) { reset(client, true); return; }
+                client.player.getInventory().setSelectedSlot(r);
+                client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, railHit);
+                client.player.swing(InteractionHand.MAIN_HAND);
                 stage = Stage.PLACE_CART;
                 tickTimer = naturalDelay;
             }
             case PLACE_CART -> {
                 int c = findSlot(client, Items.TNT_MINECART);
-                if (c != -1) {
-                    client.player.getInventory().setSelectedSlot(c);
-                    client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, cartHit);
-                    client.player.swing(InteractionHand.MAIN_HAND);
-                }
+                if (c == -1) { reset(client, true); return; }
+                client.player.getInventory().setSelectedSlot(c);
+                client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, cartHit);
+                client.player.swing(InteractionHand.MAIN_HAND);
                 stage = useSafe ? Stage.PLACE_SLAB : Stage.LIGHT_FIRE;
                 tickTimer = naturalDelay;
             }
             case PLACE_SLAB -> {
-                if (slabSlot != -1 && slabPos != null) {
-                    BlockHitResult slabHit = new BlockHitResult(
-                            new Vec3(slabPos.getX() + 0.5, slabPos.getY() + 0.5, slabPos.getZ() + 0.5),
-                            Direction.UP, slabPos, false);
-                    client.player.getInventory().setSelectedSlot(slabSlot);
-                    client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, slabHit);
-                    client.player.swing(InteractionHand.MAIN_HAND);
-                }
+                if (slabSlot == -1 || slabPos == null) { reset(client, true); return; }
+                BlockHitResult slabHit = new BlockHitResult(
+                        new Vec3(slabPos.getX() + 0.5, slabPos.getY() + 0.5, slabPos.getZ() + 0.5),
+                        Direction.UP, slabPos, false);
+                client.player.getInventory().setSelectedSlot(slabSlot);
+                client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, slabHit);
+                client.player.swing(InteractionHand.MAIN_HAND);
                 stage = Stage.LIGHT_FIRE;
                 tickTimer = naturalDelay;
             }
             case LIGHT_FIRE -> {
                 int f = findSlot(client, Items.FLINT_AND_STEEL);
-                if (f != -1 && firePos != null) {
-                    BlockHitResult fireHit = new BlockHitResult(
-                            new Vec3(firePos.getX() + 0.5, firePos.getY() + 0.5, firePos.getZ() + 0.5),
-                            Direction.UP, firePos, false);
-                    client.player.getInventory().setSelectedSlot(f);
-                    client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, fireHit);
-                    client.player.swing(InteractionHand.MAIN_HAND);
-                } else {
-                    reset(client, true);
-                    return;
-                }
+                if (f == -1 || firePos == null) { reset(client, true); return; }
+                BlockHitResult fireHit = new BlockHitResult(
+                        new Vec3(firePos.getX() + 0.5, firePos.getY() + 0.5, firePos.getZ() + 0.5),
+                        Direction.UP, firePos, false);
+                client.player.getInventory().setSelectedSlot(f);
+                client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, fireHit);
+                client.player.swing(InteractionHand.MAIN_HAND);
+
+                // Calcula mira no carrinho
                 Vec3 eye = client.player.getEyePosition();
                 Vec3 cartCenter = new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.22, cartPos.getZ() + 0.5);
                 double dx = cartCenter.x - eye.x;
@@ -226,29 +228,29 @@ public class XbowCart {
             }
             case AIM -> {
                 int x = findChargedCrossbow(client);
-                if (x != -1) {
-                    client.player.getInventory().setSelectedSlot(x);
-                    float curY = client.player.getYRot();
-                    float curP = client.player.getXRot();
-                    float maxStep = MAX_TURN_SPEED + (STREAMER_MODE ? RANDOM.nextFloat() * 10f : 0f);
-                    float dY = targetYaw - curY;
-                    while (dY > 180) dY -= 360;
-                    while (dY < -180) dY += 360;
-                    float dP = targetPitch - curP;
-                    dY = Math.max(-maxStep, Math.min(maxStep, dY));
-                    dP = Math.max(-maxStep * 0.6f, Math.min(maxStep * 0.6f, dP));
-                    client.player.setYRot(curY + dY);
-                    client.player.setXRot(Math.max(-90, Math.min(90, curP + dP)));
-                    stage = Stage.DISCHARGE;
-                    tickTimer = naturalDelay;
-                } else {
+                if (x == -1) {
                     int cb = findSlot(client, Items.CROSSBOW);
                     if (cb != -1) {
                         client.player.getInventory().setSelectedSlot(cb);
                         client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
-                        reset(client, true);
-                    } else reset(client, true);
+                    }
+                    reset(client, true);
+                    return;
                 }
+                client.player.getInventory().setSelectedSlot(x);
+                float curY = client.player.getYRot();
+                float curP = client.player.getXRot();
+                float maxStep = MAX_TURN_SPEED + (STREAMER_MODE ? RANDOM.nextFloat() * 10f : 0f);
+                float dY = targetYaw - curY;
+                while (dY > 180) dY -= 360;
+                while (dY < -180) dY += 360;
+                float dP = targetPitch - curP;
+                dY = Math.max(-maxStep, Math.min(maxStep, dY));
+                dP = Math.max(-maxStep * 0.6f, Math.min(maxStep * 0.6f, dP));
+                client.player.setYRot(curY + dY);
+                client.player.setXRot(Math.max(-90, Math.min(90, curP + dP)));
+                stage = Stage.DISCHARGE;
+                tickTimer = naturalDelay;
             }
             case DISCHARGE -> {
                 client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
