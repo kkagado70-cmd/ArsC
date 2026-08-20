@@ -36,7 +36,9 @@ public class XbowCart {
     private static int originalSlot = -1;
     private static final Random RANDOM = new Random();
 
-    // Safe Carting
+    private static final boolean STREAMER_MODE = true;
+    private static final float MAX_TURN_SPEED = 40.0f;
+
     private static boolean useSafe = false;
     private static int slabSlot = -1;
     private static BlockPos slabPos = null;
@@ -61,7 +63,6 @@ public class XbowCart {
             if (triggered) {
                 triggered = false;
                 if (client.hitResult instanceof BlockHitResult hit) {
-                    // Verifica itens obrigatórios
                     int rail = findSlot(client, Items.RAIL, Items.POWERED_RAIL, Items.DETECTOR_RAIL, Items.ACTIVATOR_RAIL);
                     int cart = findSlot(client, Items.TNT_MINECART);
                     int flint = findSlot(client, Items.FLINT_AND_STEEL);
@@ -77,7 +78,6 @@ public class XbowCart {
                         return;
                     }
 
-                    // Detecta slab para Safe Carting
                     useSafe = false;
                     slabSlot = -1;
                     slabPos = null;
@@ -98,13 +98,10 @@ public class XbowCart {
                     Direction playerDir = client.player.getDirection();
 
                     if (slabSlot != -1) {
-                        // Slab fica entre o jogador e o trilho
                         slabPos = basePos.relative(playerDir.getOpposite());
-                        // Fogo fica atrás da slab (do lado do carrinho)
                         firePos = slabPos.relative(playerDir);
                         useSafe = true;
                     } else {
-                        // Sem slab: fogo ao lado do trilho (comportamento normal)
                         firePos = basePos.relative(playerDir.getOpposite());
                     }
 
@@ -164,6 +161,8 @@ public class XbowCart {
                 new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.05, cartPos.getZ() + 0.5),
                 Direction.UP, cartPos, false);
 
+        int naturalDelay = STREAMER_MODE ? 1 + RANDOM.nextInt(1) : 1;
+
         switch (stage) {
             case PLACE_RAIL -> {
                 int r = findSlot(client, Items.RAIL, Items.POWERED_RAIL, Items.DETECTOR_RAIL, Items.ACTIVATOR_RAIL);
@@ -173,7 +172,7 @@ public class XbowCart {
                     client.player.swing(InteractionHand.MAIN_HAND);
                 }
                 stage = Stage.PLACE_CART;
-                tickTimer = 1;
+                tickTimer = naturalDelay;
             }
             case PLACE_CART -> {
                 int c = findSlot(client, Items.TNT_MINECART);
@@ -183,7 +182,7 @@ public class XbowCart {
                     client.player.swing(InteractionHand.MAIN_HAND);
                 }
                 stage = useSafe ? Stage.PLACE_SLAB : Stage.LIGHT_FIRE;
-                tickTimer = 1;
+                tickTimer = naturalDelay;
             }
             case PLACE_SLAB -> {
                 if (slabSlot != -1 && slabPos != null) {
@@ -195,7 +194,7 @@ public class XbowCart {
                     client.player.swing(InteractionHand.MAIN_HAND);
                 }
                 stage = Stage.LIGHT_FIRE;
-                tickTimer = 1;
+                tickTimer = naturalDelay;
             }
             case LIGHT_FIRE -> {
                 int f = findSlot(client, Items.FLINT_AND_STEEL);
@@ -218,10 +217,12 @@ public class XbowCart {
                 double dist = Math.sqrt(dx * dx + dz * dz);
                 targetYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
                 targetPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
-                targetYaw += (RANDOM.nextFloat() - 0.5f) * 0.3f;
-                targetPitch += (RANDOM.nextFloat() - 0.5f) * 0.2f;
+                if (STREAMER_MODE) {
+                    targetYaw += (RANDOM.nextFloat() - 0.5f) * 0.5f;
+                    targetPitch += (RANDOM.nextFloat() - 0.5f) * 0.3f;
+                }
                 stage = Stage.AIM;
-                tickTimer = 1;
+                tickTimer = naturalDelay;
             }
             case AIM -> {
                 int x = findChargedCrossbow(client);
@@ -229,7 +230,7 @@ public class XbowCart {
                     client.player.getInventory().setSelectedSlot(x);
                     float curY = client.player.getYRot();
                     float curP = client.player.getXRot();
-                    float maxStep = 40f;
+                    float maxStep = MAX_TURN_SPEED + (STREAMER_MODE ? RANDOM.nextFloat() * 10f : 0f);
                     float dY = targetYaw - curY;
                     while (dY > 180) dY -= 360;
                     while (dY < -180) dY += 360;
@@ -239,7 +240,7 @@ public class XbowCart {
                     client.player.setYRot(curY + dY);
                     client.player.setXRot(Math.max(-90, Math.min(90, curP + dP)));
                     stage = Stage.DISCHARGE;
-                    tickTimer = 1;
+                    tickTimer = naturalDelay;
                 } else {
                     int cb = findSlot(client, Items.CROSSBOW);
                     if (cb != -1) {
@@ -253,7 +254,7 @@ public class XbowCart {
                 client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
                 client.player.swing(InteractionHand.MAIN_HAND);
                 stage = Stage.RESTORE;
-                tickTimer = 1;
+                tickTimer = naturalDelay;
             }
             case RESTORE -> reset(client, true);
             default -> reset(client, false);
@@ -280,4 +281,4 @@ public class XbowCart {
         if (!enabled) reset(Minecraft.getInstance(), true);
     }
     public static void reset() { reset(Minecraft.getInstance(), true); }
-}
+                    }
