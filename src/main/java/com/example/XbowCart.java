@@ -26,6 +26,49 @@ public class XbowCart {
     private static int hesitate = 0, ping = 0;
     private static boolean hesitating = false;
 
+    private static final double ARROW_SPEED = 3.15;
+    private static final double GRAVITY = 0.05;
+    private static final double DRAG = 0.99;
+
+    private static Vec3 simulateArrow(Vec3 origin, float yaw, float pitch, int ticks) {
+        double vx = ARROW_SPEED * Math.cos(Math.toRadians(pitch)) * Math.sin(Math.toRadians(yaw));
+        double vy = -ARROW_SPEED * Math.sin(Math.toRadians(pitch));
+        double vz = ARROW_SPEED * Math.cos(Math.toRadians(pitch)) * Math.cos(Math.toRadians(yaw));
+        double x = origin.x, y = origin.y, z = origin.z;
+        for (int t = 0; t < ticks; t++) {
+            x += vx;
+            y += vy;
+            z += vz;
+            vy -= GRAVITY;
+            vx *= DRAG;
+            vy *= DRAG;
+            vz *= DRAG;
+        }
+        return new Vec3(x, y, z);
+    }
+
+    private static float findPitchForFire(Vec3 eye, Vec3 firePoint, float yaw, float maxDist) {
+        float low = -90f, high = 90f;
+        float bestPitch = 0f;
+        double bestDist = Double.MAX_VALUE;
+        for (int iter = 0; iter < 50; iter++) {
+            float mid = (low + high) / 2f;
+            Vec3 hit = simulateArrow(eye, yaw, mid, (int)(maxDist * 1.5 + 10));
+            double dist = hit.distanceTo(firePoint);
+            if (dist < bestDist) {
+                bestDist = dist;
+                bestPitch = mid;
+            }
+            if (hit.y > firePoint.y) {
+                high = mid;
+            } else {
+                low = mid;
+            }
+            if (dist < 0.1) break;
+        }
+        return bestPitch;
+    }
+
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null || client.gameMode == null) {
             if (stage != Stage.IDLE) reset(client, true);
@@ -41,7 +84,7 @@ public class XbowCart {
                     || hand.is(Items.DETECTOR_RAIL) || hand.is(Items.ACTIVATOR_RAIL);
             if (holding && client.hitResult instanceof BlockHitResult hit
                     && hit.getType() == HitResult.Type.BLOCK && hit.getDirection() == Direction.UP) {
-                if (client.player.getEyePosition().distanceTo(hit.getLocation()) <= 5.0) {
+                if (client.player.getEyePosition().distanceTo(hit.getLocation()) <= 6.0) {
                     triggered = true;
                 }
             }
@@ -102,10 +145,9 @@ public class XbowCart {
     private static void processState(Minecraft client) {
         if (targetBlock == null) { reset(client, true); return; }
 
-        // Posições corretas: carrinho em cima do trilho
         BlockPos railPos = targetBlock.getBlockPos().relative(targetBlock.getDirection());
-        BlockPos cartPos = railPos.above();      // <--- aqui está a correção
-        BlockPos firePos = cartPos.above();      // fogo em cima do carrinho
+        BlockPos cartPos = railPos.above();
+        BlockPos firePos = cartPos.below();
 
         BlockHitResult railHit = new BlockHitResult(
                 new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.5, railPos.getZ() + 0.5),
@@ -151,15 +193,36 @@ public class XbowCart {
                     reset(client, true);
                     return;
                 }
-                // Calcula mira no carrinho
                 Vec3 eye = client.player.getEyePosition();
-                Vec3 t = new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.22, cartPos.getZ() + 0.5);
-                double dx = t.x - eye.x, dy = t.y - eye.y, dz = t.z - eye.z;
-                double dist = Math.sqrt(dx * dx + dz * dz);
-                targetYaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90f;
-                targetPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
-                targetYaw += (RANDOM.nextFloat() - 0.5f) * 0.4f;
-                targetPitch += (RANDOM.nextFloat() - 0.5f) * 0.3f;
+                Vec3 cartCenter = new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.22, cartPos.getZ() + 0.5);
+                Vec3 fireCenter = new Vec3(firePos.getX() + 0.5, firePos.getY() + 0.5, firePos.getZ() + 0.5);
+
+                double dx = cartCenter.x - eye.x;
+                double dy = cartCenter.y - eye.y;
+                double dz = cartCenter.z - eye.z;
+                float rawYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+                double distToCart = Math.sqrt(dx*dx + dz*dz);
+                int simTicks = (int)(distToCart / ARROW_SPEED * 1.5) + 10;
+
+                float optimalPitch = findPitchForFire(eye, fireCenter, rawYaw, (float)distToCart);
+                float finalPitch = optimalPitch;
+
+                Vec3 simulatedHit = simulateArrow(eye, rawYaw, finalPitch, simTicks);
+                double distToCartSim = simulatedHit.distanceTo(cartCenter);
+                if (distToCartSim > 0.5) {
+                    for (float offset = -1f; offset <= 1f; offset += 0.2f) {
+                        Vec3 testHit = simulateArrow(eye, rawYaw, finalPitch + offset, simTicks);
+                        double testDist = testHit.distanceTo(cartCenter);
+                        if (testDist < distToCartSim) {
+                            distToCartSim = testDist;
+                            finalPitch += offset;
+                        }
+                    }
+                }
+
+                targetYaw = rawYaw + (RANDOM.nextFloat() - 0.5f) * 0.3f;
+                targetPitch = finalPitch + (RANDOM.nextFloat() - 0.5f) * 0.2f;
+
                 stage = Stage.AIM;
                 tickTimer = 1;
             }
@@ -169,7 +232,7 @@ public class XbowCart {
                     client.player.getInventory().setSelectedSlot(x);
                     float curY = client.player.getYRot();
                     float curP = client.player.getXRot();
-                    float maxStep = 30f + RANDOM.nextFloat() * 15f;
+                    float maxStep = 35f + RANDOM.nextFloat() * 15f;
                     float dY = targetYaw - curY;
                     while (dY > 180) dY -= 360;
                     while (dY < -180) dY += 360;
@@ -220,4 +283,4 @@ public class XbowCart {
         if (!enabled) reset(Minecraft.getInstance(), true);
     }
     public static void reset() { reset(Minecraft.getInstance(), true); }
-                    }
+        }
