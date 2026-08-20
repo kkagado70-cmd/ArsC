@@ -4,7 +4,8 @@
   "package": "com.example.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "MixinAutoMace"
+    "MixinAutoMace",
+    "MixinXbowCart"
   ],
   "injectors": {
     "defaultRequire": 1
