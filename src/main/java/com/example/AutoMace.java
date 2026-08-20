@@ -22,12 +22,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class AutoMace {
     public enum State { IDLE, PRE_SMASH, SMASH_ATTACK, POST_SMASH }
-    public enum Mode { STEALTH, FAST, HT1 }
-
-    // ===== POR PADRÃO, MODO FUSION (HT1 + FAST + STREAMER) =====
     public static boolean enabled = false;
-    public static Mode currentMode = Mode.HT1;
-    public static boolean streamerMode = true;
+    public static boolean streamerMode = true; // liga o modo mais natural
 
     private static State state = State.IDLE;
     private static long lastActionTime = 0;
@@ -38,13 +34,15 @@ public class AutoMace {
     private static int targetLockTicks = 0;
     private static final Random RANDOM = new Random();
 
-    // Mira suave
+    // ===== MIRA SUAVE (igual ao Echo) =====
     private static float smoothYaw = Float.NaN;
     private static float smoothPitch = Float.NaN;
     private static final Queue<Float> yawHistory = new ConcurrentLinkedQueue<>();
     private static final int HIST_SIZE = 15;
+    private static float targetYaw = 0, targetPitch = 0;
+    private static boolean rotating = false;
 
-    // Erro humano e delays
+    // ===== DELAYS E ERROS =====
     private static int missChance = 0;
     private static int hesitationTicks = 0;
     private static int pingTicks = 0;
@@ -53,89 +51,59 @@ public class AutoMace {
     private static int clickDelay = 0;
     private static long lastClick = 0;
 
-    // ===== KALMAN FILTER =====
+    // ===== KALMAN FILTER (predição) =====
     private static class KalmanFilter {
-        double x, y, z;
-        double vx, vy, vz;
-        double px = 1, py = 1, pz = 1;
-        final double q = 0.05;
-        final double r = 0.1;
-
+        double x, y, z, vx, vy, vz, px = 1, py = 1, pz = 1;
+        final double q = 0.05, r = 0.1;
         void update(double mx, double my, double mz) {
             x += vx; y += vy; z += vz;
             px += q; py += q; pz += q;
-            double kx = px / (px + r);
-            double ky = py / (py + r);
-            double kz = pz / (pz + r);
-            x += kx * (mx - x);
-            y += ky * (my - y);
-            z += kz * (mz - z);
-            vx += kx * (mx - x);
-            vy += ky * (my - y);
-            vz += kz * (mz - z);
-            px *= (1 - kx);
-            py *= (1 - ky);
-            pz *= (1 - kz);
+            double kx = px / (px + r), ky = py / (py + r), kz = pz / (pz + r);
+            x += kx * (mx - x); y += ky * (my - y); z += kz * (mz - z);
+            vx += kx * (mx - x); vy += ky * (my - y); vz += kz * (mz - z);
+            px *= (1 - kx); py *= (1 - ky); pz *= (1 - kz);
         }
-
-        Vec3 predict(double dt) {
-            return new Vec3(x + vx * dt, y + vy * dt, z + vz * dt);
-        }
+        Vec3 predict(double dt) { return new Vec3(x + vx * dt, y + vy * dt, z + vz * dt); }
     }
     private static final Map<LivingEntity, KalmanFilter> kalmanMap = new HashMap<>();
 
-    // ===== CÁLCULO DE DANO (agora com RegistryAccess) =====
-    private static double calculateMaceDamage(RegistryAccess reg, ItemStack mace, double fallDistance) {
+    // ===== CÁLCULO DE DANO =====
+    private static double calculateMaceDamage(RegistryAccess reg, ItemStack mace, double fallDist) {
         if (mace.isEmpty() || !mace.is(Items.MACE)) return 0;
-
-        // Obtém os holders dos encantamentos
-        var enchantLookup = reg.lookupOrThrow(Registries.ENCHANTMENT);
-        Holder<Enchantment> densityHolder = enchantLookup.getOrThrow(Enchantments.DENSITY);
-        Holder<Enchantment> breachHolder = enchantLookup.getOrThrow(Enchantments.BREACH);
-
-        double baseDamage = 6.0;
-        double fallDamage = 0;
-        double remaining = fallDistance;
+        var lookup = reg.lookupOrThrow(Registries.ENCHANTMENT);
+        Holder<Enchantment> density = lookup.getOrThrow(Enchantments.DENSITY);
+        Holder<Enchantment> breach = lookup.getOrThrow(Enchantments.BREACH);
+        double base = 6.0, fallDmg = 0;
+        double remaining = fallDist;
         if (remaining > 0) {
-            double firstPhase = Math.min(remaining, 3);
-            fallDamage += firstPhase * 4;
-            remaining -= firstPhase;
+            double first = Math.min(remaining, 3);
+            fallDmg += first * 4;
+            remaining -= first;
             if (remaining > 0) {
-                double secondPhase = Math.min(remaining, 5);
-                fallDamage += secondPhase * 2;
-                remaining -= secondPhase;
+                double second = Math.min(remaining, 5);
+                fallDmg += second * 2;
+                remaining -= second;
             }
-            if (remaining > 0) {
-                fallDamage += remaining * 1;
-            }
+            if (remaining > 0) fallDmg += remaining;
         }
-
-        int densityLevel = EnchantmentHelper.getItemEnchantmentLevel(densityHolder, mace);
-        if (densityLevel > 0) {
-            fallDamage += fallDistance * 0.5 * densityLevel;
-        }
-
-        int breachLevel = EnchantmentHelper.getItemEnchantmentLevel(breachHolder, mace);
-        double totalDamage = baseDamage + fallDamage;
-        if (breachLevel > 0) {
-            totalDamage *= (1 + breachLevel * 0.07);
-        }
-        return totalDamage;
+        int densityLvl = EnchantmentHelper.getItemEnchantmentLevel(density, mace);
+        if (densityLvl > 0) fallDmg += fallDist * 0.5 * densityLvl;
+        int breachLvl = EnchantmentHelper.getItemEnchantmentLevel(breach, mace);
+        double total = base + fallDmg;
+        if (breachLvl > 0) total *= (1 + breachLvl * 0.07);
+        return total;
     }
 
     private static int findBestMaceByDamage(Minecraft client) {
         RegistryAccess reg = client.level.registryAccess();
         int bestSlot = -1;
-        double bestDamage = -1;
+        double bestDmg = -1;
         double fallDist = client.player.fallDistance;
         for (int i = 0; i < 9; i++) {
-            ItemStack stack = client.player.getInventory().getItem(i);
-            if (stack.isEmpty() || !stack.is(Items.MACE)) continue;
-            double damage = calculateMaceDamage(reg, stack, fallDist);
-            if (damage > bestDamage) {
-                bestDamage = damage;
-                bestSlot = i;
-            }
+            ItemStack s = client.player.getInventory().getItem(i);
+            if (s.isEmpty() || !s.is(Items.MACE)) continue;
+            double dmg = calculateMaceDamage(reg, s, fallDist);
+            if (dmg > bestDmg) { bestDmg = dmg; bestSlot = i; }
         }
         return bestSlot;
     }
@@ -147,8 +115,7 @@ public class AutoMace {
             if (isSwapped) resetState(client);
             return;
         }
-        RegistryAccess reg = client.level.registryAccess(); // usado para dano
-
+        RegistryAccess reg = client.level.registryAccess();
         totalTicks++;
         if (cooldownTicks > 0) { cooldownTicks--; return; }
         if (pingTicks > 0) { pingTicks--; return; }
@@ -157,9 +124,9 @@ public class AutoMace {
         if (clickDelay > 0) { clickDelay--; return; }
         if (hesitating && hesitationTicks <= 0) hesitating = false;
 
-        // Alvo
+        // ===== ALVO (range 7.0) =====
         if (targetLockTicks <= 0 || activeTarget == null || !activeTarget.isAlive()) {
-            activeTarget = findTarget(client);
+            activeTarget = findTarget(client, 7.0);
             targetLockTicks = 4 + RANDOM.nextInt(6);
         } else {
             targetLockTicks--;
@@ -173,24 +140,27 @@ public class AutoMace {
         KalmanFilter kf = kalmanMap.computeIfAbsent(activeTarget, k -> new KalmanFilter());
         kf.update(activeTarget.getX(), activeTarget.getY(), activeTarget.getZ());
 
-        // Hesitação leve (2%)
-        if (RANDOM.nextInt(100) < 2 && !hesitating && state == State.IDLE) {
+        // Hesitação leve (modo streamer)
+        if (streamerMode && RANDOM.nextInt(100) < 2 && !hesitating && state == State.IDLE) {
             hesitating = true;
             hesitationTicks = 1 + RANDOM.nextInt(3);
             return;
         }
 
-        float fallThr = 2.0f + RANDOM.nextFloat() * 0.5f;
+        // ===== VERIFICA QUEDA =====
+        float fallThr = 2.0f + (streamerMode ? 0.3f : 0f) + RANDOM.nextFloat() * 0.4f;
         if (pingTicks > 0) fallThr += 0.2f;
         boolean falling = client.player.fallDistance >= fallThr
                 && !client.player.onGround() && !client.player.isInWater();
 
         if (falling) {
             state = State.PRE_SMASH;
-            applyFusionAim(client, activeTarget, kf);
+            // ===== MIRA SUAVE (estilo Echo) =====
+            applySmoothAim(client, activeTarget, kf);
 
+            // ===== DISTÂNCIA DE ATAQUE =====
             double hitDist = 2.85 + 0.05 + RANDOM.nextDouble() * 0.1;
-            if (activeTarget != null && isMoving(activeTarget)) hitDist += 0.05;
+            if (isMoving(activeTarget)) hitDist += 0.05;
 
             if (client.player.distanceTo(activeTarget) <= hitDist) {
                 if (!canClick()) return;
@@ -198,11 +168,11 @@ public class AutoMace {
                 if (strength < 0.85f) return;
                 if (!activeTarget.isAlive()) { resetState(client); return; }
 
-                int missRate = 1 + RANDOM.nextInt(3);
-                if (activeTarget != null && isMovingFast(activeTarget)) missRate += 1;
+                // ===== ERRO HUMANO =====
+                int missRate = streamerMode ? 2 + RANDOM.nextInt(3) : 1 + RANDOM.nextInt(2);
+                if (isMovingFast(activeTarget)) missRate += 1;
                 if (state == State.SMASH_ATTACK) missRate -= 1;
                 missRate = Math.max(0, Math.min(missRate, 6));
-
                 if (RANDOM.nextInt(100) < missRate) {
                     missChance = 1 + RANDOM.nextInt(2);
                 }
@@ -212,9 +182,9 @@ public class AutoMace {
                     return;
                 }
 
+                // ===== SHIELD BREAK =====
                 boolean shielding = activeTarget instanceof Player p && p.isUsingItem()
                         && p.getUseItem().getItem() instanceof ShieldItem;
-
                 if (shielding && state == State.PRE_SMASH) {
                     int axe = findAxeSlot(client);
                     if (axe != -1) {
@@ -231,6 +201,7 @@ public class AutoMace {
                     }
                 }
 
+                // ===== ATAQUE COM MAÇA =====
                 if (state == State.SMASH_ATTACK || state == State.PRE_SMASH) {
                     int mace = findBestMaceByDamage(client);
                     if (mace == -1) {
@@ -261,8 +232,8 @@ public class AutoMace {
         if (totalTicks % 100 == 0 && smashCount > 50) { smashCount = 0; }
     }
 
-    // ===== MIRA FUSION =====
-    private static void applyFusionAim(Minecraft client, LivingEntity target, KalmanFilter kf) {
+    // ===== MIRA SUAVE (estilo Echo) =====
+    private static void applySmoothAim(Minecraft client, LivingEntity target, KalmanFilter kf) {
         Vec3 eye = client.player.getEyePosition();
         Vec3 predicted = kf.predict(1.0);
 
@@ -299,29 +270,34 @@ public class AutoMace {
         while (pitchDiff > 180) pitchDiff -= 360;
         while (pitchDiff < -180) pitchDiff += 360;
 
-        // Atenção alta
-        float attn = 0.85f;
-        if (state == State.SMASH_ATTACK) attn += 0.05f;
-        if (attn > 0.95f) attn = 0.95f;
-
-        float maxTurn = 6.0f;
+        // ===== SPEED E ATTENTION (igual ao Echo) =====
+        float maxTurn = 6.0f; // velocidade máxima por tick
+        if (streamerMode) maxTurn = 5.0f;
         if (pingTicks > 0) maxTurn *= 0.8f;
 
-        float stepY = Math.max(-maxTurn, Math.min(maxTurn, yawDiff * attn));
-        float stepP = Math.max(-maxTurn * 0.6f, Math.min(maxTurn * 0.6f, pitchDiff * attn));
+        // Atenção: mais perto = mais rápido, mas com limite
+        float attention = 0.85f;
+        if (dist < 3.0) attention = 0.95f;
+        else if (dist > 6.0) attention = 0.75f;
+        if (state == State.SMASH_ATTACK) attention += 0.05f;
+        attention = Math.min(attention, 0.95f);
 
-        // Overshoot leve
+        float stepY = Math.max(-maxTurn, Math.min(maxTurn, yawDiff * attention));
+        float stepP = Math.max(-maxTurn * 0.6f, Math.min(maxTurn * 0.6f, pitchDiff * attention));
+
+        // ===== OVERSHOOT NATURAL (igual ao Echo) =====
         if (RANDOM.nextInt(100) < 5 && Math.abs(yawDiff) > 2f) {
             float ov = 1.0f + RANDOM.nextFloat() * 1.5f;
             stepY += (yawDiff > 0 ? ov : -ov) * 0.2f;
         }
 
+        // ===== JITTER E RUÍDO =====
         float noiseY = (RANDOM.nextFloat() - 0.5f) * 0.08f;
         float noiseP = (RANDOM.nextFloat() - 0.5f) * 0.05f;
         float finalY = smoothYaw + stepY + noiseY;
         float finalP = Math.max(-90f, Math.min(90f, smoothPitch + stepP + noiseP));
 
-        // GCD
+        // ===== GCD (respeita o snapping do jogo) =====
         Options opt = client.options;
         double sens = opt.sensitivity().get() * 0.6 + 0.2;
         double gcd = Math.pow(sens, 1.2);
@@ -335,6 +311,8 @@ public class AutoMace {
 
         smoothYaw = client.player.getYRot() + dY;
         smoothPitch = client.player.getXRot() + dP;
+
+        // ===== APLICA ROTAÇÃO =====
         client.player.setYRot(smoothYaw);
         client.player.setXRot(smoothPitch);
         client.player.yRotO = smoothYaw - (RANDOM.nextFloat() - 0.5f) * 0.3f;
@@ -350,7 +328,7 @@ public class AutoMace {
         long now = System.currentTimeMillis();
         if (lastClick == 0) { lastClick = now; return true; }
         long elapsed = now - lastClick;
-        int cps = 10 + RANDOM.nextInt(7);
+        int cps = streamerMode ? 9 + RANDOM.nextInt(6) : 12 + RANDOM.nextInt(5);
         int delay = (int)((1000.0 / cps) * (0.85 + RANDOM.nextDouble() * 0.20));
         if (elapsed >= delay) { lastClick = now; return true; }
         return false;
@@ -360,43 +338,40 @@ public class AutoMace {
         if (activeTarget == null || !activeTarget.isAlive()) return;
         client.gameMode.attack(client.player, activeTarget);
         client.player.swing(InteractionHand.MAIN_HAND);
-        int cps = 12 + RANDOM.nextInt(5);
+        int cps = streamerMode ? 10 + RANDOM.nextInt(5) : 13 + RANDOM.nextInt(4);
         int delay = (int)((1000.0 / cps) * (0.85 + RANDOM.nextDouble() * 0.20));
         clickDelay = delay / 50;
         if (clickDelay < 1) clickDelay = 1;
     }
 
-    // ===== MOVIMENTO E PREDIÇÃO =====
+    // ===== PREDIÇÃO DE MOVIMENTO =====
     private static boolean isMoving(LivingEntity target) {
         if (target == null) return false;
-        Vec3 vel = kalmanMap.getOrDefault(target, new KalmanFilter()).predict(1)
-            .subtract(target.position());
+        Vec3 vel = kalmanMap.getOrDefault(target, new KalmanFilter()).predict(1).subtract(target.position());
         return vel.length() > 0.05;
     }
 
     private static boolean isMovingFast(LivingEntity target) {
         if (target == null) return false;
-        Vec3 vel = kalmanMap.getOrDefault(target, new KalmanFilter()).predict(1)
-            .subtract(target.position());
+        Vec3 vel = kalmanMap.getOrDefault(target, new KalmanFilter()).predict(1).subtract(target.position());
         return vel.length() > 0.3;
     }
 
-    // ===== SELEÇÃO DE ALVO =====
-    private static LivingEntity findTarget(Minecraft client) {
-        AABB box = client.player.getBoundingBox().inflate(6.5, 350, 6.5);
+    // ===== SELEÇÃO DE ALVO (range 7.0) =====
+    private static LivingEntity findTarget(Minecraft client, double range) {
+        AABB box = client.player.getBoundingBox().inflate(range, 350, range);
         List<LivingEntity> list = client.level.getEntitiesOfClass(LivingEntity.class, box, e ->
             e != client.player && e.isAlive() && !e.isDeadOrDying()
             && client.player.getY() > e.getY() + 0.3 && !e.isInvisible() && e.getHealth() > 0
         );
         if (list.isEmpty()) return null;
-        // Para cálculo de dano, precisamos de RegistryAccess
         RegistryAccess reg = client.level.registryAccess();
         return list.stream().max((a, b) -> {
             double fallDist = client.player.fallDistance;
-            double damageA = calculateMaceDamage(reg, new ItemStack(Items.MACE), fallDist);
-            double damageB = calculateMaceDamage(reg, new ItemStack(Items.MACE), fallDist);
-            double sa = (100 + damageA) - client.player.distanceToSqr(a) * 0.03;
-            double sb = (100 + damageB) - client.player.distanceToSqr(b) * 0.03;
+            double da = calculateMaceDamage(reg, new ItemStack(Items.MACE), fallDist);
+            double db = calculateMaceDamage(reg, new ItemStack(Items.MACE), fallDist);
+            double sa = (100 + da) - client.player.distanceToSqr(a) * 0.03;
+            double sb = (100 + db) - client.player.distanceToSqr(b) * 0.03;
             if (a instanceof Player) sa += 15;
             if (b instanceof Player) sb += 15;
             sa += (20 - a.getHealth()) * 1.5;
@@ -409,13 +384,10 @@ public class AutoMace {
     private static int findAxeSlot(Minecraft client) {
         RegistryAccess reg = client.level.registryAccess();
         var lookup = reg.lookupOrThrow(Registries.ENCHANTMENT);
-        Holder<Enchantment> sharpness = lookup.getOrThrow(Enchantments.SHARPNESS);
+        Holder<Enchantment> sharp = lookup.getOrThrow(Enchantments.SHARPNESS);
         for (int i = 0; i < 9; i++) {
             ItemStack s = client.player.getInventory().getItem(i);
-            if (s.getItem() instanceof AxeItem) {
-                int lvl = EnchantmentHelper.getItemEnchantmentLevel(sharpness, s);
-                if (lvl >= 0) return i;
-            }
+            if (s.getItem() instanceof AxeItem && EnchantmentHelper.getItemEnchantmentLevel(sharp, s) >= 0) return i;
         }
         return -1;
     }
@@ -423,9 +395,7 @@ public class AutoMace {
     private static int findBestMace(Minecraft client, boolean preferDensity) {
         RegistryAccess reg = client.level.registryAccess();
         var lookup = reg.lookupOrThrow(Registries.ENCHANTMENT);
-        Holder<Enchantment> enchant = preferDensity ?
-            lookup.getOrThrow(Enchantments.DENSITY) :
-            lookup.getOrThrow(Enchantments.BREACH);
+        Holder<Enchantment> enchant = preferDensity ? lookup.getOrThrow(Enchantments.DENSITY) : lookup.getOrThrow(Enchantments.BREACH);
         int best = -1, bestLvl = -1;
         for (int i = 0; i < 9; i++) {
             ItemStack s = client.player.getInventory().getItem(i);
@@ -465,4 +435,4 @@ public class AutoMace {
         }
     }
     public static void reset() { resetState(Minecraft.getInstance()); }
-            }
+    }
