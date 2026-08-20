@@ -1,12 +1,12 @@
 {
-  "required": false,
+  "required": true,
   "minVersion": "0.8",
-  "package": "com.scale.preciseguiscale.mixin",
+  "package": "com.example.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": [],
-  "client": [],
-  "server": [],
+  "client": [
+    "MixinAutoMace"
+  ],
   "injectors": {
     "defaultRequire": 1
   }
-} 
+}
