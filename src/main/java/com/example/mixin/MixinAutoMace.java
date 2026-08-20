@@ -89,8 +89,8 @@ public class MixinAutoMace {
         if (!hasMace) {
             int slot = findBestMace(c);
             if (slot == -1) { reset(c); return; }
-            if (origSlot == -1) origSlot = c.player.getInventory().selected;
-            c.player.getInventory().selected = slot;
+            if (origSlot == -1) origSlot = c.player.getInventory().getSelectedSlot();
+            c.player.getInventory().setSelectedSlot(slot);
             stage = 1; swapDelay = 2; return;
         }
 
@@ -106,7 +106,7 @@ public class MixinAutoMace {
     }
 
     private void reset(Minecraft c) {
-        if (origSlot != -1 && c.player != null) c.player.getInventory().selected = origSlot;
+        if (origSlot != -1 && c.player != null) c.player.getInventory().setSelectedSlot(origSlot);
         target = null; origSlot = -1; swapDelay = 0; stage = 0; lastPos = null;
         if (Float.isNaN(sy)) { sy = c.player != null ? c.player.getYRot() : 0; sp = c.player != null ? c.player.getXRot() : 0; }
     }
@@ -129,4 +129,4 @@ public class MixinAutoMace {
         if(best==-1){ for(int i=0;i<9;i++){ ItemStack s=c.player.getInventory().getItem(i); if(!s.isEmpty()&&s.is(Items.MACE)){ best=i; break; } } }
         return best;
     }
-          }
+}
