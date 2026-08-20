@@ -26,13 +26,14 @@ public class AutoMace {
     private static final boolean STREAMER_MODE = true;
     private static final float MAX_TURN_SPEED = 6.0f;
     private static final float ATTENTION = 0.7f;
-    private static final long ATTACK_DELAY_MS = 120;
     private static final double TARGET_RANGE = 7.0;
-    private static final double ATTACK_RANGE = 3.0;
+    private static final double ATTACK_DISTANCE = 3.0; // distância máxima de ataque (padrão Minecraft)
     private static final float FALL_THRESHOLD = 2.0f;
+    private static final long ATTACK_DELAY_MS = 120;
 
     private static long lastAttackTime = 0;
     private static int originalSlot = -1;
+    private static int swapDelayTicks = 0;
     private static boolean isSwapped = false;
     private static LivingEntity target = null;
     private static final Random RANDOM = new Random();
@@ -46,6 +47,11 @@ public class AutoMace {
             return;
         }
 
+        if (swapDelayTicks > 0) {
+            swapDelayTicks--;
+            return;
+        }
+
         target = findTarget(client);
         if (target == null) {
             resetState(client);
@@ -53,37 +59,66 @@ public class AutoMace {
         }
 
         boolean isFalling = !client.player.onGround() && client.player.fallDistance >= FALL_THRESHOLD;
-        if (isFalling) {
-            applySmoothAim(client, target);
-
-            double dist = client.player.distanceTo(target);
-            if (dist <= ATTACK_RANGE) {
-                if (System.currentTimeMillis() - lastAttackTime < ATTACK_DELAY_MS) return;
-
-                if (STREAMER_MODE && RANDOM.nextInt(100) < 3) {
-                    return;
-                }
-
-                if (STREAMER_MODE && RANDOM.nextInt(100) < 5) {
-                    client.player.setYRot(client.player.getYRot() + (RANDOM.nextFloat() - 0.5f) * 2f);
-                }
-
-                int maceSlot = findBestMaceSlot(client);
-                if (maceSlot != -1) {
-                    if (originalSlot == -1) originalSlot = client.player.getInventory().getSelectedSlot();
-                    client.player.getInventory().setSelectedSlot(maceSlot);
-                    isSwapped = true;
-                }
-
-                client.gameMode.attack(client.player, target);
-                client.player.swing(InteractionHand.MAIN_HAND);
-                lastAttackTime = System.currentTimeMillis();
-
-                resetState(client);
-            }
-        } else {
+        if (!isFalling) {
             resetState(client);
+            return;
         }
+
+        applySmoothAim(client, target);
+
+        // ===== VERIFICA DISTÂNCIA DE ATAQUE =====
+        double dist = client.player.distanceTo(target);
+        if (dist > ATTACK_DISTANCE) {
+            resetState(client);
+            return;
+        }
+
+        // ===== VERIFICA FOV (não ataca alvos atrás) =====
+        if (!isTargetInFov(client, target, 90.0f)) {
+            resetState(client);
+            return;
+        }
+
+        // ===== COOLDOWN DO ATAQUE =====
+        float strength = client.player.getAttackStrengthScale(0.0f);
+        if (strength < 0.9f) return;
+
+        // ===== DELAY HUMANO =====
+        if (System.currentTimeMillis() - lastAttackTime < ATTACK_DELAY_MS) return;
+
+        // ===== HESITAÇÃO STREAMER =====
+        if (STREAMER_MODE && RANDOM.nextInt(100) < 3) {
+            return;
+        }
+
+        // ===== VERIFICA SE JÁ ESTÁ SEGURANDO UMA MACE =====
+        ItemStack mainHand = client.player.getMainHandItem();
+        boolean hasMace = !mainHand.isEmpty() && mainHand.is(Items.MACE);
+
+        if (!hasMace) {
+            int maceSlot = findBestMaceSlot(client);
+            if (maceSlot == -1) {
+                resetState(client);
+                return;
+            }
+            if (originalSlot == -1) originalSlot = client.player.getInventory().getSelectedSlot();
+            client.player.getInventory().setSelectedSlot(maceSlot);
+            isSwapped = true;
+            swapDelayTicks = 2; // espera 2 ticks para o servidor registrar a troca
+            return;
+        }
+
+        // ===== MICRO-ERRO (streamer) =====
+        if (STREAMER_MODE && RANDOM.nextInt(100) < 5) {
+            client.player.setYRot(client.player.getYRot() + (RANDOM.nextFloat() - 0.5f) * 2f);
+        }
+
+        // ===== ATAQUE =====
+        client.gameMode.attack(client.player, target);
+        client.player.swing(InteractionHand.MAIN_HAND);
+        lastAttackTime = System.currentTimeMillis();
+
+        resetState(client);
     }
 
     private static LivingEntity findTarget(Minecraft client) {
@@ -99,8 +134,19 @@ public class AutoMace {
                 .orElse(null);
     }
 
+    private static boolean isTargetInFov(Minecraft client, LivingEntity target, float fov) {
+        Vec3 eye = client.player.getEyePosition();
+        Vec3 targetVec = target.getEyePosition(client.getDeltaTracker().getGameTimeDeltaPartialTick(false));
+        Vec3 direction = targetVec.subtract(eye).normalize();
+        Vec3 lookVec = client.player.getViewVector(client.getDeltaTracker().getGameTimeDeltaPartialTick(false));
+        double dot = lookVec.dot(direction);
+        double angle = Math.toDegrees(Math.acos(dot));
+        return angle <= fov / 2.0;
+    }
+
     private static void applySmoothAim(Minecraft client, LivingEntity target) {
         Vec3 eye = client.player.getEyePosition();
+        // Mira no centro do alvo (sem predição)
         Vec3 targetPos = target.getEyePosition(client.getDeltaTracker().getGameTimeDeltaPartialTick(false));
 
         double dx = targetPos.x - eye.x;
@@ -148,17 +194,27 @@ public class AutoMace {
         Holder<Enchantment> breach = lookup.getOrThrow(Enchantments.BREACH);
 
         int bestSlot = -1;
-        int bestLevel = -1;
+        int bestScore = -1;
         for (int i = 0; i < 9; i++) {
             ItemStack stack = client.player.getInventory().getItem(i);
             if (stack.isEmpty() || !stack.is(Items.MACE)) continue;
 
             int dLvl = EnchantmentHelper.getItemEnchantmentLevel(density, stack);
             int bLvl = EnchantmentHelper.getItemEnchantmentLevel(breach, stack);
-            int total = dLvl * 2 + bLvl;
-            if (total > bestLevel) {
-                bestLevel = total;
+            int score = dLvl * 2 + bLvl;
+            if (score > bestScore) {
+                bestScore = score;
                 bestSlot = i;
+            }
+        }
+        // Se nenhuma mace com encantamento, pega qualquer mace
+        if (bestSlot == -1) {
+            for (int i = 0; i < 9; i++) {
+                ItemStack stack = client.player.getInventory().getItem(i);
+                if (!stack.isEmpty() && stack.is(Items.MACE)) {
+                    bestSlot = i;
+                    break;
+                }
             }
         }
         return bestSlot;
@@ -170,6 +226,7 @@ public class AutoMace {
         }
         originalSlot = -1;
         isSwapped = false;
+        swapDelayTicks = 0;
         if (Float.isNaN(smoothYaw)) {
             smoothYaw = client.player != null ? client.player.getYRot() : 0;
             smoothPitch = client.player != null ? client.player.getXRot() : 0;
@@ -181,4 +238,4 @@ public class AutoMace {
         if (!enabled) resetState(Minecraft.getInstance());
     }
     public static void reset() { resetState(Minecraft.getInstance()); }
-}
+                }
