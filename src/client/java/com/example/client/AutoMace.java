@@ -266,9 +266,9 @@ public class AutoMace {
         originalSlot = -1;
         isSwapped = false;
         state = State.IDLE;
-        if (Float.isNaN(smoothYaw)) {
-            smoothYaw = client.player != null ? client.player.getYRot() : 0;
-            smoothPitch = client.player != null ? client.player.getXRot() : 0;
+        if (client.player != null) {
+            smoothYaw = client.player.getYRot();
+            smoothPitch = client.player.getXRot();
         }
     }
 }
