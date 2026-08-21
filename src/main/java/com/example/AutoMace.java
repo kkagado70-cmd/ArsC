@@ -1,84 +1,48 @@
-package com.slither.cyemer.module.implementation.combat;
-
-import com.slither.cyemer.event.EventBus;
-import com.slither.cyemer.event.impl.AutoMaceSyncEvent;
-import com.slither.cyemer.event.impl.MaceHitEvent;
-import com.slither.cyemer.event.impl.ShieldDrainEvent;
-import com.slither.cyemer.friend.FriendManager;
-import com.slither.cyemer.manager.TargetManager;
-import com.slither.cyemer.mixin.KeyBindingAccessor;
-import com.slither.cyemer.module.BooleanSetting;
-import com.slither.cyemer.module.Category;
-import com.slither.cyemer.module.ModeSetting;
-import com.slither.cyemer.module.Module;
-import com.slither.cyemer.module.SliderSetting;
-import com.slither.cyemer.util.AttackValidator;
-import com.slither.cyemer.util.RotationManager;
-import com.slither.cyemer.util.render.RenderUtils;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.AxeItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.ShieldItem;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.material.Fluids;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import java.awt.Color;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
-import net.minecraft.class_1297;
-import net.minecraft.class_1657;
-import net.minecraft.class_1743;
-import net.minecraft.class_1799;
-import net.minecraft.class_1819;
-import net.minecraft.class_1887;
-import net.minecraft.class_2246;
-import net.minecraft.class_2338;
-import net.minecraft.class_238;
-import net.minecraft.class_243;
-import net.minecraft.class_2680;
-import net.minecraft.class_332;
-import net.minecraft.class_3486;
-import net.minecraft.class_3489;
-import net.minecraft.class_3532;
-import net.minecraft.class_3966;
-import net.minecraft.class_4587;
-import net.minecraft.class_5321;
-import net.minecraft.class_6880;
-import net.minecraft.class_746;
-import net.minecraft.class_9304;
-import net.minecraft.class_9334;
-import net.minecraft.class_9362;
+import java.util.List;
+import java.util.Random;
 
 /* JADX INFO: loaded from: Cyemer-1.21.11.jar:com/slither/cyemer/module/implementation/combat/AutoMace.class */
 @Environment(EnvType.CLIENT)
-public class AutoMace extends Module {
-    private static final double ATTACK_RANGE = 2.95d;
-    private final SliderSetting swingRange;
-    private final SliderSetting aimRange;
-    private final SliderSetting aimInAir;
-    private final BooleanSetting autoSwitch;
-    private final BooleanSetting swapBack;
-    private final SliderSetting rotationSpeed;
-    private final SliderSetting minFallDist;
-    private final SliderSetting cooldown;
-    private final SliderSetting maceSwapDelay;
-    private final BooleanSetting stunSlam;
-    private final BooleanSetting weaponOnly;
-    private final ModeSetting aimMode;
-    private final ModeSetting stopAim;
-    private final SliderSetting hitboxAccuracy;
-    private final BooleanSetting ignoreFriends;
-    private final BooleanSetting renderPred;
-    private final BooleanSetting targetMode;
-    private class_1657 currentTarget;
-    private int maceClicksLeft;
-    private int originalSlot;
-    private int preSequenceSlot;
-    private long lastComboTime;
-    private long axeHitTime;
-    private int resetTimer;
-    private double highestY;
-    private boolean wasOnGround;
-    private boolean shouldAttackThisTick;
-    private boolean shouldBreakShield;
-    private boolean shouldMaceSmash;
-    private int targetSlotForAttack;
-    private boolean isSwappingArmor;
-    private int armorSwapTimer;
-    private int armorSwapReturnSlot;
+public class AutoMace {
+    public static boolean enabled = false;
+
+    // ===== CONFIGURAÇÕES =====
+    private static double aimRange = 15.0;
+    private static double minFallDist = 1.5;
+    private static boolean autoSwitch = true;
+    private static boolean swapBack = true;
+    private static boolean stunSlam = true;
+    private static long cooldownMs = 500;
+    private static double rotationSpeed = 24.0;
+
+    // ===== ESTADO =====
+    private static LivingEntity currentTarget = null;
+    private static int originalSlot = -1;
+    private static int preSequenceSlot = -1;
+    private static long lastComboTime = 0;
+    private static int resetTimer = 0;
+    private static double highestY = 0.0;
+    private static boolean shouldBreakShield = false;
+    private static int targetSlotForAttack = -1;
+    private static final Random RANDOM = new Random();
 
     public AutoMace() {
         super("AutoMace", "boing boing smash boing", Category.COMBAT);
