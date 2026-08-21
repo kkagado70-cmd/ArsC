@@ -1,3 +1,46 @@
+package com.slither.cyemer.module.implementation.combat;
+
+import com.slither.cyemer.event.EventBus;
+import com.slither.cyemer.event.impl.AutoMaceSyncEvent;
+import com.slither.cyemer.event.impl.MaceHitEvent;
+import com.slither.cyemer.event.impl.ShieldDrainEvent;
+import com.slither.cyemer.friend.FriendManager;
+import com.slither.cyemer.manager.TargetManager;
+import com.slither.cyemer.mixin.KeyBindingAccessor;
+import com.slither.cyemer.module.BooleanSetting;
+import com.slither.cyemer.module.Category;
+import com.slither.cyemer.module.ModeSetting;
+import com.slither.cyemer.module.Module;
+import com.slither.cyemer.module.SliderSetting;
+import com.slither.cyemer.util.AttackValidator;
+import com.slither.cyemer.util.RotationManager;
+import com.slither.cyemer.util.render.RenderUtils;
+import java.awt.Color;
+import net.fabricmc.api.EnvType;
+import net.fabricmc.api.Environment;
+import net.minecraft.class_1297;
+import net.minecraft.class_1657;
+import net.minecraft.class_1743;
+import net.minecraft.class_1799;
+import net.minecraft.class_1819;
+import net.minecraft.class_1887;
+import net.minecraft.class_2246;
+import net.minecraft.class_2338;
+import net.minecraft.class_238;
+import net.minecraft.class_243;
+import net.minecraft.class_2680;
+import net.minecraft.class_332;
+import net.minecraft.class_3486;
+import net.minecraft.class_3489;
+import net.minecraft.class_3532;
+import net.minecraft.class_3966;
+import net.minecraft.class_4587;
+import net.minecraft.class_5321;
+import net.minecraft.class_6880;
+import net.minecraft.class_746;
+import net.minecraft.class_9304;
+import net.minecraft.class_9334;
+import net.minecraft.class_9362;
 
 /* JADX INFO: loaded from: Cyemer-1.21.11.jar:com/slither/cyemer/module/implementation/combat/AutoMace.class */
 @Environment(EnvType.CLIENT)
