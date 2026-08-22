@@ -26,9 +26,9 @@ public class AutoMace implements ClientModInitializer {
     public static boolean enabled = false;
 
     private static final double MAX_SWING_RANGE = 2.85D;
-    private static final double MAX_AIM_RANGE = 7.0D;
+    private static final double MAX_AIM_RANGE = 2.85D;
     private static final double MIN_FALL_DIST = 1.5D;
-    private static final float ROTATION_SMOOTHNESS = 0.40F;
+    private static final float ROTATION_SMOOTHNESS = 0.45F;
 
     private static Player currentTarget = null;
     private static State state = State.IDLE;
@@ -87,7 +87,6 @@ public class AutoMace implements ClientModInitializer {
 
         double currentFallDistance = Math.max(0.0D, highestY - mc.player.getY());
 
-        // Ativa APENAS se o jogador estiver caindo
         boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
         if (!isFalling) {
             if (state != State.IDLE) {
@@ -181,23 +180,26 @@ public class AutoMace implements ClientModInitializer {
         int maxDensityScore = -1;
         int maxBreachScore = -1;
 
-        double distance = mc.player.distanceTo(target);
-
         for (int i = 0; i < 9; i++) {
             ItemStack stack = mc.player.getInventory().getItem(i);
             if (stack.getItem() instanceof MaceItem) {
                 int densityLevel = getEnchantmentLevel(stack, "density");
                 int breachLevel = getEnchantmentLevel(stack, "breach");
 
-                if (distance < 7.0D && breachLevel > maxBreachScore) {
-                    maxBreachScore = breachLevel;
-                    bestSlot = i;
-                } else if (fallDist >= 7.0D && densityLevel > maxDensityScore) {
-                    maxDensityScore = densityLevel;
-                    bestSlot = i;
-                } else if (bestSlot == -1) {
-                    bestSlot = i;
+                // Regra: Queda >= 7.0 blocos -> DENSITY | Queda < 7.0 blocos -> BREACH
+                if (fallDist >= 7.0D) {
+                    if (densityLevel > maxDensityScore) {
+                        maxDensityScore = densityLevel;
+                        bestSlot = i;
+                    }
+                } else {
+                    if (breachLevel > maxBreachScore) {
+                        maxBreachScore = breachLevel;
+                        bestSlot = i;
+                    }
                 }
+
+                if (bestSlot == -1) bestSlot = i;
             }
         }
         return bestSlot;
@@ -222,7 +224,7 @@ public class AutoMace implements ClientModInitializer {
 
         AABB box = target.getBoundingBox();
         Vec3 center = box.getCenter();
-        double aimY = box.minY + (target.getBbHeight() * 0.55D);
+        double aimY = box.minY + (target.getBbHeight() * 0.50D);
         Vec3 targetEyePos = new Vec3(center.x, aimY, center.z);
 
         double dx = targetEyePos.x - mc.player.getX();
