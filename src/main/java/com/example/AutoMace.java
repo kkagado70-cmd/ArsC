@@ -52,7 +52,7 @@ public class AutoMace implements ClientModInitializer {
             "key.automace.toggle",
             InputConstants.Type.KEYSYM,
             GLFW.GLFW_KEY_M,
-            KeyMapping.Category.MISC
+            KeyMapping.CATEGORY_MISC
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -226,7 +226,7 @@ public class AutoMace implements ClientModInitializer {
 
         AABB box = target.getBoundingBox();
         Vec3 center = box.getCenter();
-        double aimY = box.minY + (target.getHeight() * 0.5D);
+        double aimY = box.minY + (target.getBbHeight() * 0.5D);
         Vec3 targetEyePos = new Vec3(center.x, aimY, center.z);
 
         double dx = targetEyePos.x - mc.player.getX();
@@ -240,7 +240,7 @@ public class AutoMace implements ClientModInitializer {
         float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
         float pitchDelta = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
 
-        double sensitivity = mc.options.sensitivity().getValue();
+        double sensitivity = mc.options.sensitivity().get();
         double f = sensitivity * 0.6D + 0.2D;
         double gcd = f * f * f * 8.0D * 0.15D;
 
