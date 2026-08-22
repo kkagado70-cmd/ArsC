@@ -300,4 +300,4 @@ public class AutoMace implements ClientModInitializer {
         delayTimer = 0;
         preSequenceSlot = -1;
     }
-}
+    }
