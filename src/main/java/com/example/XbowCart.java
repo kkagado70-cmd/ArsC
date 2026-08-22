@@ -28,7 +28,6 @@ public class XbowCart implements ClientModInitializer {
     private static boolean active = false;
     private static int stage = 0;
     private static int tickCounter = 0;
-    private static int preSlot = -1;
 
     private static BlockPos lockedBaseBlock = null;
     private static Vec3 lockedTargetVec = null;
@@ -64,7 +63,7 @@ public class XbowCart implements ClientModInitializer {
     public static void onTick(Minecraft client) {
         if (mc.player == null || mc.level == null) return;
 
-        // Ativação a partir de qualquer ângulo focado em um bloco
+        // Ativação quando segura o Trilho e olha para um bloco
         if (!active) {
             boolean holdingRail = mc.player.getMainHandItem().is(Items.RAIL);
             HitResult hit = mc.hitResult;
@@ -75,7 +74,6 @@ public class XbowCart implements ClientModInitializer {
                 active = true;
                 stage = 0;
                 tickCounter = 0;
-                preSlot = mc.player.getInventory().getSelectedSlot();
 
                 lockedBaseBlock = blockHit.getBlockPos();
                 lockedDirection = blockHit.getDirection();
@@ -92,7 +90,7 @@ public class XbowCart implements ClientModInitializer {
             return;
         }
 
-        if (mc.player.distanceToSqr(lockedTargetVec) > 8.7D) {
+        if (mc.player.distanceToSqr(lockedTargetVec) > 8.5D) {
             resetSequence();
             return;
         }
@@ -107,7 +105,7 @@ public class XbowCart implements ClientModInitializer {
                 if (selectItem(Items.RAIL)) {
                     mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, placementHit);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickCounter = 1;
+                    tickCounter = 2;
                     stage = 1;
                 } else {
                     resetSequence();
@@ -122,7 +120,7 @@ public class XbowCart implements ClientModInitializer {
                     
                     mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, cartHit);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickCounter = 1;
+                    tickCounter = 2;
                     stage = 2;
                 } else {
                     stage = 2;
@@ -136,7 +134,6 @@ public class XbowCart implements ClientModInitializer {
                     Vec3 cartVec = Vec3.atCenterOf(cartPos);
                     
                     AABB searchBox = new AABB(cartPos).inflate(1.5D);
-                    // Usa getDescriptionId() para verificar a entidade do carrinho de forma 100% segura no Mojang Mappings
                     List<Entity> minecarts = mc.level.getEntities((Entity) null, searchBox, e -> e.getType().getDescriptionId().contains("minecart"));
 
                     if (!minecarts.isEmpty()) {
@@ -147,7 +144,7 @@ public class XbowCart implements ClientModInitializer {
                     }
                     
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickCounter = 1;
+                    tickCounter = 2;
                     stage = 3;
                 } else {
                     stage = 3;
@@ -159,7 +156,7 @@ public class XbowCart implements ClientModInitializer {
                 if (selectItem(Items.CROSSBOW)) {
                     mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickCounter = 1;
+                    tickCounter = 2;
                     stage = 4;
                 } else {
                     resetSequence();
@@ -167,14 +164,12 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 4:
-                // 5. Disparar
+                // 5. Disparar (MANTÉM NO CROSSBOW, SEM SWAPBACK)
                 if (selectItem(Items.CROSSBOW)) {
                     mc.gameMode.releaseUsingItem(mc.player);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    resetSequence();
-                } else {
-                    resetSequence();
                 }
+                resetSequence();
                 break;
         }
     }
@@ -229,15 +224,12 @@ public class XbowCart implements ClientModInitializer {
     }
 
     private static void resetSequence() {
-        if (mc.player != null && preSlot >= 0 && preSlot < 9) {
-            mc.player.getInventory().setSelectedSlot(preSlot);
-        }
+        // SEM RESTAURAÇÃO DE SLOT (Sem SwapBack)
         active = false;
         stage = 0;
         tickCounter = 0;
-        preSlot = -1;
         lockedBaseBlock = null;
         lockedTargetVec = null;
         lockedDirection = Direction.UP;
     }
-}
+    }
