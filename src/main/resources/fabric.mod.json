@@ -19,8 +19,6 @@
       "com.scale.preciseguiscale.config.PreciseGuiScaleModMenu"
     ]
   },
-  
-  ],
   "depends": {
     "fabricloader": ">=0.18.4",
     "minecraft": "1.21.11",
