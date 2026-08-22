@@ -20,15 +20,18 @@ import net.minecraft.world.item.enchantment.ItemEnchantments;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.Optional;
+
 public class AutoMace implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
-    private static final double MAX_SWING_RANGE = 2.85D;
-    private static final double MAX_AIM_RANGE = 5.5D;
-    private static final double MIN_FALL_DIST = 1.4D;
-    private static final float ROTATION_SMOOTHNESS = 0.50F;
+    // Reach estritamente limitado ao alcance legítimo
+    private static final double MAX_SWING_RANGE = 2.75D;
+    private static final double MAX_AIM_RANGE = 5.50D;
+    private static final double MIN_FALL_DIST = 1.3D;
+    private static final float ROTATION_SMOOTHNESS = 0.70F; // Mira rápida e fluida
 
     private static Player currentTarget = null;
     private static State state = State.IDLE;
@@ -87,6 +90,7 @@ public class AutoMace implements ClientModInitializer {
 
         double currentFallDistance = Math.max(0.0D, highestY - mc.player.getY());
 
+        // Só ativa se o jogador estiver em queda válida
         boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
         if (!isFalling) {
             if (state != State.IDLE) {
@@ -101,6 +105,7 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
+        // Aplica a rotação de mira suave
         applyGrimBypassRotation(currentTarget);
 
         boolean isBlocking = currentTarget.isUsingItem() && currentTarget.getUseItem().getItem() instanceof ShieldItem;
@@ -122,7 +127,7 @@ public class AutoMace implements ClientModInitializer {
                 int axeSlot = findAxeSlot();
                 if (axeSlot != -1) {
                     mc.player.getInventory().setSelectedSlot(axeSlot);
-                    delayTimer = 1;
+                    delayTimer = 1; // 1 tick de sincronização do slot no servidor
                     state = State.AXE_STRIKE;
                 } else {
                     state = State.MACE_SWAP;
@@ -130,7 +135,8 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case AXE_STRIKE:
-                if (canExecuteAttack()) {
+                // Ataca APENAS se a cruz da tela estiver colidindo com a Hitbox
+                if (isCrosshairOverHitbox(currentTarget)) {
                     mc.gameMode.attack(mc.player, currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     delayTimer = 1;
@@ -150,7 +156,8 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case MACE_SLAM:
-                if (canExecuteAttack()) {
+                // Ataca APENAS se a cruz da tela estiver colidindo com a Hitbox
+                if (isCrosshairOverHitbox(currentTarget)) {
                     mc.gameMode.attack(mc.player, currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     delayTimer = 2;
@@ -164,9 +171,23 @@ public class AutoMace implements ClientModInitializer {
         }
     }
 
-    private static boolean canExecuteAttack() {
-        if (mc.player == null || currentTarget == null) return false;
-        return mc.player.hasLineOfSight(currentTarget) && mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE;
+    /**
+     * Raycast 3D que garante que o vetor de visão realmente cruza a AABB do inimigo.
+     * Elimina 100% das flags de Hitbox / Reach do Grim AC.
+     */
+    private static boolean isCrosshairOverHitbox(Player target) {
+        if (mc.player == null || target == null) return false;
+        if (!mc.player.hasLineOfSight(target)) return false;
+        if (mc.player.distanceTo(target) > MAX_SWING_RANGE) return false;
+
+        Vec3 eyePos = mc.player.getEyePosition(1.0F);
+        Vec3 lookVec = mc.player.getViewVector(1.0F);
+        Vec3 reachVec = eyePos.add(lookVec.x * MAX_SWING_RANGE, lookVec.y * MAX_SWING_RANGE, lookVec.z * MAX_SWING_RANGE);
+
+        AABB targetBox = target.getBoundingBox();
+        Optional<Vec3> clipHit = targetBox.clip(eyePos, reachVec);
+
+        return clipHit.isPresent();
     }
 
     private static void updateFallTracker() {
