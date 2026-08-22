@@ -25,25 +25,27 @@ public class AutoMace implements ClientModInitializer {
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
-    private static final double MAX_SWING_RANGE = 2.85D;
-    private static final double MAX_AIM_RANGE = 5.5D;
+    // Reach estritamente legítimo (2.75D) para evitar flag de Hitbox no Grim AC
+    private static final double MAX_SWING_RANGE = 2.75D;
+    private static final double MAX_AIM_RANGE = 5.0D;
     private static final double MIN_FALL_DIST = 1.4D;
-    private static final float ROTATION_SMOOTHNESS = 0.50F;
+    private static final float ROTATION_SMOOTHNESS = 0.55F;
 
     private static Player currentTarget = null;
+    private static State state = State.IDLE;
     private static int delayTimer = 0;
     private static int preSequenceSlot = -1;
-    private static int originalSlot = -1;
-    private static int targetSlotForAttack = -1;
-    private static int maceClicksLeft = 0;
-    private static long axeHitTime = 0L;
-    private static long lastComboTime = 0L;
-    private static long maceSwapDelay = 10L;
+    private static int targetSlot = -1;
     private static double highestY = 0.0D;
 
-    private static boolean shouldBreakShield = false;
-    private static boolean shouldMaceSmash = false;
-    private static boolean shouldAttackThisTick = false;
+    public enum State {
+        IDLE,
+        AXE_SWAP,
+        AXE_STRIKE,
+        MACE_SWAP,
+        MACE_SLAM,
+        RESTORE_SLOT
+    }
 
     @Override
     public void onInitializeClient() {
@@ -83,171 +85,93 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
-        if (shouldBreakShield) {
-            executeShieldBreak();
-            return;
-        } else if (shouldMaceSmash) {
-            executeMaceSmash();
-            return;
-        } else if (shouldAttackThisTick) {
-            executeAttack();
-            return;
-        }
-
-        runLogic();
-    }
-
-    private static void runLogic() {
-        if (mc.player == null || mc.level == null) return;
-
         updateFallTracker();
 
         double currentFallDistance = Math.max(0.0D, highestY - mc.player.getY());
 
         boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
         if (!isFalling) {
-            resetState();
+            if (state != State.IDLE) {
+                restoreSlotAndReset();
+            }
             return;
         }
-
-        if (maceClicksLeft > 0) {
-            calculateMaceLogic(currentFallDistance);
-            return;
-        }
-
-        if (System.currentTimeMillis() - lastComboTime < 450L) return;
 
         currentTarget = locateTarget(MAX_AIM_RANGE);
         if (currentTarget == null) {
-            resetState();
+            restoreSlotAndReset();
             return;
         }
 
+        // Rotação visível e suave alinhada ao GCD da sensibilidade
         applyGrimBypassRotation(currentTarget);
 
-        boolean isBlocking = isTargetBlocking(currentTarget);
-        if (isBlocking) {
-            calculateStunSlam(currentFallDistance);
-        } else {
-            calculateDirectMaceLogic(currentFallDistance);
-        }
-    }
+        boolean isBlocking = currentTarget.isUsingItem() && currentTarget.getUseItem().getItem() instanceof ShieldItem;
 
-    private static void calculateStunSlam(double fallDist) {
-        if (currentTarget == null || mc.player.distanceTo(currentTarget) > MAX_AIM_RANGE) {
-            resetState();
-            return;
-        }
-
-        if (canExecuteAttack()) {
-            int axeSlot = findAxeSlot();
-            int maceSlot = selectOptimalMaceSlot(currentTarget, fallDist);
-            if (axeSlot != -1 && maceSlot != -1) {
+        switch (state) {
+            case IDLE:
                 if (preSequenceSlot == -1) {
                     preSequenceSlot = mc.player.getInventory().getSelectedSlot();
                 }
-                shouldBreakShield = true;
-                targetSlotForAttack = axeSlot;
-                originalSlot = maceSlot;
-            }
+                
+                if (isBlocking) {
+                    state = State.AXE_SWAP;
+                } else {
+                    state = State.MACE_SWAP;
+                }
+                break;
+
+            case AXE_SWAP:
+                targetSlot = findAxeSlot();
+                if (targetSlot != -1) {
+                    mc.player.getInventory().setSelectedSlot(targetSlot);
+                    // Delay de 2 ticks garante que o Machado APAREÇA visivelmente na mão (Fim do Silent Swap)
+                    delayTimer = 2;
+                    state = State.AXE_STRIKE;
+                } else {
+                    state = State.MACE_SWAP;
+                }
+                break;
+
+            case AXE_STRIKE:
+                if (canExecuteAttack()) {
+                    mc.gameMode.attack(mc.player, currentTarget);
+                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    delayTimer = 2;
+                    state = State.MACE_SWAP;
+                }
+                break;
+
+            case MACE_SWAP:
+                targetSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
+                if (targetSlot != -1) {
+                    mc.player.getInventory().setSelectedSlot(targetSlot);
+                    // Delay de 2 ticks para renderizar a Maça na mão antes do golpe
+                    delayTimer = 2;
+                    state = State.MACE_SLAM;
+                } else {
+                    restoreSlotAndReset();
+                }
+                break;
+
+            case MACE_SLAM:
+                if (canExecuteAttack()) {
+                    mc.gameMode.attack(mc.player, currentTarget);
+                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    delayTimer = 2;
+                    state = State.RESTORE_SLOT;
+                }
+                break;
+
+            case RESTORE_SLOT:
+                restoreSlotAndReset();
+                break;
         }
-    }
-
-    private static void executeShieldBreak() {
-        shouldBreakShield = false;
-        if (currentTarget == null || !syncToAttackSlot() || !canExecuteAttack()) {
-            resetState();
-            return;
-        }
-
-        mc.gameMode.attack(mc.player, currentTarget);
-        mc.player.swing(InteractionHand.MAIN_HAND);
-        
-        maceClicksLeft = 1;
-        axeHitTime = System.currentTimeMillis();
-        delayTimer = 1;
-    }
-
-    private static void calculateMaceLogic(double fallDist) {
-        if (currentTarget == null || !currentTarget.isAlive() || mc.player.distanceTo(currentTarget) > MAX_AIM_RANGE) {
-            resetState();
-            return;
-        }
-
-        long timeSinceAxe = System.currentTimeMillis() - axeHitTime;
-        if (timeSinceAxe < maceSwapDelay) return;
-
-        if (timeSinceAxe > 1500L) {
-            resetState();
-            return;
-        }
-
-        if (canExecuteAttack()) {
-            shouldMaceSmash = true;
-            targetSlotForAttack = originalSlot;
-        }
-    }
-
-    private static void executeMaceSmash() {
-        shouldMaceSmash = false;
-        if (!syncToAttackSlot() || !canExecuteAttack()) {
-            resetState();
-            return;
-        }
-
-        mc.gameMode.attack(mc.player, currentTarget);
-        mc.player.swing(InteractionHand.MAIN_HAND);
-
-        maceClicksLeft = 0;
-        lastComboTime = System.currentTimeMillis();
-        delayTimer = 2;
-        
-        restoreSlotAndReset();
-    }
-
-    private static void calculateDirectMaceLogic(double fallDist) {
-        int maceSlot;
-        if (currentTarget == null || !currentTarget.isAlive() || mc.player.distanceTo(currentTarget) > MAX_AIM_RANGE) {
-            resetState();
-            return;
-        }
-
-        if (canExecuteAttack() && (maceSlot = selectOptimalMaceSlot(currentTarget, fallDist)) != -1) {
-            if (preSequenceSlot == -1) {
-                preSequenceSlot = mc.player.getInventory().getSelectedSlot();
-            }
-            shouldAttackThisTick = true;
-            targetSlotForAttack = maceSlot;
-        }
-    }
-
-    private static void executeAttack() {
-        shouldAttackThisTick = false;
-        if (!syncToAttackSlot() || !canExecuteAttack()) {
-            resetState();
-            return;
-        }
-
-        mc.gameMode.attack(mc.player, currentTarget);
-        mc.player.swing(InteractionHand.MAIN_HAND);
-        lastComboTime = System.currentTimeMillis();
-        delayTimer = 2;
-
-        restoreSlotAndReset();
     }
 
     private static boolean canExecuteAttack() {
         if (mc.player == null || currentTarget == null) return false;
-        // Método correto do Mojang Mappings: hasLineOfSight
         return mc.player.hasLineOfSight(currentTarget) && mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE;
-    }
-
-    private static boolean isTargetBlocking(Player target) {
-        if (target == null) return false;
-        if (target.isBlocking()) return true;
-        if (!target.isUsingItem()) return false;
-        ItemStack active = target.getActiveItem();
-        return !active.isEmpty() && (active.getItem() instanceof ShieldItem);
     }
 
     private static void updateFallTracker() {
@@ -364,12 +288,6 @@ public class AutoMace implements ClientModInitializer {
         return bestTarget;
     }
 
-    private static boolean syncToAttackSlot() {
-        if (mc.player == null || targetSlotForAttack < 0 || targetSlotForAttack > 8) return false;
-        mc.player.getInventory().setSelectedSlot(targetSlotForAttack);
-        return true;
-    }
-
     private static void restoreSlotAndReset() {
         if (mc.player != null && preSequenceSlot >= 0 && preSequenceSlot < 9) {
             mc.player.getInventory().setSelectedSlot(preSequenceSlot);
@@ -379,13 +297,9 @@ public class AutoMace implements ClientModInitializer {
 
     private static void resetState() {
         currentTarget = null;
-        maceClicksLeft = 0;
-        axeHitTime = 0L;
-        originalSlot = -1;
+        state = State.IDLE;
+        delayTimer = 0;
         preSequenceSlot = -1;
-        targetSlotForAttack = -1;
-        shouldBreakShield = false;
-        shouldMaceSmash = false;
-        shouldAttackThisTick = false;
+        targetSlot = -1;
     }
 }
