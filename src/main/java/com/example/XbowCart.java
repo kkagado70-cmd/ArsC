@@ -92,7 +92,7 @@ public class XbowCart implements ClientModInitializer {
             return;
         }
 
-        if (mc.player.distanceToSqr(lockedTargetVec) > 8.5D) {
+        if (mc.player.distanceToSqr(lockedTargetVec) > 8.7D) {
             resetSequence();
             return;
         }
@@ -107,7 +107,7 @@ public class XbowCart implements ClientModInitializer {
                 if (selectItem(Items.RAIL)) {
                     mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, placementHit);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickCounter = 2; // 2 ticks para garantir sincronização no servidor
+                    tickCounter = 1;
                     stage = 1;
                 } else {
                     resetSequence();
@@ -122,7 +122,7 @@ public class XbowCart implements ClientModInitializer {
                     
                     mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, cartHit);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickCounter = 2;
+                    tickCounter = 1;
                     stage = 2;
                 } else {
                     stage = 2;
@@ -136,7 +136,8 @@ public class XbowCart implements ClientModInitializer {
                     Vec3 cartVec = Vec3.atCenterOf(cartPos);
                     
                     AABB searchBox = new AABB(cartPos).inflate(1.5D);
-                    List<Entity> minecarts = mc.level.getEntities((Entity) null, searchBox, e -> e.getType().getRegisteredName().contains("minecart"));
+                    // Usa getDescriptionId() para verificar a entidade do carrinho de forma 100% segura no Mojang Mappings
+                    List<Entity> minecarts = mc.level.getEntities((Entity) null, searchBox, e -> e.getType().getDescriptionId().contains("minecart"));
 
                     if (!minecarts.isEmpty()) {
                         mc.gameMode.interact(mc.player, minecarts.get(0), InteractionHand.MAIN_HAND);
@@ -146,7 +147,7 @@ public class XbowCart implements ClientModInitializer {
                     }
                     
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickCounter = 2;
+                    tickCounter = 1;
                     stage = 3;
                 } else {
                     stage = 3;
@@ -158,7 +159,7 @@ public class XbowCart implements ClientModInitializer {
                 if (selectItem(Items.CROSSBOW)) {
                     mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickCounter = 2;
+                    tickCounter = 1;
                     stage = 4;
                 } else {
                     resetSequence();
