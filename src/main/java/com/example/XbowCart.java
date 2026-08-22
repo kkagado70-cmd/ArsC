@@ -24,8 +24,8 @@ public class XbowCart implements ClientModInitializer {
     private static boolean active = false;
     private static int stage = 0;
     private static int tickCounter = 0;
+    private static int preSlot = -1;
 
-    // Posições travadas para garantir que o Isqueiro (Flint) funcione mesmo após colocar o carrinho
     private static BlockPos lockedBaseBlock = null;
     private static Vec3 lockedTargetVec = null;
 
@@ -59,19 +59,20 @@ public class XbowCart implements ClientModInitializer {
     public static void onTick(Minecraft client) {
         if (mc.player == null || mc.level == null) return;
 
-        // Gatilho: Olhar para o chão (> 40 graus de inclinação) segurando um Trilho
+        // Ativação: Segurando Trilho na mão e olhando para o chão (> 35° de inclinação)
         if (!active) {
             boolean holdingRail = mc.player.getMainHandItem().is(Items.RAIL);
             HitResult hit = mc.hitResult;
 
             if (holdingRail && hit != null && hit.getType() == HitResult.Type.BLOCK) {
                 BlockHitResult blockHit = (BlockHitResult) hit;
-                if (blockHit.getDirection() == Direction.UP && mc.player.getXRot() > 40.0F) {
+                if (blockHit.getDirection() == Direction.UP && mc.player.getXRot() > 35.0F) {
                     active = true;
                     stage = 0;
                     tickCounter = 0;
-                    
-                    // Trava o bloco base e a posição no momento exato do disparo
+                    preSlot = mc.player.getInventory().getSelectedSlot();
+
+                    // Trava o bloco selecionado no instante inicial para o Isqueiro não falhar após o carrinho ser colocado
                     lockedBaseBlock = blockHit.getBlockPos();
                     BlockPos placedBlockPos = lockedBaseBlock.relative(Direction.UP);
                     lockedTargetVec = Vec3.atCenterOf(placedBlockPos);
@@ -91,7 +92,8 @@ public class XbowCart implements ClientModInitializer {
             return;
         }
 
-        applySmoothLookAt(lockedTargetVec);
+        // Mira suave com ajuste de GCD para não dar flag no Grim/MMC
+        applyGrimBypassRotation(lockedTargetVec);
 
         BlockHitResult placementHit = new BlockHitResult(lockedTargetVec, Direction.UP, lockedBaseBlock, false);
 
@@ -111,31 +113,38 @@ public class XbowCart implements ClientModInitializer {
             case 1:
                 // 2. Colocar TNT Minecart
                 if (selectItem(Items.TNT_MINECART)) {
-                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, placementHit);
+                    BlockPos railPos = lockedBaseBlock.relative(Direction.UP);
+                    BlockHitResult cartHit = new BlockHitResult(Vec3.atCenterOf(railPos), Direction.UP, railPos, false);
+                    
+                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, cartHit);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     tickCounter = 1;
                     stage = 2;
                 } else {
-                    resetSequence();
+                    stage = 2;
                 }
                 break;
 
             case 2:
-                // 3. Isqueiro (Flint & Steel) - Funciona de forma independente do raycast atual
+                // 3. Acionar Isqueiro (Flint & Steel)
                 if (selectItem(Items.FLINT_AND_STEEL)) {
-                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, placementHit);
+                    BlockPos cartPos = lockedBaseBlock.relative(Direction.UP);
+                    BlockHitResult flintHit = new BlockHitResult(Vec3.atCenterOf(cartPos), Direction.UP, cartPos, false);
+                    
+                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, flintHit);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     tickCounter = 1;
                     stage = 3;
                 } else {
-                    resetSequence();
+                    stage = 3;
                 }
                 break;
 
             case 3:
-                // 4. Armar Crossbow
+                // 4. Carregar/Usar Crossbow
                 if (selectItem(Items.CROSSBOW)) {
                     mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
+                    mc.player.swing(InteractionHand.MAIN_HAND);
                     tickCounter = 1;
                     stage = 4;
                 } else {
@@ -144,17 +153,21 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 4:
-                // 5. Disparar e Explodir
+                // 5. Disparar e restaurar hotbar
                 if (selectItem(Items.CROSSBOW)) {
                     mc.gameMode.releaseUsingItem(mc.player);
                     mc.player.swing(InteractionHand.MAIN_HAND);
+                    resetSequence();
+                } else {
                     resetSequence();
                 }
                 break;
         }
     }
 
-    private static void applySmoothLookAt(Vec3 target) {
+    private static void applyGrimBypassRotation(Vec3 target) {
+        if (mc.player == null) return;
+
         double dx = target.x - mc.player.getX();
         double dy = target.y - mc.player.getEyeY();
         double dz = target.z - mc.player.getZ();
@@ -169,9 +182,19 @@ public class XbowCart implements ClientModInitializer {
         float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
         float pitchDiff = Mth.wrapDegrees(targetPitch - currentPitch);
 
-        // Suavização do Xbow (0.65F = velocidade competitiva Pro estilo Blump/eyezingz)
-        mc.player.setYRot(currentYaw + yawDiff * 0.65F);
-        mc.player.setXRot(currentPitch + pitchDiff * 0.65F);
+        // Suavização alinhada ao GCD do mouse
+        double sensitivity = mc.options.sensitivity().get();
+        double f = sensitivity * 0.6D + 0.2D;
+        double gcd = f * f * f * 8.0D * 0.15D;
+
+        float interpolatedYaw = mc.player.getYRot() + (yawDiff * 0.65F);
+        float interpolatedPitch = mc.player.getXRot() + (pitchDiff * 0.65F);
+
+        float finalYaw = (float) (mc.player.getYRot() + Math.round((interpolatedYaw - mc.player.getYRot()) / gcd) * gcd);
+        float finalPitch = (float) (mc.player.getXRot() + Math.round((interpolatedPitch - mc.player.getXRot()) / gcd) * gcd);
+
+        mc.player.setYRot(finalYaw);
+        mc.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
     }
 
     private static boolean selectItem(Item item) {
@@ -185,10 +208,14 @@ public class XbowCart implements ClientModInitializer {
     }
 
     private static void resetSequence() {
+        if (mc.player != null && preSlot >= 0 && preSlot < 9) {
+            mc.player.getInventory().setSelectedSlot(preSlot);
+        }
         active = false;
         stage = 0;
         tickCounter = 0;
+        preSlot = -1;
         lockedBaseBlock = null;
         lockedTargetVec = null;
     }
-}
+                        }
