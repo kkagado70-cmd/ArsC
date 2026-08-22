@@ -52,7 +52,7 @@ public class AutoMace implements ClientModInitializer {
             "key.automace.toggle",
             InputConstants.Type.KEYSYM,
             GLFW.GLFW_KEY_M,
-            KeyMapping.CATEGORY_MISC
+            KeyMapping.Category.MISC
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
