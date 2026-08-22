@@ -19,8 +19,7 @@
       "com.scale.preciseguiscale.config.PreciseGuiScaleModMenu"
     ]
   },
-  "mixins": [
-    "precise-gui-scale.mixins.json"
+  
   ],
   "depends": {
     "fabricloader": ">=0.18.4",
