@@ -27,10 +27,10 @@ public class AutoMace implements ClientModInitializer {
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
-    // Reach estritamente baunilha para evitar flags de Hitbox
     private static final double MAX_SWING_RANGE = 2.75D;
     private static final double MAX_AIM_RANGE = 5.0D;
     private static final double MIN_FALL_DIST = 1.3D;
+    private static final float ROTATION_SMOOTHNESS = 0.65F;
 
     private static Player currentTarget = null;
     private static State state = State.IDLE;
@@ -106,8 +106,7 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
-        // Alinha a rotação da câmera diretamente para o centro do modelo do alvo
-        alignRotationToTarget(currentTarget);
+        applyGrimBypassRotation(currentTarget);
 
         boolean isBlocking = currentTarget.isUsingItem() && currentTarget.getUseItem().getItem() instanceof ShieldItem;
 
@@ -128,7 +127,7 @@ public class AutoMace implements ClientModInitializer {
                 int axeSlot = findAxeSlot();
                 if (axeSlot != -1) {
                     mc.player.getInventory().setSelectedSlot(axeSlot);
-                    delayTimer = 1; // 1 tick de sincronização
+                    delayTimer = 2; // Sincroniza a troca no servidor
                     state = State.AXE_STRIKE;
                 } else {
                     state = State.MACE_SWAP;
@@ -136,11 +135,11 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case AXE_STRIKE:
-                if (canValidlyAttack(currentTarget)) {
-                    alignRotationToTarget(currentTarget);
+                if (isAttackReady() && canValidlyAttack(currentTarget)) {
+                    applyGrimBypassRotation(currentTarget);
+                    mc.player.swing(InteractionHand.MAIN_HAND); // Swing ANTES do ataque (Corrige PacketOrderE)
                     mc.gameMode.attack(mc.player, currentTarget);
-                    mc.player.swing(InteractionHand.MAIN_HAND);
-                    delayTimer = 1;
+                    delayTimer = 2;
                     state = State.MACE_SWAP;
                 }
                 break;
@@ -149,7 +148,7 @@ public class AutoMace implements ClientModInitializer {
                 int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
                 if (maceSlot != -1) {
                     mc.player.getInventory().setSelectedSlot(maceSlot);
-                    delayTimer = 1;
+                    delayTimer = 2; // Sincroniza a maça na mão
                     state = State.MACE_SLAM;
                 } else {
                     restoreSlotAndReset();
@@ -157,10 +156,10 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case MACE_SLAM:
-                if (canValidlyAttack(currentTarget)) {
-                    alignRotationToTarget(currentTarget);
+                if (isAttackReady() && canValidlyAttack(currentTarget)) {
+                    applyGrimBypassRotation(currentTarget);
+                    mc.player.swing(InteractionHand.MAIN_HAND); // Swing ANTES do ataque
                     mc.gameMode.attack(mc.player, currentTarget);
-                    mc.player.swing(InteractionHand.MAIN_HAND);
                     delayTimer = 2;
                     state = State.RESTORE_SLOT;
                 }
@@ -172,9 +171,10 @@ public class AutoMace implements ClientModInitializer {
         }
     }
 
-    /**
-     * Valida se o vetor de visão do jogador cruza fisicamente a caixa do oponente sem inflar a AABB.
-     */
+    private static boolean isAttackReady() {
+        return mc.player != null && mc.player.getAttackStrengthScale(0.0F) >= 0.9F;
+    }
+
     private static boolean canValidlyAttack(Player target) {
         if (mc.player == null || target == null) return false;
         if (!mc.player.hasLineOfSight(target)) return false;
@@ -184,38 +184,10 @@ public class AutoMace implements ClientModInitializer {
         Vec3 lookVec = mc.player.getViewVector(1.0F);
         Vec3 reachVec = eyePos.add(lookVec.x * MAX_SWING_RANGE, lookVec.y * MAX_SWING_RANGE, lookVec.z * MAX_SWING_RANGE);
 
-        AABB targetBox = target.getBoundingBox(); // Hitbox exata (baunilha)
+        AABB targetBox = target.getBoundingBox();
         Optional<Vec3> clipHit = targetBox.clip(eyePos, reachVec);
 
         return clipHit.isPresent();
-    }
-
-    private static void alignRotationToTarget(Player target) {
-        if (mc.player == null || target == null) return;
-
-        AABB box = target.getBoundingBox();
-        Vec3 center = box.getCenter();
-
-        double dx = center.x - mc.player.getX();
-        double dy = center.y - mc.player.getEyeY();
-        double dz = center.z - mc.player.getZ();
-        double horizontalDistance = Math.sqrt(dx * dx + dz * dz);
-
-        float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
-        float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, horizontalDistance)));
-
-        double sensitivity = mc.options.sensitivity().get();
-        double f = sensitivity * 0.6D + 0.2D;
-        double gcd = f * f * f * 8.0D * 0.15D;
-
-        float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
-        float pitchDelta = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
-
-        float finalYaw = (float) (mc.player.getYRot() + Math.round(yawDelta / gcd) * gcd);
-        float finalPitch = (float) (mc.player.getXRot() + Math.round(pitchDelta / gcd) * gcd);
-
-        mc.player.setYRot(finalYaw);
-        mc.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
     }
 
     private static void updateFallTracker() {
@@ -270,6 +242,39 @@ public class AutoMace implements ClientModInitializer {
             }
         }
         return 0;
+    }
+
+    private static void applyGrimBypassRotation(Player target) {
+        if (mc.player == null || target == null) return;
+
+        AABB box = target.getBoundingBox();
+        Vec3 center = box.getCenter();
+        double aimY = box.minY + (target.getBbHeight() * 0.50D);
+        Vec3 targetEyePos = new Vec3(center.x, aimY, center.z);
+
+        double dx = targetEyePos.x - mc.player.getX();
+        double dy = targetEyePos.y - mc.player.getEyeY();
+        double dz = targetEyePos.z - mc.player.getZ();
+        double horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+
+        float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
+        float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, horizontalDistance)));
+
+        float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
+        float pitchDelta = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
+
+        double sensitivity = mc.options.sensitivity().get();
+        double f = sensitivity * 0.6D + 0.2D;
+        double gcd = f * f * f * 8.0D * 0.15D;
+
+        float interpolatedYaw = mc.player.getYRot() + (yawDelta * ROTATION_SMOOTHNESS);
+        float interpolatedPitch = mc.player.getXRot() + (pitchDelta * ROTATION_SMOOTHNESS);
+
+        float finalYaw = (float) (mc.player.getYRot() + Math.round((interpolatedYaw - mc.player.getYRot()) / gcd) * gcd);
+        float finalPitch = (float) (mc.player.getXRot() + Math.round((interpolatedPitch - mc.player.getXRot()) / gcd) * gcd);
+
+        mc.player.setYRot(finalYaw);
+        mc.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
     }
 
     private static int findAxeSlot() {
