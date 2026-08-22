@@ -6,6 +6,7 @@ import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.InteractionHand;
@@ -63,7 +64,7 @@ public class XbowCart implements ClientModInitializer {
     public static void onTick(Minecraft client) {
         if (mc.player == null || mc.level == null) return;
 
-        // Ativação a partir de QUALQUER ângulo ao olhar para um bloco com o Trilho na mão
+        // Ativação quando segura o Trilho e mira em qualquer bloco
         if (!active) {
             boolean holdingRail = mc.player.getMainHandItem().is(Items.RAIL);
             HitResult hit = mc.hitResult;
@@ -90,13 +91,12 @@ public class XbowCart implements ClientModInitializer {
             return;
         }
 
-        // Alcance expandido para permitir acionamento de até 25 blocos de distância
         if (mc.player.distanceToSqr(lockedTargetVec) > 25.0D) {
             resetSequence();
             return;
         }
 
-        applyProFlickRotation(lockedTargetVec);
+        applyGrimBypassRotation(lockedTargetVec);
 
         BlockHitResult placementHit = new BlockHitResult(lockedTargetVec, lockedDirection, lockedBaseBlock, false);
 
@@ -106,7 +106,7 @@ public class XbowCart implements ClientModInitializer {
                 if (selectItem(Items.RAIL)) {
                     mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, placementHit);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickCounter = 1;
+                    tickCounter = 2; // 2 ticks de espera para sincronização no servidor
                     stage = 1;
                 } else {
                     resetSequence();
@@ -121,7 +121,7 @@ public class XbowCart implements ClientModInitializer {
                     
                     mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, cartHit);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickCounter = 1;
+                    tickCounter = 2;
                     stage = 2;
                 } else {
                     stage = 2;
@@ -129,23 +129,24 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 2:
-                // 3. Acionar Isqueiro (Flint & Steel) interagindo com o carrinho ou com a superfície do bloco
+                // 3. Acionar Isqueiro (Flint & Steel) interagindo diretamente com o TNT_MINECART
                 if (selectItem(Items.FLINT_AND_STEEL)) {
                     BlockPos cartPos = lockedBaseBlock.relative(lockedDirection);
-                    Vec3 cartVec = Vec3.atCenterOf(cartPos);
-                    
                     AABB searchBox = new AABB(cartPos).inflate(1.5D);
-                    List<Entity> minecarts = mc.level.getEntities((Entity) null, searchBox, e -> e.getType().getDescriptionId().contains("minecart"));
+                    
+                    // Busca pela entidade oficial EntityType.TNT_MINECART
+                    List<Entity> minecarts = mc.level.getEntities((Entity) null, searchBox, e -> e.getType() == EntityType.TNT_MINECART);
 
                     if (!minecarts.isEmpty()) {
                         mc.gameMode.interact(mc.player, minecarts.get(0), InteractionHand.MAIN_HAND);
                     } else {
+                        Vec3 cartVec = Vec3.atCenterOf(cartPos);
                         BlockHitResult flintHit = new BlockHitResult(cartVec, Direction.UP, cartPos, false);
                         mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, flintHit);
                     }
                     
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickCounter = 1;
+                    tickCounter = 2;
                     stage = 3;
                 } else {
                     stage = 3;
@@ -157,7 +158,7 @@ public class XbowCart implements ClientModInitializer {
                 if (selectItem(Items.CROSSBOW)) {
                     mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickCounter = 1;
+                    tickCounter = 2;
                     stage = 4;
                 } else {
                     resetSequence();
@@ -165,7 +166,7 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 4:
-                // 5. Disparar (MANTÉM NO CROSSBOW, SEM SWAPBACK)
+                // 5. Disparar o Crossbow
                 if (selectItem(Items.CROSSBOW)) {
                     mc.gameMode.releaseUsingItem(mc.player);
                     mc.player.swing(InteractionHand.MAIN_HAND);
@@ -175,7 +176,7 @@ public class XbowCart implements ClientModInitializer {
         }
     }
 
-    private static void applyProFlickRotation(Vec3 target) {
+    private static void applyGrimBypassRotation(Vec3 target) {
         if (mc.player == null) return;
 
         double dx = target.x - mc.player.getX();
@@ -196,8 +197,8 @@ public class XbowCart implements ClientModInitializer {
         double f = sensitivity * 0.6D + 0.2D;
         double gcd = f * f * f * 8.0D * 0.15D;
 
-        float interpolatedYaw = mc.player.getYRot() + (yawDiff * 0.85F);
-        float interpolatedPitch = mc.player.getXRot() + (pitchDiff * 0.85F);
+        float interpolatedYaw = mc.player.getYRot() + (yawDiff * 0.70F);
+        float interpolatedPitch = mc.player.getXRot() + (pitchDiff * 0.70F);
 
         float finalYaw = (float) (mc.player.getYRot() + Math.round((interpolatedYaw - mc.player.getYRot()) / gcd) * gcd);
         float finalPitch = (float) (mc.player.getXRot() + Math.round((interpolatedPitch - mc.player.getXRot()) / gcd) * gcd);
@@ -224,4 +225,4 @@ public class XbowCart implements ClientModInitializer {
         lockedTargetVec = null;
         lockedDirection = Direction.UP;
     }
-}
+            }
