@@ -63,7 +63,6 @@ public class XbowCart implements ClientModInitializer {
     public static void onTick(Minecraft client) {
         if (mc.player == null || mc.level == null) return;
 
-        // Ativação quando segura o Trilho e olha para um bloco
         if (!active) {
             boolean holdingRail = mc.player.getMainHandItem().is(Items.RAIL);
             HitResult hit = mc.hitResult;
@@ -90,7 +89,7 @@ public class XbowCart implements ClientModInitializer {
             return;
         }
 
-        if (mc.player.distanceToSqr(lockedTargetVec) > 8.5D) {
+        if (mc.player.distanceToSqr(lockedTargetVec) > 8.7D) {
             resetSequence();
             return;
         }
@@ -164,7 +163,7 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 4:
-                // 5. Disparar (MANTÉM NO CROSSBOW, SEM SWAPBACK)
+                // 5. Disparar (Sem SwapBack)
                 if (selectItem(Items.CROSSBOW)) {
                     mc.gameMode.releaseUsingItem(mc.player);
                     mc.player.swing(InteractionHand.MAIN_HAND);
@@ -224,7 +223,6 @@ public class XbowCart implements ClientModInitializer {
     }
 
     private static void resetSequence() {
-        // SEM RESTAURAÇÃO DE SLOT (Sem SwapBack)
         active = false;
         stage = 0;
         tickCounter = 0;
@@ -232,4 +230,4 @@ public class XbowCart implements ClientModInitializer {
         lockedTargetVec = null;
         lockedDirection = Direction.UP;
     }
-    }
+                                }
