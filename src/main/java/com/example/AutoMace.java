@@ -20,33 +20,30 @@ import net.minecraft.world.item.enchantment.ItemEnchantments;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
-import java.util.Optional;
-
 public class AutoMace implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
-    // Reach estritamente legítimo para impedir flag de Hitbox no Grim
-    private static final double MAX_SWING_RANGE = 2.75D;
-    private static final double MAX_AIM_RANGE = 5.0D;
+    private static final double MAX_SWING_RANGE = 2.85D;
+    private static final double MAX_AIM_RANGE = 5.5D;
     private static final double MIN_FALL_DIST = 1.4D;
     private static final float ROTATION_SMOOTHNESS = 0.50F;
 
     private static Player currentTarget = null;
-    private static State state = State.IDLE;
     private static int delayTimer = 0;
     private static int preSequenceSlot = -1;
+    private static int originalSlot = -1;
+    private static int targetSlotForAttack = -1;
+    private static int maceClicksLeft = 0;
+    private static long axeHitTime = 0L;
+    private static long lastComboTime = 0L;
+    private static long maceSwapDelay = 10L; // Delay idêntico ao Cyemer para troca de armas
     private static double highestY = 0.0D;
 
-    public enum State {
-        IDLE,
-        AXE_SWAP,
-        AXE_STRIKE,
-        MACE_SWAP,
-        MACE_SLAM,
-        RESTORE_SLOT
-    }
+    private static boolean shouldBreakShield = false;
+    private static boolean shouldMaceSmash = false;
+    private static boolean shouldAttackThisTick = false;
 
     @Override
     public void onInitializeClient() {
@@ -86,100 +83,173 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
+        // Execuções diretas do ciclo Stun Slam do Cyemer
+        if (shouldBreakShield) {
+            executeShieldBreak();
+            return;
+        } else if (shouldMaceSmash) {
+            executeMaceSmash();
+            return;
+        } else if (shouldAttackThisTick) {
+            executeAttack();
+            return;
+        }
+
+        runLogic();
+    }
+
+    private static void runLogic() {
+        if (mc.player == null || mc.level == null) return;
+
         updateFallTracker();
 
         double currentFallDistance = Math.max(0.0D, highestY - mc.player.getY());
 
         boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
         if (!isFalling) {
-            if (state != State.IDLE) {
-                restoreSlotAndReset();
-            }
+            resetState();
             return;
         }
+
+        if (maceClicksLeft > 0) {
+            calculateMaceLogic(currentFallDistance);
+            return;
+        }
+
+        if (System.currentTimeMillis() - lastComboTime < 450L) return;
 
         currentTarget = locateTarget(MAX_AIM_RANGE);
         if (currentTarget == null) {
-            restoreSlotAndReset();
+            resetState();
             return;
         }
 
-        // Aplica rotação alinhada ao GCD
+        // Mantida a SUA rotação/mira que você gosta
         applyGrimBypassRotation(currentTarget);
 
-        boolean isBlocking = currentTarget.isUsingItem() && currentTarget.getUseItem().getItem() instanceof ShieldItem;
-
-        switch (state) {
-            case IDLE:
-                if (preSequenceSlot == -1) {
-                    preSequenceSlot = mc.player.getInventory().getSelectedSlot();
-                }
-                
-                if (isBlocking) {
-                    state = State.AXE_SWAP;
-                } else {
-                    state = State.MACE_SWAP;
-                }
-                break;
-
-            case AXE_SWAP:
-                int axeSlot = findAxeSlot();
-                if (axeSlot != -1) {
-                    mc.player.getInventory().setSelectedSlot(axeSlot);
-                    delayTimer = 2; // 2 ticks para registrar o item na mão antes do ataque (Elimina Flag de Post)
-                    state = State.AXE_STRIKE;
-                } else {
-                    state = State.MACE_SWAP;
-                }
-                break;
-
-            case AXE_STRIKE:
-                // Só dispara se o raio de visão colidir com a caixa do oponente (Elimina Flag de Hitboxes)
-                if (mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE && isLookVectorIntersectingBox(currentTarget)) {
-                    mc.gameMode.attack(mc.player, currentTarget);
-                    mc.player.swing(InteractionHand.MAIN_HAND);
-                    delayTimer = 2;
-                    state = State.MACE_SWAP;
-                }
-                break;
-
-            case MACE_SWAP:
-                int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
-                if (maceSlot != -1) {
-                    mc.player.getInventory().setSelectedSlot(maceSlot);
-                    delayTimer = 2; // 2 ticks de tolerância de pacote
-                    state = State.MACE_SLAM;
-                } else {
-                    restoreSlotAndReset();
-                }
-                break;
-
-            case MACE_SLAM:
-                if (mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE && isLookVectorIntersectingBox(currentTarget)) {
-                    mc.gameMode.attack(mc.player, currentTarget);
-                    mc.player.swing(InteractionHand.MAIN_HAND);
-                    delayTimer = 2;
-                    state = State.RESTORE_SLOT;
-                }
-                break;
-
-            case RESTORE_SLOT:
-                restoreSlotAndReset();
-                break;
+        boolean isBlocking = isTargetBlocking(currentTarget);
+        if (isBlocking) {
+            calculateStunSlam(currentFallDistance);
+        } else {
+            calculateDirectMaceLogic(currentFallDistance);
         }
     }
 
-    private static boolean isLookVectorIntersectingBox(Player target) {
-        if (mc.player == null || target == null) return false;
+    // Lógica do Stun Slam portada exatamente do Cyemer
+    private static void calculateStunSlam(double fallDist) {
+        if (currentTarget == null || mc.player.distanceTo(currentTarget) > MAX_AIM_RANGE) {
+            resetState();
+            return;
+        }
 
-        Vec3 eyePos = mc.player.getEyePosition(1.0F);
-        Vec3 lookVec = mc.player.getViewVector(1.0F);
-        Vec3 reachVec = eyePos.add(lookVec.x * MAX_SWING_RANGE, lookVec.y * MAX_SWING_RANGE, lookVec.z * MAX_SWING_RANGE);
+        if (canExecuteAttack()) {
+            int axeSlot = findAxeSlot();
+            int maceSlot = selectOptimalMaceSlot(currentTarget, fallDist);
+            if (axeSlot != -1 && maceSlot != -1) {
+                if (preSequenceSlot == -1) {
+                    preSequenceSlot = mc.player.getInventory().getSelectedSlot();
+                }
+                shouldBreakShield = true;
+                targetSlotForAttack = axeSlot;
+                originalSlot = maceSlot;
+            }
+        }
+    }
 
-        AABB targetBox = target.getBoundingBox().inflate(0.1D);
-        Optional<Vec3> hit = targetBox.clip(eyePos, reachVec);
+    private static void executeShieldBreak() {
+        shouldBreakShield = false;
+        if (currentTarget == null || !syncToAttackSlot() || !canExecuteAttack()) {
+            resetState();
+            return;
+        }
 
-        return hit.isPresent();
+        mc.gameMode.attack(mc.player, currentTarget);
+        mc.player.swing(InteractionHand.MAIN_HAND);
+        
+        maceClicksLeft = 1;
+        axeHitTime = System.currentTimeMillis();
+        delayTimer = 1;
+    }
+
+    private static void calculateMaceLogic(double fallDist) {
+        if (currentTarget == null || !currentTarget.isAlive() || mc.player.distanceTo(currentTarget) > MAX_AIM_RANGE) {
+            resetState();
+            return;
+        }
+
+        long timeSinceAxe = System.currentTimeMillis() - axeHitTime;
+        if (timeSinceAxe < maceSwapDelay) return;
+
+        if (timeSinceAxe > 1500L) {
+            resetState();
+            return;
+        }
+
+        if (canExecuteAttack()) {
+            shouldMaceSmash = true;
+            targetSlotForAttack = originalSlot;
+        }
+    }
+
+    private static void executeMaceSmash() {
+        shouldMaceSmash = false;
+        if (!syncToAttackSlot() || !canExecuteAttack()) {
+            resetState();
+            return;
+        }
+
+        mc.gameMode.attack(mc.player, currentTarget);
+        mc.player.swing(InteractionHand.MAIN_HAND);
+
+        maceClicksLeft = 0;
+        lastComboTime = System.currentTimeMillis();
+        delayTimer = 2;
+        
+        restoreSlotAndReset();
+    }
+
+    private static void calculateDirectMaceLogic(double fallDist) {
+        int maceSlot;
+        if (currentTarget == null || !currentTarget.isAlive() || mc.player.distanceTo(currentTarget) > MAX_AIM_RANGE) {
+            resetState();
+            return;
+        }
+
+        if (canExecuteAttack() && (maceSlot = selectOptimalMaceSlot(currentTarget, fallDist)) != -1) {
+            if (preSequenceSlot == -1) {
+                preSequenceSlot = mc.player.getInventory().getSelectedSlot();
+            }
+            shouldAttackThisTick = true;
+            targetSlotForAttack = maceSlot;
+        }
+    }
+
+    private static void executeAttack() {
+        shouldAttackThisTick = false;
+        if (!syncToAttackSlot() || !canExecuteAttack()) {
+            resetState();
+            return;
+        }
+
+        mc.gameMode.attack(mc.player, currentTarget);
+        mc.player.swing(InteractionHand.MAIN_HAND);
+        lastComboTime = System.currentTimeMillis();
+        delayTimer = 2;
+
+        restoreSlotAndReset();
+    }
+
+    private static boolean canExecuteAttack() {
+        if (mc.player == null || currentTarget == null) return false;
+        return mc.player.canSee(currentTarget) && mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE;
+    }
+
+    private static boolean isTargetBlocking(Player target) {
+        if (target == null) return false;
+        if (target.isBlocking()) return true;
+        if (!target.isUsingItem()) return false;
+        ItemStack active = target.getActiveItem();
+        return !active.isEmpty() && (active.getItem() instanceof ShieldItem);
     }
 
     private static void updateFallTracker() {
@@ -296,6 +366,12 @@ public class AutoMace implements ClientModInitializer {
         return bestTarget;
     }
 
+    private static boolean syncToAttackSlot() {
+        if (mc.player == null || targetSlotForAttack < 0 || targetSlotForAttack > 8) return false;
+        mc.player.getInventory().setSelectedSlot(targetSlotForAttack);
+        return true;
+    }
+
     private static void restoreSlotAndReset() {
         if (mc.player != null && preSequenceSlot >= 0 && preSequenceSlot < 9) {
             mc.player.getInventory().setSelectedSlot(preSequenceSlot);
@@ -305,8 +381,13 @@ public class AutoMace implements ClientModInitializer {
 
     private static void resetState() {
         currentTarget = null;
-        state = State.IDLE;
-        delayTimer = 0;
+        maceClicksLeft = 0;
+        axeHitTime = 0L;
+        originalSlot = -1;
         preSequenceSlot = -1;
+        targetSlotForAttack = -1;
+        shouldBreakShield = false;
+        shouldMaceSmash = false;
+        shouldAttackThisTick = false;
     }
-}
+            }
