@@ -1,262 +1,153 @@
 package com.example;
 
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.CrossbowItem;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.SlabBlock;
-import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
-import java.util.Random;
+import net.minecraft.util.Mth;
+import com.mojang.blaze3d.platform.InputConstants;
+import org.lwjgl.glfw.GLFW;
 
-public class XbowCart {
-    public enum Stage { IDLE, PLACE_RAIL, PLACE_CART, PLACE_SLAB, LIGHT_FIRE, AIM, DISCHARGE, RESTORE }
-    public static boolean enabled = false;
+public class XBowCart implements ClientModInitializer {
+    private static final Minecraft mc = Minecraft.getInstance();
+    private static KeyMapping triggerKey;
+    private static boolean active = false;
+    private static int step = 0;
+    private static int tickDelay = 0;
 
-    private static boolean triggered = false;
-    private static Stage stage = Stage.IDLE;
-    private static int tickTimer = 0;
-    private static BlockHitResult targetBlock = null;
-    private static float targetYaw = 0, targetPitch = 0;
-    private static int originalSlot = -1;
-    private static final Random RANDOM = new Random();
-    private static boolean useSafe = false;
-    private static int slabSlot = -1;
-    private static BlockPos slabPos = null;
-    private static BlockPos firePos = null;
+    @Override
+    public void onInitializeClient() {
+        // Correção de construtor do KeyMapping (Usando CATEGORY_GAMEPLAY do Fabric/Minecraft)
+        triggerKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+            "key.xbowcart.trigger",
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_X,
+            KeyMapping.CATEGORY_GAMEPLAY
+        ));
 
-    public static void onTick(Minecraft client) {
-        if (!enabled || client.player == null || client.level == null || client.gameMode == null) {
-            if (stage != Stage.IDLE) reset(client, true);
-            return;
-        }
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (mc.player == null || mc.level == null) return;
 
-        if (stage == Stage.IDLE) {
-            ItemStack hand = client.player.getMainHandItem();
-            boolean holdingRail = hand.is(Items.RAIL) || hand.is(Items.POWERED_RAIL)
-                    || hand.is(Items.DETECTOR_RAIL) || hand.is(Items.ACTIVATOR_RAIL);
-            if (holdingRail && client.hitResult instanceof BlockHitResult hit
-                    && hit.getType() == HitResult.Type.BLOCK && hit.getDirection() == Direction.UP) {
-                if (client.player.getEyePosition().distanceTo(hit.getLocation()) <= 6.0) {
-                    triggered = true;
-                }
+            while (triggerKey.consumeClick()) {
+                active = !active;
+                step = 0;
+                tickDelay = 0;
             }
-            if (triggered) {
-                triggered = false;
-                if (client.hitResult instanceof BlockHitResult hit) {
-                    int rail = findSlot(client, Items.RAIL, Items.POWERED_RAIL, Items.DETECTOR_RAIL, Items.ACTIVATOR_RAIL);
-                    int cart = findSlot(client, Items.TNT_MINECART);
-                    int flint = findSlot(client, Items.FLINT_AND_STEEL);
-                    int xbow = findChargedCrossbow(client);
-                    if (rail == -1 || cart == -1 || flint == -1) return;
-                    if (xbow == -1) {
-                        int cb = findSlot(client, Items.CROSSBOW);
-                        if (cb != -1) {
-                            client.player.getInventory().setSelectedSlot(cb);
-                            client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
-                            return;
-                        }
-                        return;
-                    }
 
-                    useSafe = false;
-                    slabSlot = -1;
-                    slabPos = null;
-                    firePos = null;
+            if (!active) return;
 
-                    for (int i = 0; i < 9; i++) {
-                        ItemStack s = client.player.getInventory().getItem(i);
-                        if (!s.isEmpty() && s.getItem() instanceof BlockItem) {
-                            BlockItem bi = (BlockItem) s.getItem();
-                            if (bi.getBlock() instanceof SlabBlock) {
-                                slabSlot = i;
-                                break;
-                            }
-                        }
-                    }
+            if (tickDelay > 0) {
+                tickDelay--;
+                return;
+            }
 
-                    BlockPos basePos = hit.getBlockPos().relative(hit.getDirection());
-                    Direction playerDir = client.player.getDirection();
+            BlockPos targetPos = mc.player.blockPosition().below();
+            Vec3 targetVec = Vec3.atCenterOf(targetPos);
 
-                    if (slabSlot != -1) {
-                        slabPos = basePos.relative(playerDir.getOpposite());
-                        firePos = slabPos.relative(playerDir);
-                        useSafe = true;
+            if (mc.player.distanceToSqr(targetVec) > 9.0D) {
+                active = false;
+                return;
+            }
+
+            // Mira ultra-rápida estilo Blump/eyezingz (0.65F = ajuste de mira agressivo, mas visível em vídeo)
+            applyProLookAt(targetVec);
+
+            switch (step) {
+                case 0:
+                    // Etapa 1: Colocar Trilho
+                    if (selectItem(Items.RAIL)) {
+                        mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, new BlockHitResult(targetVec, Direction.UP, targetPos, false));
+                        mc.player.swing(InteractionHand.MAIN_HAND);
+                        tickDelay = 1; // 1 tick para dar o tempo exato do motor ler a física
+                        step = 1;
                     } else {
-                        firePos = basePos.relative(playerDir.getOpposite());
+                        active = false;
                     }
+                    break;
 
-                    originalSlot = client.player.getInventory().getSelectedSlot();
-                    targetBlock = hit;
-                    stage = Stage.PLACE_RAIL;
-                    tickTimer = 0;
-                }
+                case 1:
+                    // Etapa 2: Colocar Cart com TNT
+                    if (selectItem(Items.TNT_MINECART)) {
+                        mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, new BlockHitResult(targetVec, Direction.UP, targetPos, false));
+                        mc.player.swing(InteractionHand.MAIN_HAND);
+                        tickDelay = 1;
+                        step = 2;
+                    } else {
+                        active = false;
+                    }
+                    break;
+
+                case 2:
+                    // Etapa 3: Isqueiro / Acendimento
+                    if (selectItem(Items.FLINT_AND_STEEL)) {
+                        mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, new BlockHitResult(targetVec, Direction.UP, targetPos, false));
+                        mc.player.swing(InteractionHand.MAIN_HAND);
+                        tickDelay = 1;
+                        step = 3;
+                    } else {
+                        active = false;
+                    }
+                    break;
+
+                case 3:
+                    // Etapa 4: Disparo do Crossbow
+                    if (selectItem(Items.CROSSBOW)) {
+                        mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
+                        tickDelay = 1;
+                        step = 4;
+                    } else {
+                        active = false;
+                    }
+                    break;
+
+                case 4:
+                    // Etapa 5: Soltar e acionar a explosão do Cart
+                    if (selectItem(Items.CROSSBOW)) {
+                        mc.gameMode.releaseUsingItem(mc.player);
+                        mc.player.swing(InteractionHand.MAIN_HAND);
+                        active = false;
+                    }
+                    break;
             }
-            return;
-        }
-
-        if (tickTimer > 0) {
-            tickTimer--;
-            return;
-        }
-        processState(client);
+        });
     }
 
-    private static boolean isRail(ItemStack s) {
-        return s.is(Items.RAIL) || s.is(Items.POWERED_RAIL)
-                || s.is(Items.DETECTOR_RAIL) || s.is(Items.ACTIVATOR_RAIL);
+    private static void applyProLookAt(Vec3 target) {
+        double dx = target.x - mc.player.getX();
+        double dy = target.y - mc.player.getEyeY();
+        double dz = target.z - mc.player.getZ();
+        double dist = Math.sqrt(dx * dx + dz * dz);
+
+        float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
+        float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, dist)));
+
+        float currentYaw = mc.player.getYaw();
+        float currentPitch = mc.player.getPitch();
+
+        float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
+        float pitchDiff = Mth.wrapDegrees(targetPitch - currentPitch);
+
+        // Multiplicador 0.65f garante rotação instantânea e visual legítimo para gravação
+        mc.player.setYaw(currentYaw + yawDiff * 0.65F);
+        mc.player.setPitch(currentPitch + pitchDiff * 0.65F);
     }
 
-    private static int findSlot(Minecraft client, net.minecraft.world.item.Item... items) {
+    private static boolean selectItem(Item item) {
         for (int i = 0; i < 9; i++) {
-            ItemStack s = client.player.getInventory().getItem(i);
-            if (s.isEmpty()) continue;
-            for (net.minecraft.world.item.Item item : items) {
-                if (s.is(item)) return i;
+            if (mc.player.getInventory().getItem(i).is(item)) {
+                // Seleção de slot utilizando o método Setter do Mojang Mappings 1.21.11
+                mc.player.getInventory().setSelectedHotbarSlot(i);
+                return true;
             }
         }
-        return -1;
+        return false;
     }
-
-    private static int findChargedCrossbow(Minecraft client) {
-        for (int i = 0; i < 9; i++) {
-            ItemStack s = client.player.getInventory().getItem(i);
-            if (!s.isEmpty() && s.is(Items.CROSSBOW) && CrossbowItem.isCharged(s)) return i;
-        }
-        return -1;
-    }
-
-    private static void processState(Minecraft client) {
-        if (targetBlock == null) { reset(client, true); return; }
-
-        Direction playerDir = client.player.getDirection();
-        BlockPos basePos = targetBlock.getBlockPos().relative(targetBlock.getDirection());
-
-        BlockPos railPos = basePos.above();
-        BlockPos cartPos = railPos;
-
-        BlockHitResult railHit = new BlockHitResult(
-                new Vec3(railPos.getX() + 0.5, railPos.getY() + 0.5, railPos.getZ() + 0.5),
-                Direction.UP, railPos, false);
-        BlockHitResult cartHit = new BlockHitResult(
-                new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.05, cartPos.getZ() + 0.5),
-                Direction.UP, cartPos, false);
-
-        int delay = 1 + RANDOM.nextInt(1);
-
-        switch (stage) {
-            case PLACE_RAIL -> {
-                int r = findSlot(client, Items.RAIL, Items.POWERED_RAIL, Items.DETECTOR_RAIL, Items.ACTIVATOR_RAIL);
-                if (r == -1) { reset(client, true); return; }
-                client.player.getInventory().setSelectedSlot(r);
-                client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, railHit);
-                client.player.swing(InteractionHand.MAIN_HAND);
-                stage = Stage.PLACE_CART;
-                tickTimer = delay;
-            }
-            case PLACE_CART -> {
-                int c = findSlot(client, Items.TNT_MINECART);
-                if (c == -1) { reset(client, true); return; }
-                client.player.getInventory().setSelectedSlot(c);
-                client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, cartHit);
-                client.player.swing(InteractionHand.MAIN_HAND);
-                stage = useSafe ? Stage.PLACE_SLAB : Stage.LIGHT_FIRE;
-                tickTimer = delay;
-            }
-            case PLACE_SLAB -> {
-                if (slabSlot == -1 || slabPos == null) { reset(client, true); return; }
-                BlockHitResult slabHit = new BlockHitResult(
-                        new Vec3(slabPos.getX() + 0.5, slabPos.getY() + 0.5, slabPos.getZ() + 0.5),
-                        Direction.UP, slabPos, false);
-                client.player.getInventory().setSelectedSlot(slabSlot);
-                client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, slabHit);
-                client.player.swing(InteractionHand.MAIN_HAND);
-                stage = Stage.LIGHT_FIRE;
-                tickTimer = delay;
-            }
-            case LIGHT_FIRE -> {
-                int f = findSlot(client, Items.FLINT_AND_STEEL);
-                if (f == -1 || firePos == null) { reset(client, true); return; }
-                BlockHitResult fireHit = new BlockHitResult(
-                        new Vec3(firePos.getX() + 0.5, firePos.getY() + 0.5, firePos.getZ() + 0.5),
-                        Direction.UP, firePos, false);
-                client.player.getInventory().setSelectedSlot(f);
-                client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, fireHit);
-                client.player.swing(InteractionHand.MAIN_HAND);
-
-                Vec3 eye = client.player.getEyePosition();
-                Vec3 cartCenter = new Vec3(cartPos.getX() + 0.5, cartPos.getY() + 0.22, cartPos.getZ() + 0.5);
-                double dx = cartCenter.x - eye.x;
-                double dy = cartCenter.y - eye.y;
-                double dz = cartCenter.z - eye.z;
-                double dist = Math.sqrt(dx * dx + dz * dz);
-                targetYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
-                targetPitch = (float) -Math.toDegrees(Math.atan2(dy, dist));
-                targetYaw += (RANDOM.nextFloat() - 0.5f) * 0.5f;
-                targetPitch += (RANDOM.nextFloat() - 0.5f) * 0.3f;
-                stage = Stage.AIM;
-                tickTimer = delay;
-            }
-            case AIM -> {
-                int x = findChargedCrossbow(client);
-                if (x == -1) {
-                    int cb = findSlot(client, Items.CROSSBOW);
-                    if (cb != -1) {
-                        client.player.getInventory().setSelectedSlot(cb);
-                        client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
-                    }
-                    reset(client, true);
-                    return;
-                }
-                client.player.getInventory().setSelectedSlot(x);
-                float curY = client.player.getYRot();
-                float curP = client.player.getXRot();
-                float maxStep = 40f;
-                float dY = targetYaw - curY;
-                while (dY > 180) dY -= 360;
-                while (dY < -180) dY += 360;
-                float dP = targetPitch - curP;
-                dY = Math.max(-maxStep, Math.min(maxStep, dY));
-                dP = Math.max(-maxStep * 0.6f, Math.min(maxStep * 0.6f, dP));
-                client.player.setYRot(curY + dY);
-                client.player.setXRot(Math.max(-90, Math.min(90, curP + dP)));
-                stage = Stage.DISCHARGE;
-                tickTimer = delay;
-            }
-            case DISCHARGE -> {
-                client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
-                client.player.swing(InteractionHand.MAIN_HAND);
-                stage = Stage.RESTORE;
-                tickTimer = delay;
-            }
-            case RESTORE -> reset(client, true);
-            default -> reset(client, false);
-        }
-    }
-
-    private static void reset(Minecraft client, boolean restore) {
-        if (restore && originalSlot != -1 && client.player != null) {
-            client.player.getInventory().setSelectedSlot(originalSlot);
-        }
-        stage = Stage.IDLE;
-        targetBlock = null;
-        tickTimer = 0;
-        originalSlot = -1;
-        triggered = false;
-        useSafe = false;
-        slabSlot = -1;
-        slabPos = null;
-        firePos = null;
-    }
-
-    public static void toggle() {
-        enabled = !enabled;
-        if (!enabled) reset(Minecraft.getInstance(), true);
-    }
-    public static void reset() { reset(Minecraft.getInstance(), true); }
-                    }
+}
