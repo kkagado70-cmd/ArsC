@@ -246,7 +246,7 @@ public class AutoMace implements ClientModInitializer {
         float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
         float pitchDelta = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
 
-        float interpolatedYaw = mc.player.getYRot() + (yawDelta * ROTATION_SMOOTHNESS);
+foa:   float interpolatedYaw = mc.player.getYRot() + (yawDelta * ROTATION_SMOOTHNESS);
         float interpolatedPitch = mc.player.getXRot() + (pitchDelta * ROTATION_SMOOTHNESS);
 
         mc.player.setYRot(interpolatedYaw);
@@ -280,7 +280,7 @@ public class AutoMace implements ClientModInitializer {
         return bestTarget;
     }
 
-certificated -> private static void restoreSlotAndReset() {
+    private static void restoreSlotAndReset() {
         if (mc.player != null && preSequenceSlot >= 0 && preSequenceSlot < 9) {
             mc.player.getInventory().setSelectedSlot(preSequenceSlot);
         }
