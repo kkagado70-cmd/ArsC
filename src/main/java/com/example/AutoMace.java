@@ -25,7 +25,7 @@ public class AutoMace implements ClientModInitializer {
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
-    private static final double MAX_SWING_RANGE = 2.95D;
+    private static final double MAX_SWING_RANGE = 2.85D;
     private static final double MAX_AIM_RANGE = 7.0D;
     private static final double MIN_FALL_DIST = 1.5D;
     private static final float ROTATION_SMOOTHNESS = 0.40F;
@@ -38,11 +38,11 @@ public class AutoMace implements ClientModInitializer {
 
     public enum State {
         IDLE,
-        PREPARING_SHIELD_BREAK,
-        EXECUTING_AXE_STRIKE,
-        SWAPPING_TO_MACE,
-        EXECUTING_MACE_SMASH,
-        RESETTING
+        AXE_SWAP,
+        AXE_STRIKE,
+        MACE_SWAP,
+        MACE_SLAM,
+        RESTORE_SLOT
     }
 
     @Override
@@ -83,97 +83,89 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
-        updateFallDistanceTracker();
+        updateFallTracker();
 
         double currentFallDistance = Math.max(0.0D, highestY - mc.player.getY());
 
-        // VERIFICAÇÃO DE QUEDA PRIMEIRO: Se não estiver caindo, cancela e NÃO mira.
+        // Ativa APENAS se o jogador estiver caindo
         boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
         if (!isFalling) {
-            resetState();
+            if (state != State.IDLE) {
+                restoreSlotAndReset();
+            }
             return;
         }
 
-        // Busca o alvo apenas quando a queda é confirmada
-        currentTarget = locateOptimalTarget(MAX_AIM_RANGE);
+        currentTarget = locateTarget(MAX_AIM_RANGE);
         if (currentTarget == null) {
-            resetState();
+            restoreSlotAndReset();
             return;
         }
 
-        // Mira suave ativada APENAS durante a queda
-        applyBypassHumanRotation(currentTarget);
+        applyGrimBypassRotation(currentTarget);
 
-        boolean isBlocking = isTargetBlockingWithShield(currentTarget);
+        boolean isBlocking = currentTarget.isUsingItem() && currentTarget.getUseItem().getItem() instanceof ShieldItem;
 
         switch (state) {
             case IDLE:
-                if (isBlocking) {
-                    state = State.PREPARING_SHIELD_BREAK;
-                } else {
-                    state = State.EXECUTING_MACE_SMASH;
-                }
-                break;
-
-            case PREPARING_SHIELD_BREAK:
-                int axeSlot = findAxeSlot();
-                int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
-                
-                if (axeSlot != -1 && maceSlot != -1) {
+                if (preSequenceSlot == -1) {
                     preSequenceSlot = mc.player.getInventory().getSelectedSlot();
-                    mc.player.getInventory().setSelectedSlot(axeSlot);
-                    state = State.EXECUTING_AXE_STRIKE;
+                }
+                
+                if (isBlocking) {
+                    state = State.AXE_SWAP;
                 } else {
-                    resetState();
+                    state = State.MACE_SWAP;
                 }
                 break;
 
-            case EXECUTING_AXE_STRIKE:
+            case AXE_SWAP:
+                int axeSlot = findAxeSlot();
+                if (axeSlot != -1) {
+                    mc.player.getInventory().setSelectedSlot(axeSlot);
+                    delayTimer = 1;
+                    state = State.AXE_STRIKE;
+                } else {
+                    state = State.MACE_SWAP;
+                }
+                break;
+
+            case AXE_STRIKE:
                 if (mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE) {
                     mc.gameMode.attack(mc.player, currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     delayTimer = 1;
-                    state = State.SWAPPING_TO_MACE;
+                    state = State.MACE_SWAP;
                 }
                 break;
 
-            case SWAPPING_TO_MACE:
-                int bestMaceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
-                if (bestMaceSlot != -1) {
-                    mc.player.getInventory().setSelectedSlot(bestMaceSlot);
+            case MACE_SWAP:
+                int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
+                if (maceSlot != -1) {
+                    mc.player.getInventory().setSelectedSlot(maceSlot);
                     delayTimer = 1;
-                    state = State.EXECUTING_MACE_SMASH;
+                    state = State.MACE_SLAM;
                 } else {
                     restoreSlotAndReset();
                 }
                 break;
 
-            case EXECUTING_MACE_SMASH:
-                int maceSlotToUse = selectOptimalMaceSlot(currentTarget, currentFallDistance);
-                if (maceSlotToUse != -1) {
-                    if (preSequenceSlot == -1) {
-                        preSequenceSlot = mc.player.getInventory().getSelectedSlot();
-                    }
-                    mc.player.getInventory().setSelectedSlot(maceSlotToUse);
-                    
-                    if (mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE) {
-                        mc.gameMode.attack(mc.player, currentTarget);
-                        mc.player.swing(InteractionHand.MAIN_HAND);
-                        delayTimer = 3;
-                        state = State.RESETTING;
-                    }
-                } else {
-                    restoreSlotAndReset();
+            case MACE_SLAM:
+                if (mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE) {
+                    mc.gameMode.attack(mc.player, currentTarget);
+                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    delayTimer = 2;
+                    state = State.RESTORE_SLOT;
                 }
                 break;
 
-            case RESETTING:
+            case RESTORE_SLOT:
                 restoreSlotAndReset();
                 break;
         }
     }
 
-    private static void updateFallDistanceTracker() {
+    private static void updateFallTracker() {
         if (mc.player == null) return;
         if (mc.player.onGround()) {
             highestY = mc.player.getY();
@@ -225,12 +217,12 @@ public class AutoMace implements ClientModInitializer {
         return 0;
     }
 
-    private static void applyBypassHumanRotation(Player target) {
+    private static void applyGrimBypassRotation(Player target) {
         if (mc.player == null || target == null) return;
 
         AABB box = target.getBoundingBox();
         Vec3 center = box.getCenter();
-        double aimY = box.minY + (target.getBbHeight() * 0.5D);
+        double aimY = box.minY + (target.getBbHeight() * 0.55D);
         Vec3 targetEyePos = new Vec3(center.x, aimY, center.z);
 
         double dx = targetEyePos.x - mc.player.getX();
@@ -258,11 +250,6 @@ public class AutoMace implements ClientModInitializer {
         mc.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
     }
 
-    private static boolean isTargetBlockingWithShield(Player target) {
-        if (target == null) return false;
-        return target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
-    }
-
     private static int findAxeSlot() {
         if (mc.player == null) return -1;
         for (int i = 0; i < 9; i++) {
@@ -273,7 +260,7 @@ public class AutoMace implements ClientModInitializer {
         return -1;
     }
 
-    private static Player locateOptimalTarget(double range) {
+    private static Player locateTarget(double range) {
         if (mc.level == null || mc.player == null) return null;
         Player bestTarget = null;
         double bestDistSq = Double.MAX_VALUE;
@@ -294,8 +281,7 @@ public class AutoMace implements ClientModInitializer {
         if (mc.player != null && preSequenceSlot >= 0 && preSequenceSlot < 9) {
             mc.player.getInventory().setSelectedSlot(preSequenceSlot);
         }
-        preSequenceSlot = -1;
-        state = State.IDLE;
+        resetState();
     }
 
     private static void resetState() {
