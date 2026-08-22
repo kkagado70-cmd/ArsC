@@ -63,7 +63,7 @@ public class XbowCart implements ClientModInitializer {
     public static void onTick(Minecraft client) {
         if (mc.player == null || mc.level == null) return;
 
-        // Ativação de QUALQUER ângulo ao olhar para um bloco com o Trilho na mão
+        // Ativação a partir de QUALQUER ângulo ao olhar para um bloco com o Trilho na mão
         if (!active) {
             boolean holdingRail = mc.player.getMainHandItem().is(Items.RAIL);
             HitResult hit = mc.hitResult;
@@ -90,12 +90,12 @@ public class XbowCart implements ClientModInitializer {
             return;
         }
 
-        if (mc.player.distanceToSqr(lockedTargetVec) > 8.5D) {
+        // Alcance expandido para permitir acionamento de até 25 blocos de distância
+        if (mc.player.distanceToSqr(lockedTargetVec) > 25.0D) {
             resetSequence();
             return;
         }
 
-        // Flick rápido estilo Pro para o local do bloco
         applyProFlickRotation(lockedTargetVec);
 
         BlockHitResult placementHit = new BlockHitResult(lockedTargetVec, lockedDirection, lockedBaseBlock, false);
@@ -129,7 +129,7 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 2:
-                // 3. Acionar Isqueiro (Flint & Steel) interagindo com a ENTIDADE do carrinho de TNT
+                // 3. Acionar Isqueiro (Flint & Steel) interagindo com o carrinho ou com a superfície do bloco
                 if (selectItem(Items.FLINT_AND_STEEL)) {
                     BlockPos cartPos = lockedBaseBlock.relative(lockedDirection);
                     Vec3 cartVec = Vec3.atCenterOf(cartPos);
@@ -138,10 +138,8 @@ public class XbowCart implements ClientModInitializer {
                     List<Entity> minecarts = mc.level.getEntities((Entity) null, searchBox, e -> e.getType().getDescriptionId().contains("minecart"));
 
                     if (!minecarts.isEmpty()) {
-                        // Interage diretamente com a entidade do carrinho
                         mc.gameMode.interact(mc.player, minecarts.get(0), InteractionHand.MAIN_HAND);
                     } else {
-                        // Fallback de clique de bloco caso a entidade do carrinho atrasar na rede
                         BlockHitResult flintHit = new BlockHitResult(cartVec, Direction.UP, cartPos, false);
                         mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, flintHit);
                     }
@@ -155,7 +153,7 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 3:
-                // 4. Armar/Usar Crossbow
+                // 4. Carregar Crossbow
                 if (selectItem(Items.CROSSBOW)) {
                     mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
                     mc.player.swing(InteractionHand.MAIN_HAND);
@@ -167,7 +165,7 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 4:
-                // 5. Disparar (Sem SwapBack, mantendo o Crossbow selecionado)
+                // 5. Disparar (MANTÉM NO CROSSBOW, SEM SWAPBACK)
                 if (selectItem(Items.CROSSBOW)) {
                     mc.gameMode.releaseUsingItem(mc.player);
                     mc.player.swing(InteractionHand.MAIN_HAND);
@@ -198,19 +196,14 @@ public class XbowCart implements ClientModInitializer {
         double f = sensitivity * 0.6D + 0.2D;
         double gcd = f * f * f * 8.0D * 0.15D;
 
-        // Flick rápido (0.85F) alinhado ao GCD da sensibilidade
         float interpolatedYaw = mc.player.getYRot() + (yawDiff * 0.85F);
-        float interpolatedPitch = mc.player.getXRot() + (pitchDelta(pitchDiff));
+        float interpolatedPitch = mc.player.getXRot() + (pitchDiff * 0.85F);
 
         float finalYaw = (float) (mc.player.getYRot() + Math.round((interpolatedYaw - mc.player.getYRot()) / gcd) * gcd);
         float finalPitch = (float) (mc.player.getXRot() + Math.round((interpolatedPitch - mc.player.getXRot()) / gcd) * gcd);
 
         mc.player.setYRot(finalYaw);
         mc.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
-    }
-
-    private static float pitchDelta(float pitchDiff) {
-        return pitchDiff * 0.85F;
     }
 
     private static boolean selectItem(Item item) {
