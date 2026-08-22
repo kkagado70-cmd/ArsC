@@ -28,14 +28,13 @@ public class AutoMace implements ClientModInitializer {
     private static final double MAX_SWING_RANGE = 2.95D;
     private static final double MAX_AIM_RANGE = 7.0D;
     private static final double MIN_FALL_DIST = 1.5D;
-    private static final float ROTATION_SMOOTHNESS = 0.35F;
+    private static final float ROTATION_SMOOTHNESS = 0.40F;
 
     private static Player currentTarget = null;
     private static State state = State.IDLE;
     private static int delayTimer = 0;
     private static int preSequenceSlot = -1;
     private static double highestY = 0.0D;
-    private static long lastAttackTime = 0L;
 
     public enum State {
         IDLE,
@@ -88,16 +87,22 @@ public class AutoMace implements ClientModInitializer {
 
         double currentFallDistance = Math.max(0.0D, highestY - mc.player.getY());
 
+        // VERIFICAÇÃO DE QUEDA PRIMEIRO: Se não estiver caindo, cancela e NÃO mira.
+        boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
+        if (!isFalling) {
+            resetState();
+            return;
+        }
+
+        // Busca o alvo apenas quando a queda é confirmada
         currentTarget = locateOptimalTarget(MAX_AIM_RANGE);
         if (currentTarget == null) {
             resetState();
             return;
         }
 
+        // Mira suave ativada APENAS durante a queda
         applyBypassHumanRotation(currentTarget);
-
-        boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
-        if (!isFalling) return;
 
         boolean isBlocking = isTargetBlockingWithShield(currentTarget);
 
@@ -154,8 +159,7 @@ public class AutoMace implements ClientModInitializer {
                     if (mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE) {
                         mc.gameMode.attack(mc.player, currentTarget);
                         mc.player.swing(InteractionHand.MAIN_HAND);
-                        lastAttackTime = System.currentTimeMillis();
-                        delayTimer = 4;
+                        delayTimer = 3;
                         state = State.RESETTING;
                     }
                 } else {
@@ -300,4 +304,4 @@ public class AutoMace implements ClientModInitializer {
         delayTimer = 0;
         preSequenceSlot = -1;
     }
-    }
+}
