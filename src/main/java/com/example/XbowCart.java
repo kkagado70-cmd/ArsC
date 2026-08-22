@@ -5,6 +5,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.InteractionHand;
@@ -13,23 +14,25 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.util.Mth;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
+
+import java.util.List;
 
 public class XbowCart implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping triggerKey;
     public static boolean enabled = false;
-
     private static boolean active = false;
     private static int stage = 0;
-    private static int tickDelay = 0;
-    private static int cooldownTicks = 0; // Evita repetir o loop continuamente
+    private static int tickCounter = 0;
     private static int preSlot = -1;
 
     private static BlockPos lockedBaseBlock = null;
     private static Vec3 lockedTargetVec = null;
+    private static Direction lockedDirection = Direction.UP;
 
     @Override
     public void onInitializeClient() {
@@ -61,12 +64,7 @@ public class XbowCart implements ClientModInitializer {
     public static void onTick(Minecraft client) {
         if (mc.player == null || mc.level == null) return;
 
-        if (cooldownTicks > 0) {
-            cooldownTicks--;
-            return;
-        }
-
-        // Ativação quando olha para o bloco segurando o Trilho
+        // Ativação a partir de qualquer ângulo focado em um bloco
         if (!active) {
             boolean holdingRail = mc.player.getMainHandItem().is(Items.RAIL);
             HitResult hit = mc.hitResult;
@@ -76,39 +74,40 @@ public class XbowCart implements ClientModInitializer {
                 
                 active = true;
                 stage = 0;
-                tickDelay = 0;
+                tickCounter = 0;
                 preSlot = mc.player.getInventory().getSelectedSlot();
 
                 lockedBaseBlock = blockHit.getBlockPos();
-                BlockPos placedPos = lockedBaseBlock.relative(Direction.UP);
-                lockedTargetVec = Vec3.atCenterOf(placedPos);
+                lockedDirection = blockHit.getDirection();
+                
+                Vec3 blockCenter = Vec3.atCenterOf(lockedBaseBlock);
+                lockedTargetVec = new Vec3(blockCenter.x, blockHit.getLocation().y, blockCenter.z);
             }
         }
 
         if (!active || lockedBaseBlock == null || lockedTargetVec == null) return;
 
-        if (tickDelay > 0) {
-            tickDelay--;
+        if (tickCounter > 0) {
+            tickCounter--;
             return;
         }
 
-        if (mc.player.distanceToSqr(lockedTargetVec) > 10.0D) {
+        if (mc.player.distanceToSqr(lockedTargetVec) > 8.5D) {
             resetSequence();
             return;
         }
 
         applyGrimBypassRotation(lockedTargetVec);
 
-        BlockHitResult baseHit = new BlockHitResult(lockedTargetVec, Direction.UP, lockedBaseBlock, false);
-        BlockPos placedPos = lockedBaseBlock.relative(Direction.UP);
-        BlockHitResult placedHit = new BlockHitResult(Vec3.atCenterOf(placedPos), Direction.UP, placedPos, false);
+        BlockHitResult placementHit = new BlockHitResult(lockedTargetVec, lockedDirection, lockedBaseBlock, false);
 
         switch (stage) {
             case 0:
+                // 1. Colocar Trilho
                 if (selectItem(Items.RAIL)) {
-                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, baseHit);
+                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, placementHit);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickDelay = 1;
+                    tickCounter = 2; // 2 ticks para garantir sincronização no servidor
                     stage = 1;
                 } else {
                     resetSequence();
@@ -116,10 +115,14 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 1:
+                // 2. Colocar TNT Minecart
                 if (selectItem(Items.TNT_MINECART)) {
-                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, placedHit);
+                    BlockPos railPos = lockedBaseBlock.relative(lockedDirection);
+                    BlockHitResult cartHit = new BlockHitResult(Vec3.atCenterOf(railPos), Direction.UP, railPos, false);
+                    
+                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, cartHit);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickDelay = 1;
+                    tickCounter = 2;
                     stage = 2;
                 } else {
                     stage = 2;
@@ -127,10 +130,23 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 2:
+                // 3. Acionar Isqueiro (Flint & Steel)
                 if (selectItem(Items.FLINT_AND_STEEL)) {
-                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, placedHit);
+                    BlockPos cartPos = lockedBaseBlock.relative(lockedDirection);
+                    Vec3 cartVec = Vec3.atCenterOf(cartPos);
+                    
+                    AABB searchBox = new AABB(cartPos).inflate(1.5D);
+                    List<Entity> minecarts = mc.level.getEntities((Entity) null, searchBox, e -> e.getType().getRegisteredName().contains("minecart"));
+
+                    if (!minecarts.isEmpty()) {
+                        mc.gameMode.interact(mc.player, minecarts.get(0), InteractionHand.MAIN_HAND);
+                    } else {
+                        BlockHitResult flintHit = new BlockHitResult(cartVec, Direction.UP, cartPos, false);
+                        mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, flintHit);
+                    }
+                    
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickDelay = 1;
+                    tickCounter = 2;
                     stage = 3;
                 } else {
                     stage = 3;
@@ -138,10 +154,11 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 3:
+                // 4. Carregar Crossbow
                 if (selectItem(Items.CROSSBOW)) {
                     mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickDelay = 1;
+                    tickCounter = 2;
                     stage = 4;
                 } else {
                     resetSequence();
@@ -149,13 +166,14 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 4:
+                // 5. Disparar
                 if (selectItem(Items.CROSSBOW)) {
                     mc.gameMode.releaseUsingItem(mc.player);
                     mc.player.swing(InteractionHand.MAIN_HAND);
+                    resetSequence();
+                } else {
+                    resetSequence();
                 }
-                // Aplica cooldown de 15 ticks (750ms) antes de permitir novo disparo
-                cooldownTicks = 15;
-                resetSequence();
                 break;
         }
     }
@@ -192,11 +210,11 @@ public class XbowCart implements ClientModInitializer {
     }
 
     private static float yawDelta(float yawDiff) {
-        return yawDiff * 0.70F;
+        return yawDiff * 0.55F;
     }
 
     private static float pitchDelta(float pitchDiff) {
-        return pitchDiff * 0.70F;
+        return pitchDiff * 0.55F;
     }
 
     private static boolean selectItem(Item item) {
@@ -215,9 +233,10 @@ public class XbowCart implements ClientModInitializer {
         }
         active = false;
         stage = 0;
-        tickDelay = 0;
+        tickCounter = 0;
         preSlot = -1;
         lockedBaseBlock = null;
         lockedTargetVec = null;
+        lockedDirection = Direction.UP;
     }
 }
