@@ -21,17 +21,18 @@ import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.Optional;
+import java.util.Random;
 
 public class AutoMace implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
-    // Reach estritamente baunilha para evitar flags no Grim/MMC
-    private static final double MAX_SWING_RANGE = 2.75D;
+    private static final double MAX_SWING_RANGE = 2.85D;
     private static final double MAX_AIM_RANGE = 5.0D;
     private static final double MIN_FALL_DIST = 1.3D;
-    private static final float ROTATION_SMOOTHNESS = 0.65F;
+    private static final float ROTATION_SMOOTHNESS = 0.45F;
+    private static final Random random = new Random();
 
     private static Player currentTarget = null;
     private static State state = State.IDLE;
@@ -42,8 +43,10 @@ public class AutoMace implements ClientModInitializer {
     public enum State {
         IDLE,
         AXE_SWAP,
+        AXE_SWING,
         AXE_STRIKE,
         MACE_SWAP,
+        MACE_SWING,
         MACE_SLAM,
         RESTORE_SLOT
     }
@@ -81,6 +84,11 @@ public class AutoMace implements ClientModInitializer {
     public static void onTick(Minecraft client) {
         if (mc.player == null || mc.level == null) return;
 
+        // Cancela execução caso o jogador esteja em tempo de dano recente (Hurt Time)
+        if (mc.player.hurtTime > 0) {
+            return;
+        }
+
         if (delayTimer > 0) {
             delayTimer--;
             return;
@@ -91,7 +99,10 @@ public class AutoMace implements ClientModInitializer {
         double currentFallDistance = Math.max(0.0D, highestY - mc.player.getY());
 
         boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
-        if (!isFalling && state == State.IDLE) {
+        if (!isFalling) {
+            if (state != State.IDLE) {
+                restoreSlotAndReset();
+            }
             return;
         }
 
@@ -104,6 +115,7 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
+        // Aplica rotação fluida com Jitter e alinhamento de GCD
         applyGrimBypassRotation(currentTarget);
 
         boolean isBlocking = currentTarget.isUsingItem() && currentTarget.getUseItem().getItem() instanceof ShieldItem;
@@ -125,19 +137,28 @@ public class AutoMace implements ClientModInitializer {
                 int axeSlot = findAxeSlot();
                 if (axeSlot != -1) {
                     mc.player.getInventory().setSelectedSlot(axeSlot);
-                    delayTimer = 2; // 2 ticks de renderização da arma na mão
-                    state = State.AXE_STRIKE;
+                    // 3 ticks de delay após a troca de slot para o servidor registrar o item na mão
+                    delayTimer = 3;
+                    state = State.AXE_SWING;
                 } else {
                     state = State.MACE_SWAP;
                 }
                 break;
 
-            case AXE_STRIKE:
-                // Exige recarga da barra de ataque (>= 85%) para que o machado desative o escudo do oponente
-                if (mc.player.getAttackStrengthScale(0.5F) >= 0.85F && canValidlyAttack(currentTarget)) {
-                    mc.gameMode.attack(mc.player, currentTarget);
+            case AXE_SWING:
+                // Valida cooldown de ataque (>= 90%) antes do swing
+                if (mc.player.getAttackStrengthScale(0.0F) >= 0.9F && canValidlyAttack(currentTarget)) {
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    delayTimer = 2;
+                    // Separa o Swing do Ataque por 1 tick de intervalo (Corrige PacketOrderE)
+                    delayTimer = 1;
+                    state = State.AXE_STRIKE;
+                }
+                break;
+
+            case AXE_STRIKE:
+                if (canValidlyAttack(currentTarget)) {
+                    mc.gameMode.attack(mc.player, currentTarget);
+                    delayTimer = 3;
                     state = State.MACE_SWAP;
                 }
                 break;
@@ -146,18 +167,25 @@ public class AutoMace implements ClientModInitializer {
                 int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
                 if (maceSlot != -1) {
                     mc.player.getInventory().setSelectedSlot(maceSlot);
-                    delayTimer = 2;
-                    state = State.MACE_SLAM;
+                    delayTimer = 3; // 3 ticks para o servidor registrar a maça
+                    state = State.MACE_SWING;
                 } else {
                     restoreSlotAndReset();
+                }
+                break;
+
+            case MACE_SWING:
+                if (mc.player.getAttackStrengthScale(0.0F) >= 0.9F && canValidlyAttack(currentTarget)) {
+                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    delayTimer = 1; // Separa Swing do Attack
+                    state = State.MACE_SLAM;
                 }
                 break;
 
             case MACE_SLAM:
                 if (canValidlyAttack(currentTarget)) {
                     mc.gameMode.attack(mc.player, currentTarget);
-                    mc.player.swing(InteractionHand.MAIN_HAND);
-                    delayTimer = 2;
+                    delayTimer = 3;
                     state = State.RESTORE_SLOT;
                 }
                 break;
@@ -168,10 +196,6 @@ public class AutoMace implements ClientModInitializer {
         }
     }
 
-    /**
-     * Validação estrita de Raycast na Hitbox baunilha.
-     * Só permite o disparo do ataque quando o vetor de visão interceptar a AABB do oponente.
-     */
     private static boolean canValidlyAttack(Player target) {
         if (mc.player == null || target == null) return false;
         if (!mc.player.hasLineOfSight(target)) return false;
@@ -181,7 +205,7 @@ public class AutoMace implements ClientModInitializer {
         Vec3 lookVec = mc.player.getViewVector(1.0F);
         Vec3 reachVec = eyePos.add(lookVec.x * MAX_SWING_RANGE, lookVec.y * MAX_SWING_RANGE, lookVec.z * MAX_SWING_RANGE);
 
-        AABB targetBox = target.getBoundingBox(); // Hitbox sem inflar
+        AABB targetBox = target.getBoundingBox();
         Optional<Vec3> clipHit = targetBox.clip(eyePos, reachVec);
 
         return clipHit.isPresent();
@@ -209,7 +233,6 @@ public class AutoMace implements ClientModInitializer {
                 int densityLevel = getEnchantmentLevel(stack, "density");
                 int breachLevel = getEnchantmentLevel(stack, "breach");
 
-                // Queda >= 7 blocos -> DENSITY | Queda < 7 blocos -> BREACH
                 if (fallDist >= 7.0D) {
                     if (densityLevel > maxDensityScore) {
                         maxDensityScore = densityLevel;
@@ -247,7 +270,10 @@ public class AutoMace implements ClientModInitializer {
 
         AABB box = target.getBoundingBox();
         Vec3 center = box.getCenter();
-        double aimY = box.minY + (target.getBbHeight() * 0.50D);
+        
+        // Oscilação vertical sutil (0.45 a 0.55 da altura da Hitbox) para evitar padrão fixo estático
+        double heightOffset = 0.45D + (random.nextDouble() * 0.10D);
+        double aimY = box.minY + (target.getBbHeight() * heightOffset);
         Vec3 targetEyePos = new Vec3(center.x, aimY, center.z);
 
         double dx = targetEyePos.x - mc.player.getX();
@@ -261,12 +287,16 @@ public class AutoMace implements ClientModInitializer {
         float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
         float pitchDelta = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
 
+        // Adiciona Jitter humano aleatório (0.05° a 0.15°) no vetor de mira
+        float jitterYaw = (random.nextFloat() - 0.5F) * 0.15F;
+        float jitterPitch = (random.nextFloat() - 0.5F) * 0.15F;
+
         double sensitivity = mc.options.sensitivity().get();
         double f = sensitivity * 0.6D + 0.2D;
         double gcd = f * f * f * 8.0D * 0.15D;
 
-        float interpolatedYaw = mc.player.getYRot() + (yawDelta * ROTATION_SMOOTHNESS);
-        float interpolatedPitch = mc.player.getXRot() + (pitchDelta * ROTATION_SMOOTHNESS);
+        float interpolatedYaw = mc.player.getYRot() + (yawDelta * ROTATION_SMOOTHNESS) + jitterYaw;
+        float interpolatedPitch = mc.player.getXRot() + (pitchDelta * ROTATION_SMOOTHNESS) + jitterPitch;
 
         float finalYaw = (float) (mc.player.getYRot() + Math.round((interpolatedYaw - mc.player.getYRot()) / gcd) * gcd);
         float finalPitch = (float) (mc.player.getXRot() + Math.round((interpolatedPitch - mc.player.getXRot()) / gcd) * gcd);
