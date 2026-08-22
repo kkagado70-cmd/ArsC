@@ -22,6 +22,15 @@ public class XbowCart implements ClientModInitializer {
     private static KeyMapping triggerKey;
     public static boolean enabled = false;
 
+    private static boolean active = false;
+    private static int stage = 0;
+    private static int tickDelay = 0;
+    private static int preSlot = -1;
+
+    private static BlockPos lockedBaseBlock = null;
+    private static Vec3 lockedTargetVec = null;
+    private static Direction lockedDirection = Direction.UP;
+
     @Override
     public void onInitializeClient() {
         triggerKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
@@ -46,79 +55,112 @@ public class XbowCart implements ClientModInitializer {
 
     public static void toggle() {
         enabled = !enabled;
+        resetSequence();
     }
 
     public static void onTick(Minecraft client) {
         if (mc.player == null || mc.level == null) return;
 
-        boolean holdingRail = mc.player.getMainHandItem().is(Items.RAIL);
-        HitResult hit = mc.hitResult;
+        // Gatilho: Segurando Trilho e olhando para um bloco
+        if (!active) {
+            boolean holdingRail = mc.player.getMainHandItem().is(Items.RAIL);
+            HitResult hit = mc.hitResult;
 
-        if (holdingRail && (mc.player.getXRot() > 30.0F || (hit != null && hit.getType() == HitResult.Type.BLOCK))) {
-            executeHT1Sequence(hit);
+            if (holdingRail && hit != null && hit.getType() == HitResult.Type.BLOCK) {
+                BlockHitResult blockHit = (BlockHitResult) hit;
+                
+                active = true;
+                stage = 0;
+                tickDelay = 0;
+                preSlot = mc.player.getInventory().getSelectedSlot();
+
+                lockedBaseBlock = blockHit.getBlockPos();
+                lockedDirection = blockHit.getDirection();
+                Vec3 blockCenter = Vec3.atCenterOf(lockedBaseBlock);
+                lockedTargetVec = new Vec3(blockCenter.x, blockHit.getLocation().y, blockCenter.z);
+            }
+        }
+
+        if (!active || lockedBaseBlock == null || lockedTargetVec == null) return;
+
+        // Delay de 2 ticks (100ms) entre ações para sincronização no PojavLauncher e Grim AC
+        if (tickDelay > 0) {
+            tickDelay--;
+            return;
+        }
+
+        if (mc.player.distanceToSqr(lockedTargetVec) > 10.0D) {
+            resetSequence();
+            return;
+        }
+
+        applyGrimBypassRotation(lockedTargetVec);
+
+        BlockHitResult baseHit = new BlockHitResult(lockedTargetVec, lockedDirection, lockedBaseBlock, false);
+        BlockPos placedPos = lockedBaseBlock.relative(lockedDirection);
+        BlockHitResult placedHit = new BlockHitResult(Vec3.atCenterOf(placedPos), Direction.UP, placedPos, false);
+
+        switch (stage) {
+            case 0:
+                // 1. Trilho
+                if (selectItem(Items.RAIL)) {
+                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, baseHit);
+                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    tickDelay = 2;
+                    stage = 1;
+                } else {
+                    resetSequence();
+                }
+                break;
+
+            case 1:
+                // 2. TNT Minecart
+                if (selectItem(Items.TNT_MINECART)) {
+                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, placedHit);
+                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    tickDelay = 2;
+                    stage = 2;
+                } else {
+                    stage = 2;
+                }
+                break;
+
+            case 2:
+                // 3. Isqueiro (Flint & Steel)
+                if (selectItem(Items.FLINT_AND_STEEL)) {
+                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, placedHit);
+                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    tickDelay = 2;
+                    stage = 3;
+                } else {
+                    stage = 3;
+                }
+                break;
+
+            case 3:
+                // 4. Carregar Crossbow
+                if (selectItem(Items.CROSSBOW)) {
+                    mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
+                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    tickDelay = 2;
+                    stage = 4;
+                } else {
+                    resetSequence();
+                }
+                break;
+
+            case 4:
+                // 5. Disparar e restaurar o slot original
+                if (selectItem(Items.CROSSBOW)) {
+                    mc.gameMode.releaseUsingItem(mc.player);
+                    mc.player.swing(InteractionHand.MAIN_HAND);
+                }
+                resetSequence();
+                break;
         }
     }
 
-    private static void executeHT1Sequence(HitResult hit) {
-        if (mc.player == null || mc.level == null) return;
-
-        int preSlot = mc.player.getInventory().getSelectedSlot();
-        BlockPos baseBlock;
-        Direction side = Direction.UP;
-
-        if (hit != null && hit.getType() == HitResult.Type.BLOCK) {
-            BlockHitResult blockHit = (BlockHitResult) hit;
-            baseBlock = blockHit.getBlockPos();
-            side = blockHit.getDirection();
-        } else {
-            baseBlock = mc.player.blockPosition().below();
-        }
-
-        BlockPos placedPos = baseBlock.relative(side);
-        Vec3 targetVec = Vec3.atCenterOf(placedPos);
-
-        if (mc.player.distanceToSqr(targetVec) > 12.0D) return;
-
-        // Rotação suave no campo de visão para gravação legítima
-        applyProLookAt(targetVec);
-
-        BlockHitResult baseHit = new BlockHitResult(targetVec, side, baseBlock, false);
-        BlockHitResult cartHit = new BlockHitResult(targetVec, Direction.UP, placedPos, false);
-
-        // Execução HT1 em sub-tick sequencial
-        // 1. Trilho
-        if (selectItem(Items.RAIL)) {
-            mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, baseHit);
-            mc.player.swing(InteractionHand.MAIN_HAND);
-        }
-
-        // 2. Carrinho TNT
-        if (selectItem(Items.TNT_MINECART)) {
-            mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, cartHit);
-            mc.player.swing(InteractionHand.MAIN_HAND);
-        }
-
-        // 3. Isqueiro
-        if (selectItem(Items.FLINT_AND_STEEL)) {
-            mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, cartHit);
-            mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
-            mc.player.swing(InteractionHand.MAIN_HAND);
-        }
-
-        // 4. Crossbow
-        if (selectItem(Items.CROSSBOW)) {
-            mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
-            mc.gameMode.releaseUsingItem(mc.player);
-            mc.player.swing(InteractionHand.MAIN_HAND);
-        }
-
-        // Restaura a hotbar original imediatamente
-        if (preSlot >= 0 && preSlot < 9) {
-            mc.player.getInventory().setSelectedSlot(preSlot);
-        }
-    }
-
-    private static void applyProLookAt(Vec3 target) {
+    private static void applyGrimBypassRotation(Vec3 target) {
         if (mc.player == null) return;
 
         double dx = target.x - mc.player.getX();
@@ -139,8 +181,8 @@ public class XbowCart implements ClientModInitializer {
         double f = sensitivity * 0.6D + 0.2D;
         double gcd = f * f * f * 8.0D * 0.15D;
 
-        float interpolatedYaw = mc.player.getYRot() + (yawDiff * 0.70F);
-        float interpolatedPitch = mc.player.getXRot() + (pitchDiff * 0.70F);
+        float interpolatedYaw = mc.player.getYRot() + (yawDiff * 0.65F);
+        float interpolatedPitch = mc.player.getXRot() + (pitchDiff * 0.65F);
 
         float finalYaw = (float) (mc.player.getYRot() + Math.round((interpolatedYaw - mc.player.getYRot()) / gcd) * gcd);
         float finalPitch = (float) (mc.player.getXRot() + Math.round((interpolatedPitch - mc.player.getXRot()) / gcd) * gcd);
@@ -157,5 +199,18 @@ public class XbowCart implements ClientModInitializer {
             }
         }
         return false;
+    }
+
+    private static void resetSequence() {
+        if (mc.player != null && preSlot >= 0 && preSlot < 9) {
+            mc.player.getInventory().setSelectedSlot(preSlot);
+        }
+        active = false;
+        stage = 0;
+        tickDelay = 0;
+        preSlot = -1;
+        lockedBaseBlock = null;
+        lockedTargetVec = null;
+        lockedDirection = Direction.UP;
     }
 }
