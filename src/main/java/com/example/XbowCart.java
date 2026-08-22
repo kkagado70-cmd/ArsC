@@ -6,7 +6,6 @@ import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.InteractionHand;
@@ -64,7 +63,7 @@ public class XbowCart implements ClientModInitializer {
     public static void onTick(Minecraft client) {
         if (mc.player == null || mc.level == null) return;
 
-        // Ativação quando segura o Trilho e mira em qualquer bloco
+        // Ativação quando segura o Trilho e aponta para qualquer bloco
         if (!active) {
             boolean holdingRail = mc.player.getMainHandItem().is(Items.RAIL);
             HitResult hit = mc.hitResult;
@@ -91,7 +90,7 @@ public class XbowCart implements ClientModInitializer {
             return;
         }
 
-        if (mc.player.distanceToSqr(lockedTargetVec) > 25.0D) {
+        if (mc.player.distanceToSqr(lockedTargetVec) > 20.0D) {
             resetSequence();
             return;
         }
@@ -106,7 +105,7 @@ public class XbowCart implements ClientModInitializer {
                 if (selectItem(Items.RAIL)) {
                     mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, placementHit);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    tickCounter = 2; // 2 ticks de espera para sincronização no servidor
+                    tickCounter = 2; // 2 ticks de espera para sincronização do pacote
                     stage = 1;
                 } else {
                     resetSequence();
@@ -129,18 +128,17 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 2:
-                // 3. Acionar Isqueiro (Flint & Steel) interagindo diretamente com o TNT_MINECART
+                // 3. Acionar Isqueiro (Flint & Steel) na entidade do carrinho ou bloco
                 if (selectItem(Items.FLINT_AND_STEEL)) {
                     BlockPos cartPos = lockedBaseBlock.relative(lockedDirection);
-                    AABB searchBox = new AABB(cartPos).inflate(1.5D);
+                    Vec3 cartVec = Vec3.atCenterOf(cartPos);
                     
-                    // Busca pela entidade oficial EntityType.TNT_MINECART
-                    List<Entity> minecarts = mc.level.getEntities((Entity) null, searchBox, e -> e.getType() == EntityType.TNT_MINECART);
+                    AABB searchBox = new AABB(cartPos).inflate(1.5D);
+                    List<Entity> minecarts = mc.level.getEntities((Entity) null, searchBox, e -> e.getType().getDescriptionId().contains("minecart"));
 
                     if (!minecarts.isEmpty()) {
                         mc.gameMode.interact(mc.player, minecarts.get(0), InteractionHand.MAIN_HAND);
                     } else {
-                        Vec3 cartVec = Vec3.atCenterOf(cartPos);
                         BlockHitResult flintHit = new BlockHitResult(cartVec, Direction.UP, cartPos, false);
                         mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, flintHit);
                     }
@@ -166,7 +164,7 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 4:
-                // 5. Disparar o Crossbow
+                // 5. Disparar (Permanece no Crossbow, sem SwapBack)
                 if (selectItem(Items.CROSSBOW)) {
                     mc.gameMode.releaseUsingItem(mc.player);
                     mc.player.swing(InteractionHand.MAIN_HAND);
@@ -197,14 +195,18 @@ public class XbowCart implements ClientModInitializer {
         double f = sensitivity * 0.6D + 0.2D;
         double gcd = f * f * f * 8.0D * 0.15D;
 
-        float interpolatedYaw = mc.player.getYRot() + (yawDiff * 0.70F);
-        float interpolatedPitch = mc.player.getXRot() + (pitchDiff * 0.70F);
+        float interpolatedYaw = mc.player.getYRot() + (yawDiff * 0.65F);
+        float interpolatedPitch = mc.player.getXRot() + (pitchDelta(pitchDiff));
 
         float finalYaw = (float) (mc.player.getYRot() + Math.round((interpolatedYaw - mc.player.getYRot()) / gcd) * gcd);
         float finalPitch = (float) (mc.player.getXRot() + Math.round((interpolatedPitch - mc.player.getXRot()) / gcd) * gcd);
 
         mc.player.setYRot(finalYaw);
         mc.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
+    }
+
+    private static float pitchDelta(float pitchDiff) {
+        return pitchDiff * 0.65F;
     }
 
     private static boolean selectItem(Item item) {
@@ -225,4 +227,4 @@ public class XbowCart implements ClientModInitializer {
         lockedTargetVec = null;
         lockedDirection = Direction.UP;
     }
-            }
+}
