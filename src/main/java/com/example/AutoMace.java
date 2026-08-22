@@ -38,7 +38,7 @@ public class AutoMace implements ClientModInitializer {
     private static int maceClicksLeft = 0;
     private static long axeHitTime = 0L;
     private static long lastComboTime = 0L;
-    private static long maceSwapDelay = 10L; // Delay idêntico ao Cyemer para troca de armas
+    private static long maceSwapDelay = 10L;
     private static double highestY = 0.0D;
 
     private static boolean shouldBreakShield = false;
@@ -83,7 +83,6 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
-        // Execuções diretas do ciclo Stun Slam do Cyemer
         if (shouldBreakShield) {
             executeShieldBreak();
             return;
@@ -124,7 +123,6 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
-        // Mantida a SUA rotação/mira que você gosta
         applyGrimBypassRotation(currentTarget);
 
         boolean isBlocking = isTargetBlocking(currentTarget);
@@ -135,7 +133,6 @@ public class AutoMace implements ClientModInitializer {
         }
     }
 
-    // Lógica do Stun Slam portada exatamente do Cyemer
     private static void calculateStunSlam(double fallDist) {
         if (currentTarget == null || mc.player.distanceTo(currentTarget) > MAX_AIM_RANGE) {
             resetState();
@@ -241,7 +238,8 @@ public class AutoMace implements ClientModInitializer {
 
     private static boolean canExecuteAttack() {
         if (mc.player == null || currentTarget == null) return false;
-        return mc.player.canSee(currentTarget) && mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE;
+        // Método correto do Mojang Mappings: hasLineOfSight
+        return mc.player.hasLineOfSight(currentTarget) && mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE;
     }
 
     private static boolean isTargetBlocking(Player target) {
@@ -390,4 +388,4 @@ public class AutoMace implements ClientModInitializer {
         shouldMaceSmash = false;
         shouldAttackThisTick = false;
     }
-            }
+}
