@@ -27,11 +27,11 @@ public class AutoMace implements ClientModInitializer {
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
-    // Reach estritamente limitado ao alcance legítimo
-    private static final double MAX_SWING_RANGE = 2.75D;
-    private static final double MAX_AIM_RANGE = 5.50D;
+    // Reach estritamente baunilha (2.70D) para evitar flags de Hitbox
+    private static final double MAX_SWING_RANGE = 2.70D;
+    private static final double MAX_AIM_RANGE = 5.0D;
     private static final double MIN_FALL_DIST = 1.3D;
-    private static final float ROTATION_SMOOTHNESS = 0.70F; // Mira rápida e fluida
+    private static final float ROTATION_SMOOTHNESS = 0.65F;
 
     private static Player currentTarget = null;
     private static State state = State.IDLE;
@@ -90,7 +90,6 @@ public class AutoMace implements ClientModInitializer {
 
         double currentFallDistance = Math.max(0.0D, highestY - mc.player.getY());
 
-        // Só ativa se o jogador estiver em queda válida
         boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
         if (!isFalling) {
             if (state != State.IDLE) {
@@ -99,13 +98,16 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
-        currentTarget = locateTarget(MAX_AIM_RANGE);
-        if (currentTarget == null) {
+        // Mantém o alvo travado se já iniciou o combo de Stun Slam
+        if (state == State.IDLE) {
+            currentTarget = locateTarget(MAX_AIM_RANGE);
+        }
+
+        if (currentTarget == null || !currentTarget.isAlive()) {
             restoreSlotAndReset();
             return;
         }
 
-        // Aplica a rotação de mira suave
         applyGrimBypassRotation(currentTarget);
 
         boolean isBlocking = currentTarget.isUsingItem() && currentTarget.getUseItem().getItem() instanceof ShieldItem;
@@ -127,7 +129,7 @@ public class AutoMace implements ClientModInitializer {
                 int axeSlot = findAxeSlot();
                 if (axeSlot != -1) {
                     mc.player.getInventory().setSelectedSlot(axeSlot);
-                    delayTimer = 1; // 1 tick de sincronização do slot no servidor
+                    delayTimer = 2; // Sincronização do item na mão antes de bater
                     state = State.AXE_STRIKE;
                 } else {
                     state = State.MACE_SWAP;
@@ -135,11 +137,10 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case AXE_STRIKE:
-                // Ataca APENAS se a cruz da tela estiver colidindo com a Hitbox
-                if (isCrosshairOverHitbox(currentTarget)) {
+                if (canValidlyAttack(currentTarget)) {
                     mc.gameMode.attack(mc.player, currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    delayTimer = 1;
+                    delayTimer = 2;
                     state = State.MACE_SWAP;
                 }
                 break;
@@ -148,7 +149,7 @@ public class AutoMace implements ClientModInitializer {
                 int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
                 if (maceSlot != -1) {
                     mc.player.getInventory().setSelectedSlot(maceSlot);
-                    delayTimer = 1;
+                    delayTimer = 2;
                     state = State.MACE_SLAM;
                 } else {
                     restoreSlotAndReset();
@@ -156,8 +157,7 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case MACE_SLAM:
-                // Ataca APENAS se a cruz da tela estiver colidindo com a Hitbox
-                if (isCrosshairOverHitbox(currentTarget)) {
+                if (canValidlyAttack(currentTarget)) {
                     mc.gameMode.attack(mc.player, currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     delayTimer = 2;
@@ -172,10 +172,10 @@ public class AutoMace implements ClientModInitializer {
     }
 
     /**
-     * Raycast 3D que garante que o vetor de visão realmente cruza a AABB do inimigo.
-     * Elimina 100% das flags de Hitbox / Reach do Grim AC.
+     * Valida o ataque usando clipe de raio na Hitbox baunilha (sem inflar AABB).
+     * Evita totalmente a flag de Hitbox Expander.
      */
-    private static boolean isCrosshairOverHitbox(Player target) {
+    private static boolean canValidlyAttack(Player target) {
         if (mc.player == null || target == null) return false;
         if (!mc.player.hasLineOfSight(target)) return false;
         if (mc.player.distanceTo(target) > MAX_SWING_RANGE) return false;
@@ -184,7 +184,7 @@ public class AutoMace implements ClientModInitializer {
         Vec3 lookVec = mc.player.getViewVector(1.0F);
         Vec3 reachVec = eyePos.add(lookVec.x * MAX_SWING_RANGE, lookVec.y * MAX_SWING_RANGE, lookVec.z * MAX_SWING_RANGE);
 
-        AABB targetBox = target.getBoundingBox();
+        AABB targetBox = target.getBoundingBox(); // Hitbox exata do jogo
         Optional<Vec3> clipHit = targetBox.clip(eyePos, reachVec);
 
         return clipHit.isPresent();
