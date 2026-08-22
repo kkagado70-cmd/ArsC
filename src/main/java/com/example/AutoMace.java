@@ -20,16 +20,18 @@ import net.minecraft.world.item.enchantment.ItemEnchantments;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.Optional;
+
 public class AutoMace implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
-    // Alcance de ataque legítimo vs Alcance de rastreamento de mira
-    private static final double MAX_SWING_RANGE = 2.80D;
-    private static final double MAX_AIM_RANGE = 5.50D; 
-    private static final double MIN_FALL_DIST = 1.3D;
-    private static final float ROTATION_SMOOTHNESS = 0.75F; // Mira rápida e fluida
+    // Reach estritamente legítimo para impedir flag de Hitbox no Grim
+    private static final double MAX_SWING_RANGE = 2.75D;
+    private static final double MAX_AIM_RANGE = 5.0D;
+    private static final double MIN_FALL_DIST = 1.4D;
+    private static final float ROTATION_SMOOTHNESS = 0.50F;
 
     private static Player currentTarget = null;
     private static State state = State.IDLE;
@@ -96,14 +98,13 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
-        // Procura alvos dentro de 5.5 blocos para começar a mirar antes de entrar no alcance de ataque
         currentTarget = locateTarget(MAX_AIM_RANGE);
         if (currentTarget == null) {
             restoreSlotAndReset();
             return;
         }
 
-        // Acompanhamento de mira fluido
+        // Aplica rotação alinhada ao GCD
         applyGrimBypassRotation(currentTarget);
 
         boolean isBlocking = currentTarget.isUsingItem() && currentTarget.getUseItem().getItem() instanceof ShieldItem;
@@ -125,7 +126,7 @@ public class AutoMace implements ClientModInitializer {
                 int axeSlot = findAxeSlot();
                 if (axeSlot != -1) {
                     mc.player.getInventory().setSelectedSlot(axeSlot);
-                    delayTimer = 1;
+                    delayTimer = 2; // 2 ticks para registrar o item na mão antes do ataque (Elimina Flag de Post)
                     state = State.AXE_STRIKE;
                 } else {
                     state = State.MACE_SWAP;
@@ -133,10 +134,11 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case AXE_STRIKE:
-                if (mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE) {
+                // Só dispara se o raio de visão colidir com a caixa do oponente (Elimina Flag de Hitboxes)
+                if (mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE && isLookVectorIntersectingBox(currentTarget)) {
                     mc.gameMode.attack(mc.player, currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
-                    delayTimer = 1;
+                    delayTimer = 2;
                     state = State.MACE_SWAP;
                 }
                 break;
@@ -145,7 +147,7 @@ public class AutoMace implements ClientModInitializer {
                 int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
                 if (maceSlot != -1) {
                     mc.player.getInventory().setSelectedSlot(maceSlot);
-                    delayTimer = 1;
+                    delayTimer = 2; // 2 ticks de tolerância de pacote
                     state = State.MACE_SLAM;
                 } else {
                     restoreSlotAndReset();
@@ -153,7 +155,7 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case MACE_SLAM:
-                if (mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE) {
+                if (mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE && isLookVectorIntersectingBox(currentTarget)) {
                     mc.gameMode.attack(mc.player, currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     delayTimer = 2;
@@ -165,6 +167,19 @@ public class AutoMace implements ClientModInitializer {
                 restoreSlotAndReset();
                 break;
         }
+    }
+
+    private static boolean isLookVectorIntersectingBox(Player target) {
+        if (mc.player == null || target == null) return false;
+
+        Vec3 eyePos = mc.player.getEyePosition(1.0F);
+        Vec3 lookVec = mc.player.getViewVector(1.0F);
+        Vec3 reachVec = eyePos.add(lookVec.x * MAX_SWING_RANGE, lookVec.y * MAX_SWING_RANGE, lookVec.z * MAX_SWING_RANGE);
+
+        AABB targetBox = target.getBoundingBox().inflate(0.1D);
+        Optional<Vec3> hit = targetBox.clip(eyePos, reachVec);
+
+        return hit.isPresent();
     }
 
     private static void updateFallTracker() {
@@ -226,7 +241,7 @@ public class AutoMace implements ClientModInitializer {
 
         AABB box = target.getBoundingBox();
         Vec3 center = box.getCenter();
-        double aimY = box.minY + (target.getBbHeight() * 0.55D);
+        double aimY = box.minY + (target.getBbHeight() * 0.50D);
         Vec3 targetEyePos = new Vec3(center.x, aimY, center.z);
 
         double dx = targetEyePos.x - mc.player.getX();
@@ -294,4 +309,4 @@ public class AutoMace implements ClientModInitializer {
         delayTimer = 0;
         preSequenceSlot = -1;
     }
-            }
+}
