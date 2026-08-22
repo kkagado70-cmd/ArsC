@@ -51,7 +51,7 @@ public class AutoMace implements ClientModInitializer {
             "key.automace.toggle",
             InputConstants.Type.KEYSYM,
             GLFW.GLFW_KEY_M,
-            "category.automace.general"
+            KeyMapping.Category.MISC
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -109,7 +109,7 @@ public class AutoMace implements ClientModInitializer {
         switch (state) {
             case IDLE:
                 if (preSequenceSlot == -1) {
-                    preSequenceSlot = mc.player.getInventory().selectedSlot;
+                    preSequenceSlot = mc.player.getInventory().getSelectedSlot();
                 }
                 
                 if (isBlocking) {
@@ -122,7 +122,7 @@ public class AutoMace implements ClientModInitializer {
             case AXE_SWAP:
                 int axeSlot = findAxeSlot();
                 if (axeSlot != -1) {
-                    mc.player.getInventory().selectedSlot = axeSlot;
+                    mc.player.getInventory().setSelectedSlot(axeSlot);
                     delayTimer = 1;
                     state = State.AXE_STRIKE;
                 } else {
@@ -143,7 +143,7 @@ public class AutoMace implements ClientModInitializer {
             case MACE_SWAP:
                 int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
                 if (maceSlot != -1) {
-                    mc.player.getInventory().selectedSlot = maceSlot;
+                    mc.player.getInventory().setSelectedSlot(maceSlot);
                     delayTimer = 1;
                     state = State.MACE_SLAM;
                 } else {
@@ -280,9 +280,9 @@ public class AutoMace implements ClientModInitializer {
         return bestTarget;
     }
 
-    private static void restoreSlotAndReset() {
+certificated -> private static void restoreSlotAndReset() {
         if (mc.player != null && preSequenceSlot >= 0 && preSequenceSlot < 9) {
-            mc.player.getInventory().selectedSlot = preSequenceSlot;
+            mc.player.getInventory().setSelectedSlot(preSequenceSlot);
         }
         resetState();
     }
