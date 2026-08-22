@@ -30,7 +30,7 @@ public class AutoMace implements ClientModInitializer {
     private static final double MAX_SWING_RANGE = 2.75D;
     private static final double MAX_AIM_RANGE = 5.0D;
     private static final double MIN_FALL_DIST = 1.3D;
-    private static final float ROTATION_SMOOTHNESS = 0.65F;
+    private static final float ROTATION_SMOOTHNESS = 0.85F;
 
     private static Player currentTarget = null;
     private static State state = State.IDLE;
@@ -53,7 +53,7 @@ public class AutoMace implements ClientModInitializer {
             "key.automace.toggle",
             InputConstants.Type.KEYSYM,
             GLFW.GLFW_KEY_M,
-            KeyMapping.Category.MISC
+            "category.automace.general"
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -106,14 +106,12 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
-        applyGrimBypassRotation(currentTarget);
-
         boolean isBlocking = currentTarget.isUsingItem() && currentTarget.getUseItem().getItem() instanceof ShieldItem;
 
         switch (state) {
             case IDLE:
                 if (preSequenceSlot == -1) {
-                    preSequenceSlot = mc.player.getInventory().getSelectedSlot();
+                    preSequenceSlot = mc.player.getInventory().selectedSlot;
                 }
                 
                 if (isBlocking) {
@@ -126,8 +124,8 @@ public class AutoMace implements ClientModInitializer {
             case AXE_SWAP:
                 int axeSlot = findAxeSlot();
                 if (axeSlot != -1) {
-                    mc.player.getInventory().setSelectedSlot(axeSlot);
-                    delayTimer = 2; // Sincroniza a troca no servidor
+                    mc.player.getInventory().selectedSlot = axeSlot;
+                    delayTimer = 1;
                     state = State.AXE_STRIKE;
                 } else {
                     state = State.MACE_SWAP;
@@ -135,11 +133,11 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case AXE_STRIKE:
-                if (isAttackReady() && canValidlyAttack(currentTarget)) {
+                if (canValidlyAttack(currentTarget)) {
                     applyGrimBypassRotation(currentTarget);
-                    mc.player.swing(InteractionHand.MAIN_HAND); // Swing ANTES do ataque (Corrige PacketOrderE)
                     mc.gameMode.attack(mc.player, currentTarget);
-                    delayTimer = 2;
+                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    delayTimer = 1;
                     state = State.MACE_SWAP;
                 }
                 break;
@@ -147,8 +145,8 @@ public class AutoMace implements ClientModInitializer {
             case MACE_SWAP:
                 int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
                 if (maceSlot != -1) {
-                    mc.player.getInventory().setSelectedSlot(maceSlot);
-                    delayTimer = 2; // Sincroniza a maça na mão
+                    mc.player.getInventory().selectedSlot = maceSlot;
+                    delayTimer = 1;
                     state = State.MACE_SLAM;
                 } else {
                     restoreSlotAndReset();
@@ -156,11 +154,11 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case MACE_SLAM:
-                if (isAttackReady() && canValidlyAttack(currentTarget)) {
+                if (canValidlyAttack(currentTarget)) {
                     applyGrimBypassRotation(currentTarget);
-                    mc.player.swing(InteractionHand.MAIN_HAND); // Swing ANTES do ataque
                     mc.gameMode.attack(mc.player, currentTarget);
-                    delayTimer = 2;
+                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    delayTimer = 1;
                     state = State.RESTORE_SLOT;
                 }
                 break;
@@ -171,23 +169,10 @@ public class AutoMace implements ClientModInitializer {
         }
     }
 
-    private static boolean isAttackReady() {
-        return mc.player != null && mc.player.getAttackStrengthScale(0.0F) >= 0.9F;
-    }
-
     private static boolean canValidlyAttack(Player target) {
         if (mc.player == null || target == null) return false;
         if (!mc.player.hasLineOfSight(target)) return false;
-        if (mc.player.distanceTo(target) > MAX_SWING_RANGE) return false;
-
-        Vec3 eyePos = mc.player.getEyePosition(1.0F);
-        Vec3 lookVec = mc.player.getViewVector(1.0F);
-        Vec3 reachVec = eyePos.add(lookVec.x * MAX_SWING_RANGE, lookVec.y * MAX_SWING_RANGE, lookVec.z * MAX_SWING_RANGE);
-
-        AABB targetBox = target.getBoundingBox();
-        Optional<Vec3> clipHit = targetBox.clip(eyePos, reachVec);
-
-        return clipHit.isPresent();
+        return mc.player.distanceTo(target) <= MAX_SWING_RANGE;
     }
 
     private static void updateFallTracker() {
@@ -263,18 +248,11 @@ public class AutoMace implements ClientModInitializer {
         float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
         float pitchDelta = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
 
-        double sensitivity = mc.options.sensitivity().get();
-        double f = sensitivity * 0.6D + 0.2D;
-        double gcd = f * f * f * 8.0D * 0.15D;
-
         float interpolatedYaw = mc.player.getYRot() + (yawDelta * ROTATION_SMOOTHNESS);
         float interpolatedPitch = mc.player.getXRot() + (pitchDelta * ROTATION_SMOOTHNESS);
 
-        float finalYaw = (float) (mc.player.getYRot() + Math.round((interpolatedYaw - mc.player.getYRot()) / gcd) * gcd);
-        float finalPitch = (float) (mc.player.getXRot() + Math.round((interpolatedPitch - mc.player.getXRot()) / gcd) * gcd);
-
-        mc.player.setYRot(finalYaw);
-        mc.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
+        mc.player.setYRot(interpolatedYaw);
+        mc.player.setXRot(Mth.clamp(interpolatedPitch, -90.0F, 90.0F));
     }
 
     private static int findAxeSlot() {
@@ -304,9 +282,10 @@ public class AutoMace implements ClientModInitializer {
         return bestTarget;
     }
 
+    private static_restoreSlotAndReset() -> we will inline or keep clean:
     private static void restoreSlotAndReset() {
         if (mc.player != null && preSequenceSlot >= 0 && preSequenceSlot < 9) {
-            mc.player.getInventory().setSelectedSlot(preSequenceSlot);
+            mc.player.getInventory().selectedSlot = preSequenceSlot;
         }
         resetState();
     }
