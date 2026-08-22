@@ -20,22 +20,23 @@ import net.minecraft.world.item.enchantment.ItemEnchantments;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.Optional;
+
 public class AutoMace implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
-    // Reach estritamente legítimo (2.75D) para evitar flag de Hitbox no Grim AC
+    // Alcance estritamente dentro do limite baunilha para evitar flags de Hitbox
     private static final double MAX_SWING_RANGE = 2.75D;
     private static final double MAX_AIM_RANGE = 5.0D;
     private static final double MIN_FALL_DIST = 1.4D;
-    private static final float ROTATION_SMOOTHNESS = 0.55F;
+    private static final float ROTATION_SMOOTHNESS = 0.60F;
 
     private static Player currentTarget = null;
     private static State state = State.IDLE;
     private static int delayTimer = 0;
     private static int preSequenceSlot = -1;
-    private static int targetSlot = -1;
     private static double highestY = 0.0D;
 
     public enum State {
@@ -89,6 +90,7 @@ public class AutoMace implements ClientModInitializer {
 
         double currentFallDistance = Math.max(0.0D, highestY - mc.player.getY());
 
+        // Verifica se o jogador está caindo antes de iniciar o processo
         boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
         if (!isFalling) {
             if (state != State.IDLE) {
@@ -103,8 +105,8 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
-        // Rotação visível e suave alinhada ao GCD da sensibilidade
-        applyGrimBypassRotation(currentTarget);
+        // Aplica rotação suave alinhada à sensibilidade do jogo
+        applySmoothRotation(currentTarget);
 
         boolean isBlocking = currentTarget.isUsingItem() && currentTarget.getUseItem().getItem() instanceof ShieldItem;
 
@@ -122,10 +124,10 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case AXE_SWAP:
-                targetSlot = findAxeSlot();
-                if (targetSlot != -1) {
-                    mc.player.getInventory().setSelectedSlot(targetSlot);
-                    // Delay de 2 ticks garante que o Machado APAREÇA visivelmente na mão (Fim do Silent Swap)
+                int axeSlot = findAxeSlot();
+                if (axeSlot != -1) {
+                    mc.player.getInventory().setSelectedSlot(axeSlot);
+                    // 2 ticks de espera garantem a confirmação do item na mão pelo servidor (Sincronia contra Flag Post)
                     delayTimer = 2;
                     state = State.AXE_STRIKE;
                 } else {
@@ -134,7 +136,7 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case AXE_STRIKE:
-                if (canExecuteAttack()) {
+                if (canValidlyAttack(currentTarget)) {
                     mc.gameMode.attack(mc.player, currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     delayTimer = 2;
@@ -143,10 +145,9 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case MACE_SWAP:
-                targetSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
-                if (targetSlot != -1) {
-                    mc.player.getInventory().setSelectedSlot(targetSlot);
-                    // Delay de 2 ticks para renderizar a Maça na mão antes do golpe
+                int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
+                if (maceSlot != -1) {
+                    mc.player.getInventory().setSelectedSlot(maceSlot);
                     delayTimer = 2;
                     state = State.MACE_SLAM;
                 } else {
@@ -155,7 +156,7 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case MACE_SLAM:
-                if (canExecuteAttack()) {
+                if (canValidlyAttack(currentTarget)) {
                     mc.gameMode.attack(mc.player, currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     delayTimer = 2;
@@ -169,9 +170,23 @@ public class AutoMace implements ClientModInitializer {
         }
     }
 
-    private static boolean canExecuteAttack() {
-        if (mc.player == null || currentTarget == null) return false;
-        return mc.player.hasLineOfSight(currentTarget) && mc.player.distanceTo(currentTarget) <= MAX_SWING_RANGE;
+    /**
+     * Valida se a mira do jogador realmente intercepta a AABB da entidade alvo dentro do alcance.
+     * Previne ataques fora do campo de visão (evitando a flag de Hitboxes).
+     */
+    private static boolean canValidlyAttack(Player target) {
+        if (mc.player == null || target == null) return false;
+        if (!mc.player.hasLineOfSight(target)) return false;
+        if (mc.player.distanceTo(target) > MAX_SWING_RANGE) return false;
+
+        Vec3 eyePos = mc.player.getEyePosition(1.0F);
+        Vec3 lookVec = mc.player.getViewVector(1.0F);
+        Vec3 reachVec = eyePos.add(lookVec.x * MAX_SWING_RANGE, lookVec.y * MAX_SWING_RANGE, lookVec.z * MAX_SWING_RANGE);
+
+        AABB targetBox = target.getBoundingBox().inflate(0.05D);
+        Optional<Vec3> hit = targetBox.clip(eyePos, reachVec);
+
+        return hit.isPresent();
     }
 
     private static void updateFallTracker() {
@@ -228,7 +243,7 @@ public class AutoMace implements ClientModInitializer {
         return 0;
     }
 
-    private static void applyGrimBypassRotation(Player target) {
+    private static void applySmoothRotation(Player target) {
         if (mc.player == null || target == null) return;
 
         AABB box = target.getBoundingBox();
@@ -247,6 +262,7 @@ public class AutoMace implements ClientModInitializer {
         float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
         float pitchDelta = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
 
+        // Alinhamento ao GCD para simular entrada de mouse
         double sensitivity = mc.options.sensitivity().get();
         double f = sensitivity * 0.6D + 0.2D;
         double gcd = f * f * f * 8.0D * 0.15D;
@@ -300,6 +316,5 @@ public class AutoMace implements ClientModInitializer {
         state = State.IDLE;
         delayTimer = 0;
         preSequenceSlot = -1;
-        targetSlot = -1;
     }
 }
