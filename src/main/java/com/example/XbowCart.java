@@ -32,7 +32,7 @@ public class XbowCart implements ClientModInitializer {
             "key.xbowcart.trigger",
             InputConstants.Type.KEYSYM,
             GLFW.GLFW_KEY_X,
-            KeyMapping.CATEGORY_MISC
+            KeyMapping.Category.MISC
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
