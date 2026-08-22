@@ -25,10 +25,11 @@ public class AutoMace implements ClientModInitializer {
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
-    private static final double MAX_SWING_RANGE = 2.85D;
-    private static final double MAX_AIM_RANGE = 2.85D;
-    private static final double MIN_FALL_DIST = 1.5D;
-    private static final float ROTATION_SMOOTHNESS = 0.45F;
+    // Reach e distâncias ajustados para Grim AC / MMC
+    private static final double MAX_SWING_RANGE = 2.80D;
+    private static final double MAX_AIM_RANGE = 2.80D;
+    private static final double MIN_FALL_DIST = 1.4D;
+    private static final float ROTATION_SMOOTHNESS = 0.50F;
 
     private static Player currentTarget = null;
     private static State state = State.IDLE;
@@ -87,6 +88,7 @@ public class AutoMace implements ClientModInitializer {
 
         double currentFallDistance = Math.max(0.0D, highestY - mc.player.getY());
 
+        // Ativação APENAS se estiver caindo
         boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
         if (!isFalling) {
             if (state != State.IDLE) {
@@ -101,6 +103,7 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
+        // Aplica rotação alinhada com o GCD do mouse antes de atacar
         applyGrimBypassRotation(currentTarget);
 
         boolean isBlocking = currentTarget.isUsingItem() && currentTarget.getUseItem().getItem() instanceof ShieldItem;
@@ -122,7 +125,7 @@ public class AutoMace implements ClientModInitializer {
                 int axeSlot = findAxeSlot();
                 if (axeSlot != -1) {
                     mc.player.getInventory().setSelectedSlot(axeSlot);
-                    delayTimer = 1;
+                    delayTimer = 1; // 1 tick de sincronização do slot no servidor
                     state = State.AXE_STRIKE;
                 } else {
                     state = State.MACE_SWAP;
@@ -142,7 +145,7 @@ public class AutoMace implements ClientModInitializer {
                 int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
                 if (maceSlot != -1) {
                     mc.player.getInventory().setSelectedSlot(maceSlot);
-                    delayTimer = 1;
+                    delayTimer = 1; // 1 tick de sincronização
                     state = State.MACE_SLAM;
                 } else {
                     restoreSlotAndReset();
@@ -186,7 +189,7 @@ public class AutoMace implements ClientModInitializer {
                 int densityLevel = getEnchantmentLevel(stack, "density");
                 int breachLevel = getEnchantmentLevel(stack, "breach");
 
-                // Regra: Queda >= 7.0 blocos -> DENSITY | Queda < 7.0 blocos -> BREACH
+                // Regra de seleção: Queda >= 7 blocos = DENSITY | Queda < 7 blocos = BREACH
                 if (fallDist >= 7.0D) {
                     if (densityLevel > maxDensityScore) {
                         maxDensityScore = densityLevel;
