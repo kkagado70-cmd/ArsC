@@ -27,7 +27,7 @@ public class AutoMace implements ClientModInitializer {
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
-    // Reach e limites estritamente baunilha para evitar flags no Grim/MMC
+    // Reach estritamente baunilha para evitar flags no Grim/MMC
     private static final double MAX_SWING_RANGE = 2.75D;
     private static final double MAX_AIM_RANGE = 5.0D;
     private static final double MIN_FALL_DIST = 1.3D;
@@ -90,13 +90,11 @@ public class AutoMace implements ClientModInitializer {
 
         double currentFallDistance = Math.max(0.0D, highestY - mc.player.getY());
 
-        // Só executa se o jogador estiver em queda ativa
         boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
         if (!isFalling && state == State.IDLE) {
             return;
         }
 
-        // Mantém o alvo travado durante o combo de Stun Slam
         if (state == State.IDLE) {
             currentTarget = locateTarget(MAX_AIM_RANGE);
         }
@@ -127,7 +125,7 @@ public class AutoMace implements ClientModInitializer {
                 int axeSlot = findAxeSlot();
                 if (axeSlot != -1) {
                     mc.player.getInventory().setSelectedSlot(axeSlot);
-                    delayTimer = 2; // Sincronização do item no servidor para evitar flag Post
+                    delayTimer = 2; // 2 ticks de renderização da arma na mão
                     state = State.AXE_STRIKE;
                 } else {
                     state = State.MACE_SWAP;
@@ -135,7 +133,8 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case AXE_STRIKE:
-                if (canValidlyAttack(currentTarget)) {
+                // Exige recarga da barra de ataque (>= 85%) para que o machado desative o escudo do oponente
+                if (mc.player.getAttackStrengthScale(0.5F) >= 0.85F && canValidlyAttack(currentTarget)) {
                     mc.gameMode.attack(mc.player, currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     delayTimer = 2;
@@ -170,8 +169,8 @@ public class AutoMace implements ClientModInitializer {
     }
 
     /**
-     * Valida o ataque via clipe de raio na Hitbox baunilha (sem inflar AABB).
-     * Evita a flag de Hitbox Expander / Reach.
+     * Validação estrita de Raycast na Hitbox baunilha.
+     * Só permite o disparo do ataque quando o vetor de visão interceptar a AABB do oponente.
      */
     private static boolean canValidlyAttack(Player target) {
         if (mc.player == null || target == null) return false;
@@ -182,7 +181,7 @@ public class AutoMace implements ClientModInitializer {
         Vec3 lookVec = mc.player.getViewVector(1.0F);
         Vec3 reachVec = eyePos.add(lookVec.x * MAX_SWING_RANGE, lookVec.y * MAX_SWING_RANGE, lookVec.z * MAX_SWING_RANGE);
 
-        AABB targetBox = target.getBoundingBox(); // Hitbox exata
+        AABB targetBox = target.getBoundingBox(); // Hitbox sem inflar
         Optional<Vec3> clipHit = targetBox.clip(eyePos, reachVec);
 
         return clipHit.isPresent();
@@ -210,6 +209,7 @@ public class AutoMace implements ClientModInitializer {
                 int densityLevel = getEnchantmentLevel(stack, "density");
                 int breachLevel = getEnchantmentLevel(stack, "breach");
 
+                // Queda >= 7 blocos -> DENSITY | Queda < 7 blocos -> BREACH
                 if (fallDist >= 7.0D) {
                     if (densityLevel > maxDensityScore) {
                         maxDensityScore = densityLevel;
