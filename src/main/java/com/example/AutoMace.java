@@ -20,8 +20,6 @@ import net.minecraft.world.item.enchantment.ItemEnchantments;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
-import java.util.Optional;
-
 public class AutoMace implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
@@ -282,7 +280,6 @@ public class AutoMace implements ClientModInitializer {
         return bestTarget;
     }
 
-    private static_restoreSlotAndReset() -> we will inline or keep clean:
     private static void restoreSlotAndReset() {
         if (mc.player != null && preSequenceSlot >= 0 && preSequenceSlot < 9) {
             mc.player.getInventory().selectedSlot = preSequenceSlot;
