@@ -3,16 +3,33 @@
   "id": "precise-gui-scale",
   "version": "1.0.2",
   "name": "Precise GUI Scale",
-  "description": "Fractional, context-aware GUI scaling for Minecraft 1.21.11",
+  "icon": "assets/precise-gui-scale/icon.png",
+  "description": "Fractional, context-aware GUI scaling for Minecraft 1.21.11.",
+  "authors": [
+    "Zexn"
+  ],
+  "contact": {},
+  "license": "MIT",
   "environment": "client",
   "entrypoints": {
     "client": [
-      "com.example.PreciseGuiScaleClient"
+      "com.scale.preciseguiscale.PreciseGuiScaleClient"
+    ],
+    "modmenu": [
+      "com.scale.preciseguiscale.config.PreciseGuiScaleModMenu"
     ]
   },
+  "mixins": [
+    "precise-gui-scale.mixins.json"
+  ],
   "depends": {
     "fabricloader": ">=0.18.4",
     "minecraft": "1.21.11",
-    "java": ">=21"
+    "java": ">=21",
+    "fabric-api": "*",
+    "cloth-config": "*"
+  },
+  "suggests": {
+    "modmenu": "*"
   }
 }
