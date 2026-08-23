@@ -28,7 +28,7 @@ public class AutoMace implements ClientModInitializer {
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
-    private static final double MAX_SWING_RANGE = 2.75D;
+    private static final double MAX_SWING_RANGE = 2.95D;
     private static final double MAX_AIM_RANGE = 4.5D;
     private static final double MIN_FALL_DIST = 1.3D;
 
@@ -259,12 +259,12 @@ public class AutoMace implements ClientModInitializer {
         float yawDelta = Mth.wrapDegrees(targetYaw - client.player.getYRot());
         float pitchDelta = targetPitch - client.player.getXRot();
 
-        double sensitivity = client.options.sensitivity().get();
+        double sensitivity = getSensitivity(client);
         double f = sensitivity * 0.6D + 0.2D;
         double gcd = f * f * f * 8.0D * 0.15D;
 
         float distanceFactor = (float) Math.min(1.0, horizontalDistance / 5.0);
-        float dynamicSmoothness = 0.65F + (RANDOM.nextFloat() * 0.15F) * distanceFactor;
+        float dynamicSmoothness = 0.75F + (RANDOM.nextFloat() * 0.15F) * distanceFactor;
 
         float angularDistance = (float) Math.sqrt(yawDelta * yawDelta + pitchDelta * pitchDelta);
         float tremorScale = Math.min(1.2F, angularDistance * 0.08F);
@@ -325,21 +325,66 @@ public class AutoMace implements ClientModInitializer {
     private static int getSelectedSlot(Minecraft client) {
         if (client.player == null) return 0;
         try {
-            java.lang.reflect.Field field = client.player.getInventory().getClass().getDeclaredField("selected");
+            java.lang.reflect.Field field;
+            try {
+                field = client.player.getInventory().getClass().getDeclaredField("selected");
+            } catch (NoSuchFieldException e) {
+                field = client.player.getInventory().getClass().getDeclaredField("selectedSlot");
+            }
             field.setAccessible(true);
             return field.getInt(client.player.getInventory());
         } catch (Exception e) {
-            return 0;
+            try {
+                for (java.lang.reflect.Field f : client.player.getInventory().getClass().getDeclaredFields()) {
+                    if (f.getType() == int.class) {
+                        f.setAccessible(true);
+                        return f.getInt(client.player.getInventory());
+                    }
+                }
+            } catch (Exception ignored) {}
         }
+        return 0;
     }
 
     private static void setSelectedSlot(Minecraft client, int slot) {
         if (client.player == null) return;
         try {
-            java.lang.reflect.Field field = client.player.getInventory().getClass().getDeclaredField("selected");
+            java.lang.reflect.Field field;
+            try {
+                field = client.player.getInventory().getClass().getDeclaredField("selected");
+            } catch (NoSuchFieldException e) {
+                field = client.player.getInventory().getClass().getDeclaredField("selectedSlot");
+            }
             field.setAccessible(true);
             field.setInt(client.player.getInventory(), slot);
         } catch (Exception e) {
+            try {
+                for (java.lang.reflect.Field f : client.player.getInventory().getClass().getDeclaredFields()) {
+                    if (f.getType() == int.class) {
+                        f.setAccessible(true);
+                        f.setInt(client.player.getInventory(), slot);
+                        break;
+                    }
+                }
+            } catch (Exception ignored) {}
         }
+    }
+
+    private static double getSensitivity(Minecraft client) {
+        try {
+            java.lang.reflect.Field field;
+            try {
+                field = client.options.getClass().getDeclaredField("sensitivity");
+            } catch (NoSuchFieldException e) {
+                field = client.options.getClass().getDeclaredField("field_1839");
+            }
+            field.setAccessible(true);
+            Object optionInstance = field.get(client.options);
+            if (optionInstance instanceof net.minecraft.client.OptionInstance) {
+                return (Double) ((net.minecraft.client.OptionInstance<?>) optionInstance).get();
+            }
+        } catch (Exception ignored) {
+        }
+        return 0.5D;
     }
 }
