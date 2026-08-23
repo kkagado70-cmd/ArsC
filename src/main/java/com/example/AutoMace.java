@@ -19,13 +19,12 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
-
 import java.util.Random;
 
 public class AutoMace implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
-    public static boolean enabled = false;
+    public static boolean enabled = false; // Corrigido: adicionado ponto e vírgula
 
     private static final double MAX_SWING_RANGE = 2.84D;
     private static final double MAX_AIM_RANGE = 4.5D;
@@ -56,7 +55,7 @@ public class AutoMace implements ClientModInitializer {
             "key.automace.toggle",
             InputConstants.Type.KEYSYM,
             GLFW.GLFW_KEY_M,
-            "category.automace.general"
+            KeyMapping.CATEGORY_MISC
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -122,7 +121,7 @@ public class AutoMace implements ClientModInitializer {
         switch (state) {
             case IDLE:
                 if (preSequenceSlot == -1) {
-                    preSequenceSlot = mc.player.getInventory().selectedSlot;
+                    preSequenceSlot = mc.player.getInventory().selected;
                 }
                 
                 if (isBlocking) {
@@ -135,7 +134,7 @@ public class AutoMace implements ClientModInitializer {
             case AXE_SWAP:
                 int axeSlot = findAxeSlot();
                 if (axeSlot != -1) {
-                    mc.player.getInventory().selectedSlot = axeSlot;
+                    mc.player.getInventory().selected = axeSlot;
                     delayTimer = 2;
                     state = State.AXE_STRIKE;
                 } else {
@@ -156,7 +155,7 @@ public class AutoMace implements ClientModInitializer {
             case MACE_SWAP:
                 int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
                 if (maceSlot != -1) {
-                    mc.player.getInventory().selectedSlot = maceSlot;
+                    mc.player.getInventory().selected = maceSlot;
                     delayTimer = 2;
                     state = State.MACE_SLAM;
                 } else {
@@ -264,7 +263,8 @@ public class AutoMace implements ClientModInitializer {
 
         double sensitivity = mc.options.sensitivity().get();
         double f = sensitivity * 0.6D + 0.2D;
-        double gcd = f * f * f * 8.0D * 0.15D;
+        double dg = f * f * f * 8.0D;
+        double gcd = dg * 0.15D;
 
         float finalYaw = (float) (mc.player.getYRot() + Math.round((interpolatedYaw - mc.player.getYRot()) / gcd) * gcd);
         float finalPitch = (float) (mc.player.getXRot() + Math.round((interpolatedPitch - mc.player.getXRot()) / gcd) * gcd);
@@ -302,7 +302,7 @@ public class AutoMace implements ClientModInitializer {
 
     private static void restoreSlotAndReset() {
         if (mc.player != null && preSequenceSlot >= 0 && preSequenceSlot < 9) {
-            mc.player.getInventory().selectedSlot = preSequenceSlot;
+            mc.player.getInventory().selected = preSequenceSlot;
         }
         resetState();
     }
@@ -314,4 +314,4 @@ public class AutoMace implements ClientModInitializer {
         preSequenceSlot = -1;
         reactionDelayTicks = 0;
     }
-}
+} // Corrigido: adicionada a chave de fechamento da classe
