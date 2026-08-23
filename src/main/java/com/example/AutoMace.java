@@ -121,7 +121,7 @@ public class AutoMace implements ClientModInitializer {
         switch (state) {
             case IDLE:
                 if (preSequenceSlot == -1) {
-                    preSequenceSlot = mc.player.getInventory().selected;
+                    preSequenceSlot = mc.player.getInventory().getSelectedSlot();
                 }
                 
                 if (isBlocking) {
@@ -181,9 +181,9 @@ public class AutoMace implements ClientModInitializer {
 
     private static void setInventorySlot(int slot) {
         if (mc.player == null) return;
-        mc.player.getInventory().selected = slot;
-        if (mc.getNetworkHandler() != null) {
-            mc.getNetworkHandler().sendPacket(new ServerboundSetCarriedItemPacket(slot));
+        mc.player.getInventory().setSelectedSlot(slot);
+        if (mc.getConnection() != null) {
+            mc.getConnection().send(new ServerboundSetCarriedItemPacket(slot));
         }
     }
 
@@ -322,4 +322,4 @@ public class AutoMace implements ClientModInitializer {
         preSequenceSlot = -1;
         reactionDelayTicks = 0;
     }
-}
+        }
