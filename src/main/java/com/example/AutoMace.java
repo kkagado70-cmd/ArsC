@@ -1,4 +1,4 @@
-package com.example;
+package com.example.addon;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -21,6 +21,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.Optional;
+import java.util.Random;
 
 public class AutoMace implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
@@ -30,13 +31,13 @@ public class AutoMace implements ClientModInitializer {
     private static final double MAX_SWING_RANGE = 2.75D;
     private static final double MAX_AIM_RANGE = 4.5D;
     private static final double MIN_FALL_DIST = 1.3D;
-    private static final float ROTATION_SMOOTHNESS = 0.75F;
 
     private static Player currentTarget = null;
     private static State state = State.IDLE;
     private static int delayTimer = 0;
     private static int preSequenceSlot = -1;
     private static double highestY = 0.0D;
+    private static final Random RANDOM = new Random();
 
     public enum State {
         IDLE,
@@ -243,7 +244,8 @@ public class AutoMace implements ClientModInitializer {
 
         AABB box = target.getBoundingBox();
         Vec3 center = box.getCenter();
-        double aimY = box.minY + (target.getBbHeight() * 0.45D); 
+        double heightFactor = 0.38D + RANDOM.nextDouble() * 0.22D;
+        double aimY = box.minY + (target.getBbHeight() * heightFactor); 
         Vec3 targetEyePos = new Vec3(center.x, aimY, center.z);
 
         double dx = targetEyePos.x - mc.player.getX();
@@ -255,14 +257,22 @@ public class AutoMace implements ClientModInitializer {
         float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, horizontalDistance)));
 
         float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
-        float pitchDelta = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
+        float pitchDelta = targetPitch - mc.player.getXRot();
 
         double sensitivity = mc.options.sensitivity().get();
         double f = sensitivity * 0.6D + 0.2D;
         double gcd = f * f * f * 8.0D * 0.15D;
 
-        float interpolatedYaw = mc.player.getYRot() + (yawDelta * ROTATION_SMOOTHNESS);
-        float interpolatedPitch = mc.player.getXRot() + (pitchDelta * ROTATION_SMOOTHNESS);
+        float distanceFactor = (float) Math.min(1.0, horizontalDistance / 5.0);
+        float dynamicSmoothness = 0.65F + (RANDOM.nextFloat() * 0.15F) * distanceFactor;
+
+        float angularDistance = (float) Math.sqrt(yawDelta * yawDelta + pitchDelta * pitchDelta);
+        float tremorScale = Math.min(1.5F, angularDistance * 0.1F);
+        float yawTremor = (RANDOM.nextFloat() - 0.5F) * tremorScale;
+        float pitchTremor = (RANDOM.nextFloat() - 0.5F) * tremorScale;
+
+        float interpolatedYaw = mc.player.getYRot() + (yawDelta * dynamicSmoothness) + yawTremor;
+        float interpolatedPitch = mc.player.getXRot() + (pitchDelta * dynamicSmoothness) + pitchTremor;
 
         float finalYaw = (float) (mc.player.getYRot() + Math.round((interpolatedYaw - mc.player.getYRot()) / gcd) * gcd);
         float finalPitch = (float) (mc.player.getXRot() + Math.round((interpolatedPitch - mc.player.getXRot()) / gcd) * gcd);
@@ -311,4 +321,4 @@ public class AutoMace implements ClientModInitializer {
         delayTimer = 0;
         preSequenceSlot = -1;
     }
-    }
+}
