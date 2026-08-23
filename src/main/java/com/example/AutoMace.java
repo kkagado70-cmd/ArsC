@@ -1,4 +1,4 @@
-package com.example.addon;
+package com.example;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -79,7 +79,7 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static void onTick(Minecraft client) {
-        if (mc.player == null || mc.level == null) return;
+        if (mc.player == null || mc.level == null || mc.gameMode == null) return;
 
         if (delayTimer > 0) {
             delayTimer--;
@@ -93,7 +93,7 @@ public class AutoMace implements ClientModInitializer {
         boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
         if (!isFalling) {
             if (state != State.IDLE) {
-                restoreSlotAndReset();
+                restoreSlotAndReset(client);
             }
             return;
         }
@@ -103,7 +103,7 @@ public class AutoMace implements ClientModInitializer {
         }
 
         if (currentTarget == null || !currentTarget.isAlive()) {
-            restoreSlotAndReset();
+            restoreSlotAndReset(client);
             return;
         }
 
@@ -112,7 +112,7 @@ public class AutoMace implements ClientModInitializer {
         switch (state) {
             case IDLE:
                 if (preSequenceSlot == -1) {
-                    preSequenceSlot = mc.player.getInventory().getSelectedSlot();
+                    preSequenceSlot = getSelectedSlot(client);
                 }
                 
                 if (isBlocking) {
@@ -125,7 +125,7 @@ public class AutoMace implements ClientModInitializer {
             case AXE_SWAP:
                 int axeSlot = findAxeSlot();
                 if (axeSlot != -1) {
-                    mc.player.getInventory().setSelectedSlot(axeSlot);
+                    setSelectedSlot(client, axeSlot);
                     delayTimer = 1;
                     state = State.AXE_STRIKE;
                 } else {
@@ -135,7 +135,7 @@ public class AutoMace implements ClientModInitializer {
 
             case AXE_STRIKE:
                 if (canValidlyAttack(currentTarget)) {
-                    applyMaximumBypassRotation(currentTarget);
+                    applyMaximumBypassRotation(client, currentTarget);
                     mc.gameMode.attack(mc.player, currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     delayTimer = 1;
@@ -146,17 +146,17 @@ public class AutoMace implements ClientModInitializer {
             case MACE_SWAP:
                 int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
                 if (maceSlot != -1) {
-                    mc.player.getInventory().setSelectedSlot(maceSlot);
+                    setSelectedSlot(client, maceSlot);
                     delayTimer = 1;
                     state = State.MACE_SLAM;
                 } else {
-                    restoreSlotAndReset();
+                    restoreSlotAndReset(client);
                 }
                 break;
 
             case MACE_SLAM:
                 if (canValidlyAttack(currentTarget)) {
-                    applyMaximumBypassRotation(currentTarget);
+                    applyMaximumBypassRotation(client, currentTarget);
                     mc.gameMode.attack(mc.player, currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     delayTimer = 1;
@@ -165,7 +165,7 @@ public class AutoMace implements ClientModInitializer {
                 break;
 
             case RESTORE_SLOT:
-                restoreSlotAndReset();
+                restoreSlotAndReset(client);
                 break;
         }
     }
@@ -239,8 +239,8 @@ public class AutoMace implements ClientModInitializer {
         return 0;
     }
 
-    private static void applyMaximumBypassRotation(Player target) {
-        if (mc.player == null || target == null) return;
+    private static void applyMaximumBypassRotation(Minecraft client, Player target) {
+        if (client.player == null || target == null) return;
 
         AABB box = target.getBoundingBox();
         Vec3 center = box.getCenter();
@@ -248,18 +248,18 @@ public class AutoMace implements ClientModInitializer {
         double aimY = box.minY + (target.getBbHeight() * heightFactor); 
         Vec3 targetEyePos = new Vec3(center.x, aimY, center.z);
 
-        double dx = targetEyePos.x - mc.player.getX();
-        double dy = targetEyePos.y - mc.player.getEyeY();
-        double dz = targetEyePos.z - mc.player.getZ();
+        double dx = targetEyePos.x - client.player.getX();
+        double dy = targetEyePos.y - client.player.getEyeY();
+        double dz = targetEyePos.z - client.player.getZ();
         double horizontalDistance = Math.sqrt(dx * dx + dz * dz);
 
         float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
         float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, horizontalDistance)));
 
-        float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
-        float pitchDelta = targetPitch - mc.player.getXRot();
+        float yawDelta = Mth.wrapDegrees(targetYaw - client.player.getYRot());
+        float pitchDelta = targetPitch - client.player.getXRot();
 
-        double sensitivity = mc.options.sensitivity().get();
+        double sensitivity = client.options.sensitivity().get();
         double f = sensitivity * 0.6D + 0.2D;
         double gcd = f * f * f * 8.0D * 0.15D;
 
@@ -267,18 +267,18 @@ public class AutoMace implements ClientModInitializer {
         float dynamicSmoothness = 0.65F + (RANDOM.nextFloat() * 0.15F) * distanceFactor;
 
         float angularDistance = (float) Math.sqrt(yawDelta * yawDelta + pitchDelta * pitchDelta);
-        float tremorScale = Math.min(1.5F, angularDistance * 0.1F);
+        float tremorScale = Math.min(1.2F, angularDistance * 0.08F);
         float yawTremor = (RANDOM.nextFloat() - 0.5F) * tremorScale;
         float pitchTremor = (RANDOM.nextFloat() - 0.5F) * tremorScale;
 
-        float interpolatedYaw = mc.player.getYRot() + (yawDelta * dynamicSmoothness) + yawTremor;
-        float interpolatedPitch = mc.player.getXRot() + (pitchDelta * dynamicSmoothness) + pitchTremor;
+        float interpolatedYaw = client.player.getYRot() + (yawDelta * dynamicSmoothness) + yawTremor;
+        float interpolatedPitch = client.player.getXRot() + (pitchDelta * dynamicSmoothness) + pitchTremor;
 
-        float finalYaw = (float) (mc.player.getYRot() + Math.round((interpolatedYaw - mc.player.getYRot()) / gcd) * gcd);
-        float finalPitch = (float) (mc.player.getXRot() + Math.round((interpolatedPitch - mc.player.getXRot()) / gcd) * gcd);
+        float finalYaw = (float) (client.player.getYRot() + Math.round((interpolatedYaw - client.player.getYRot()) / gcd) * gcd);
+        float finalPitch = (float) (client.player.getXRot() + Math.round((interpolatedPitch - client.player.getXRot()) / gcd) * gcd);
 
-        mc.player.setYRot(finalYaw);
-        mc.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
+        client.player.setYRot(finalYaw);
+        client.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
     }
 
     private static int findAxeSlot() {
@@ -308,9 +308,9 @@ public class AutoMace implements ClientModInitializer {
         return bestTarget;
     }
 
-    private static void restoreSlotAndReset() {
-        if (mc.player != null && preSequenceSlot >= 0 && preSequenceSlot < 9) {
-            mc.player.getInventory().setSelectedSlot(preSequenceSlot);
+    private static void restoreSlotAndReset(Minecraft client) {
+        if (client.player != null && preSequenceSlot >= 0 && preSequenceSlot < 9) {
+            setSelectedSlot(client, preSequenceSlot);
         }
         resetState();
     }
@@ -320,5 +320,26 @@ public class AutoMace implements ClientModInitializer {
         state = State.IDLE;
         delayTimer = 0;
         preSequenceSlot = -1;
+    }
+
+    private static int getSelectedSlot(Minecraft client) {
+        if (client.player == null) return 0;
+        try {
+            java.lang.reflect.Field field = client.player.getInventory().getClass().getDeclaredField("selected");
+            field.setAccessible(true);
+            return field.getInt(client.player.getInventory());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static void setSelectedSlot(Minecraft client, int slot) {
+        if (client.player == null) return;
+        try {
+            java.lang.reflect.Field field = client.player.getInventory().getClass().getDeclaredField("selected");
+            field.setAccessible(true);
+            field.setInt(client.player.getInventory(), slot);
+        } catch (Exception e) {
+        }
     }
 }
