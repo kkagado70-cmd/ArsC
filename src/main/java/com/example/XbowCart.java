@@ -39,7 +39,7 @@ public class XbowCart implements ClientModInitializer {
             if (mc.player == null || mc.level == null) return;
             while (toggleKey.consumeClick()) {
                 enabled = !enabled;
-                HT1CartEngine.getInstance().hardReset();
+                HT1TowerCartDirector.getInstance().hardResetSequence();
             }
             if (enabled) {
                 onTick(client);
@@ -49,7 +49,7 @@ public class XbowCart implements ClientModInitializer {
 
     public static void toggle() {
         enabled = !enabled;
-        HT1CartEngine.getInstance().hardReset();
+        HT1TowerCartDirector.getInstance().hardResetSequence();
     }
 
     public static void onTick() {
@@ -58,61 +58,43 @@ public class XbowCart implements ClientModInitializer {
 
     public static void onTick(Minecraft client) {
         if (client.player == null || client.level == null) return;
-        HT1CartEngine.getInstance().processTick(client);
+        HT1TowerCartDirector.getInstance().processTick(client);
     }
 
-    public static class HT1CartEngine {
-        private static final HT1CartEngine INSTANCE = new HT1CartEngine();
-        private final CartConfiguration config = new CartConfiguration();
-        private final HotbarAuditor auditor = new HotbarAuditor();
-        private final PlacementGeometryEngine placement = new PlacementGeometryEngine();
-        private final CrossbowSimulator crossbow = new CrossbowSimulator();
-        private final CartStateMachine stateMachine = new CartStateMachine();
+    public static class HT1TowerCartDirector {
+        private static final HT1TowerCartDirector INSTANCE = new HT1TowerCartDirector();
+        private final CartConfiguration configuration = new CartConfiguration();
+        private final HotbarSlotAuditor auditor = new HotbarSlotAuditor();
+        private final TowerGeometryCalculator geometry = new TowerGeometryCalculator();
+        private final EyezingzCrossbowSimulator shooter = new EyezingzCrossbowSimulator();
+        private final TowerCartStateMachine pipeline = new TowerCartStateMachine();
 
-        public static HT1CartEngine getInstance() {
+        public static HT1TowerCartDirector getInstance() {
             return INSTANCE;
         }
 
         public void processTick(Minecraft client) {
             if (client.player == null || client.level == null) return;
-            config.refresh();
-            stateMachine.executeSequence(client, config, auditor, placement, crossbow);
+            configuration.refresh();
+            pipeline.executeSequence(client, configuration, auditor, geometry, shooter);
         }
 
-        public void hardReset() {
-            stateMachine.abortSequence();
+        public void hardResetSequence() {
+            pipeline.abortSequence();
         }
     }
 
     public static class CartConfiguration {
-        private final int executionDelayTicks = 1;
-        private final double maxPlacementDistance = 6.0D;
-        private final boolean towerPenetrationMode = true;
+        private final int actionDelayTicks = 1;
+        private final double maxTowerScanDistance = 6.5D;
 
         public void refresh() {}
 
-        public int getExecutionDelayTicks() { return executionDelayTicks; }
-        public double getMaxPlacementDistance() { return maxPlacementDistance; }
-        public boolean isTowerPenetrationMode() { return towerPenetrationMode; }
+        public int getActionDelayTicks() { return actionDelayTicks; }
+        public double getMaxTowerScanDistance() { return maxTowerScanDistance; }
     }
 
-    public static class HotbarAuditor {
-        public boolean validateInventoryLoadout(Minecraft client) {
-            boolean hasRail = false;
-            boolean hasCart = false;
-            boolean hasFireSource = false;
-            boolean hasCrossbow = false;
-
-            for (int slot = 0; slot < 9; slot++) {
-                Item itemType = client.player.getInventory().getItem(slot).getItem();
-                if (itemType == Items.RAIL) hasRail = true;
-                if (itemType == Items.TNT_MINECART) hasCart = true;
-                if (itemType == Items.FLINT_AND_STEEL || itemType == Items.FIRE_CHARGE) hasFireSource = true;
-                if (itemType == Items.CROSSBOW) hasCrossbow = true;
-            }
-            return hasRail && hasCart && hasFireSource && hasCrossbow;
-        }
-
+    public static class HotbarSlotAuditor {
         public boolean selectAndSyncSlot(Minecraft client, Item targetItem) {
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = client.player.getInventory().getItem(i);
@@ -142,32 +124,65 @@ public class XbowCart implements ClientModInitializer {
         }
     }
 
-    public static class PlacementGeometryEngine {
-        public BlockHitResult resolveTargetHit(Minecraft client, double maxRange) {
+    public static class TowerData {
+        private final BlockPos cartPosition;
+        private final BlockPos firePosition;
+        private final Direction hitFace;
+
+        public TowerData(BlockPos cartPosition, BlockPos firePosition, Direction hitFace) {
+            this.cartPosition = cartPosition;
+            this.firePosition = firePosition;
+            this.hitFace = hitFace;
+        }
+
+        public BlockPos getCartPosition() { return cartPosition; }
+        public BlockPos getFirePosition() { return firePosition; }
+        public Direction getHitFace() { return hitFace; }
+    }
+
+    public static class TowerGeometryCalculator {
+        public TowerData resolveTowerStructure(Minecraft client, double maxRange) {
+            // Scans vertical columns and raycasts to locate enemy tower top and base pillar
             if (client.hitResult instanceof BlockHitResult blockHit) {
                 if (client.player.distanceToSqr(blockHit.getLocation()) <= maxRange * maxRange) {
-                    return blockHit;
+                    BlockPos basePos = blockHit.getBlockPos();
+                    BlockPos topPos = basePos;
+                    
+                    // Trace vertically upwards to find the peak of the tower column
+                    for (int yOffset = 1; yOffset <= 4; yOffset++) {
+                        BlockPos upper = basePos.above(yOffset);
+                        if (!client.level.getBlockState(upper).isAir()) {
+                            topPos = upper;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    BlockPos cartPlacementTarget = topPos.above(); // Top of the tower
+                    BlockPos firePlacementTarget = basePos;        // Wood pillar below/base
+                    return new TowerData(cartPlacementTarget, firePlacementTarget, blockHit.getDirection());
                 }
             }
-            BlockPos fallbackPos = client.player.blockPosition().below();
-            return new BlockHitResult(Vec3.atCenterOf(fallbackPos), Direction.UP, fallbackPos, false);
+
+            BlockPos fallback = client.player.blockPosition().below();
+            return new TowerData(fallback.above(), fallback, Direction.UP);
         }
     }
 
-    public static class CrossbowSimulator {
+    public static class EyezingzCrossbowSimulator {
         private final Random stochasticJitter = new Random();
-        private int pressTicks = 0;
+        private int pressTickCounter = 0;
 
-        public void simulateButterflyFire(Minecraft client) {
+        public void simulateEyezingzBurst(Minecraft client) {
             ItemStack activeStack = client.player.getMainHandItem();
             if (activeStack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(activeStack)) {
                 client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
             } else {
                 client.options.keyUse.setDown(true);
-                pressTicks++;
-                if (pressTicks > 6 + stochasticJitter.nextFloat() * 4) {
+                pressTickCounter++;
+                if (pressTickCounter > 4 + stochasticJitter.nextFloat() * 3) {
                     client.options.keyUse.setDown(false);
-                    pressTicks = 0;
+                    pressTickCounter = 0;
                 }
             }
         }
@@ -176,105 +191,98 @@ public class XbowCart implements ClientModInitializer {
             if (mc.options != null) {
                 mc.options.keyUse.setDown(false);
             }
-            pressTicks = 0;
+            pressTickCounter = 0;
         }
     }
 
-    public static class CartStateMachine {
-        private enum SequencePhase { INACTIVE, STAGE_RAIL, STAGE_CART, STAGE_FIRE, STAGE_CROSSBOW, TERMINATE }
-        private SequencePhase currentPhase = SequencePhase.INACTIVE;
-        private int internalDelay = 0;
-        private long safetyWatchdog = 0L;
+    public static class TowerCartStateMachine {
+        private enum TowerPhase { INACTIVE, DEPLOY_TOP_RAIL, DEPLOY_TOP_CART, IGNITE_BASE_FIRE, FIRE_UPWARD_CROSSBOW, COMPLETE_RESET }
+        private TowerPhase activePhase = TowerPhase.INACTIVE;
+        private int sequenceDelay = 0;
+        private long safetyWatchdogEpoch = 0L;
 
-        public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarAuditor auditor, PlacementGeometryEngine geometry, CrossbowSimulator simulator) {
-            if (!auditor.validateInventoryLoadout(client)) {
+        public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarSlotAuditor auditor, TowerGeometryCalculator geometry, EyezingzCrossbowSimulator shooter) {
+            if (sequenceDelay > 0) {
+                sequenceDelay--;
+                return;
+            }
+
+            if (System.currentTimeMillis() > safetyWatchdogEpoch && activePhase != TowerPhase.INACTIVE) {
                 abortSequence();
                 return;
             }
 
-            if (internalDelay > 0) {
-                internalDelay--;
-                return;
-            }
+            TowerData tower = geometry.resolveTowerStructure(client, cfg.getMaxTowerScanDistance());
+            var networkConnection = client.getConnection();
 
-            if (System.currentTimeMillis() > safetyWatchdog && currentPhase != SequencePhase.INACTIVE) {
-                abortSequence();
-                return;
-            }
-
-            BlockHitResult resolvedHit = geometry.resolveTargetHit(client, cfg.getMaxPlacementDistance());
-            BlockPos targetPos = resolvedHit.getBlockPos();
-            Direction hitFace = resolvedHit.getDirection();
-            var connection = client.getConnection();
-
-            switch (currentPhase) {
+            switch (activePhase) {
                 case INACTIVE:
-                    currentPhase = SequencePhase.STAGE_RAIL;
-                    safetyWatchdog = System.currentTimeMillis() + 1500L;
+                    activePhase = TowerPhase.DEPLOY_TOP_RAIL;
+                    safetyWatchdogEpoch = System.currentTimeMillis() + 1500L;
                     break;
 
-                case STAGE_RAIL:
+                case DEPLOY_TOP_RAIL:
                     if (auditor.selectAndSyncSlot(client, Items.RAIL)) {
-                        if (connection != null) {
-                            connection.send(new ServerboundUseItemOnPacket(
+                        if (networkConnection != null) {
+                            networkConnection.send(new ServerboundUseItemOnPacket(
                                 InteractionHand.MAIN_HAND,
-                                new BlockHitResult(resolvedHit.getLocation(), hitFace, targetPos, false),
+                                new BlockHitResult(Vec3.atCenterOf(tower.getCartPosition()), tower.getHitFace(), tower.getCartPosition(), false),
                                 0
                             ));
                         }
-                        internalDelay = cfg.getExecutionDelayTicks();
-                        currentPhase = SequencePhase.STAGE_CART;
+                        sequenceDelay = cfg.getActionDelayTicks();
+                        activePhase = TowerPhase.DEPLOY_TOP_CART;
                     }
                     break;
 
-                case STAGE_CART:
+                case DEPLOY_TOP_CART:
                     if (auditor.selectAndSyncSlot(client, Items.TNT_MINECART)) {
-                        if (connection != null) {
-                            connection.send(new ServerboundUseItemOnPacket(
+                        if (networkConnection != null) {
+                            networkConnection.send(new ServerboundUseItemOnPacket(
                                 InteractionHand.MAIN_HAND,
-                                new BlockHitResult(resolvedHit.getLocation(), hitFace, targetPos, false),
+                                new BlockHitResult(Vec3.atCenterOf(tower.getCartPosition()), tower.getHitFace(), tower.getCartPosition(), false),
                                 0
                             ));
                         }
-                        internalDelay = cfg.getExecutionDelayTicks();
-                        currentPhase = SequencePhase.STAGE_FIRE;
+                        sequenceDelay = cfg.getActionDelayTicks();
+                        activePhase = TowerPhase.IGNITE_BASE_FIRE;
                     }
                     break;
 
-                case STAGE_FIRE:
+                case IGNITE_BASE_FIRE:
                     if (auditor.selectAndSyncSlot(client, Items.FLINT_AND_STEEL) || auditor.selectAndSyncSlot(client, Items.FIRE_CHARGE)) {
-                        if (connection != null) {
-                            connection.send(new ServerboundUseItemOnPacket(
+                        if (networkConnection != null) {
+                            networkConnection.send(new ServerboundUseItemOnPacket(
                                 InteractionHand.MAIN_HAND,
-                                new BlockHitResult(resolvedHit.getLocation(), hitFace, targetPos, false),
+                                new BlockHitResult(Vec3.atCenterOf(tower.getFirePosition()), tower.getHitFace(), tower.getFirePosition(), false),
                                 0
                             ));
                         }
-                        internalDelay = cfg.getExecutionDelayTicks();
-                        currentPhase = SequencePhase.STAGE_CROSSBOW;
+                        sequenceDelay = cfg.getActionDelayTicks();
+                        activePhase = TowerPhase.FIRE_UPWARD_CROSSBOW;
                     }
                     break;
 
-                case STAGE_CROSSBOW:
+                case FIRE_UPWARD_CROSSBOW:
                     if (auditor.selectChargedOrAnyCrossbow(client)) {
-                        simulator.simulateButterflyFire(client);
-                        internalDelay = cfg.getExecutionDelayTicks();
+                        shooter.simulateEyezingzBurst(client);
+                        sequenceDelay = cfg.getActionDelayTicks();
                     }
                     break;
 
-                case TERMINATE:
+                case COMPLETE_RESET:
                     abortSequence();
                     break;
             }
         }
 
         public void abortSequence() {
-            currentPhase = SequencePhase.INACTIVE;
-            internalDelay = 0;
+            activePhase = TowerPhase.INACTIVE;
+            sequenceDelay = 0;
             if (mc.options != null) {
                 mc.options.keyUse.setDown(false);
             }
-            safetyWatchdog = 0L;
+            safetyWatchdogEpoch = 0L;
         }
     }
 }
