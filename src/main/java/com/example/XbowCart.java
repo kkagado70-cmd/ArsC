@@ -2,6 +2,8 @@ package com.example;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -14,10 +16,14 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
+import com.mojang.blaze3d.platform.InputConstants;
+import org.lwjgl.glfw.GLFW;
 import java.util.Random;
 
 public class XbowCart implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
+    private static KeyMapping toggleKey;
+    public static boolean enabled = false;
     private static final Random random = new Random();
     private static int clickTimer = 0;
     private static int sequenceState = 0;
@@ -25,33 +31,44 @@ public class XbowCart implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+            "key.xbowcart.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_X, "key.categories.misc"
+        ));
+
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (mc.player == null || mc.level == null) return;
-            
-            boolean lookingAtBlock = mc.hitResult instanceof BlockHitResult;
-            boolean holdingRail = mc.player.getMainHandItem().getItem() == Items.RAIL;
-
-            if (lookingAtBlock && holdingRail) {
-                onTick();
-            } else {
+            while (toggleKey.consumeClick()) {
+                enabled = !enabled;
                 resetState();
+            }
+            if (enabled) {
+                onTick(client);
             }
         });
     }
 
+    public static void toggle() {
+        enabled = !enabled;
+        resetState();
+    }
+
     public static void onTick() {
-        if (mc.player == null || mc.level == null || mc.gameMode == null) return;
+        onTick(Minecraft.getInstance());
+    }
+
+    public static void onTick(Minecraft client) {
+        if (client.player == null || client.level == null || client.gameMode == null) return;
         if (actionDelay > 0) {
             actionDelay--;
             return;
         }
 
-        BlockPos targetPos = mc.player.blockPosition().below();
-        var connection = mc.getConnection();
+        BlockPos targetPos = client.player.blockPosition().below();
+        var connection = client.getConnection();
 
         switch (sequenceState) {
             case 0:
-                if (selectItem(Items.RAIL)) {
+                if (selectItem(client, Items.RAIL)) {
                     if (connection != null) {
                         connection.send(new ServerboundUseItemOnPacket(
                             InteractionHand.MAIN_HAND,
@@ -65,7 +82,7 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 1:
-                if (selectItem(Items.TNT_MINECART)) {
+                if (selectItem(client, Items.TNT_MINECART)) {
                     if (connection != null) {
                         connection.send(new ServerboundUseItemOnPacket(
                             InteractionHand.MAIN_HAND,
@@ -79,7 +96,7 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 2:
-                if (selectItem(Items.FLINT_AND_STEEL)) {
+                if (selectItem(client, Items.FLINT_AND_STEEL)) {
                     if (connection != null) {
                         connection.send(new ServerboundUseItemOnPacket(
                             InteractionHand.MAIN_HAND,
@@ -93,15 +110,15 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 3:
-                if (selectItem(Items.CROSSBOW)) {
-                    ItemStack stack = mc.player.getMainHandItem();
+                if (selectItem(client, Items.CROSSBOW)) {
+                    ItemStack stack = client.player.getMainHandItem();
                     if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) {
-                        mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
+                        client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
                     } else {
-                        mc.options.keyUse.setDown(true);
+                        client.options.keyUse.setDown(true);
                         clickTimer++;
                         if (clickTimer > 10 + random.nextInt(5)) {
-                            mc.options.keyUse.setDown(false);
+                            client.options.keyUse.setDown(false);
                             clickTimer = 0;
                         }
                     }
@@ -111,13 +128,13 @@ public class XbowCart implements ClientModInitializer {
         }
     }
 
-    private static boolean selectItem(Item item) {
+    private static boolean selectItem(Minecraft client, Item item) {
         for (int i = 0; i < 9; i++) {
-            ItemStack stack = mc.player.getInventory().getItem(i);
+            ItemStack stack = client.player.getInventory().getItem(i);
             if (stack.getItem() == item) {
-                mc.player.getInventory().setSelectedSlot(i);
-                if (mc.getConnection() != null) {
-                    mc.getConnection().send(new ServerboundSetCarriedItemPacket(i));
+                client.player.getInventory().setSelectedSlot(i);
+                if (client.getConnection() != null) {
+                    client.getConnection().send(new ServerboundSetCarriedItemPacket(i));
                 }
                 return true;
             }
