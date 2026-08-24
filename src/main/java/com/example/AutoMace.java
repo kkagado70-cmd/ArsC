@@ -1,3 +1,5 @@
+package com.example;
+
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
@@ -9,7 +11,6 @@ import net.minecraft.world.item.ShieldItem;
 import net.minecraft.world.item.MaceItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.AABB;
@@ -74,9 +75,6 @@ public class AutoMace implements ClientModInitializer {
     public static void toggle() {
         enabled = !enabled;
         resetState();
-        if (mc.player != null) {
-            mc.player.displayClientMessage(Component.literal("§6[AutoMace] " + (enabled ? "§aON" : "§cOFF")), true);
-        }
     }
 
     public static void onTick(Minecraft client) {
@@ -322,4 +320,4 @@ public class AutoMace implements ClientModInitializer {
         preSequenceSlot = -1;
         reactionDelayTicks = 0;
     }
-        }
+}
