@@ -19,30 +19,15 @@ import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
+
 import java.util.Random;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class AutoMace implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
-
-    private static final double MAX_SWING_RANGE = 2.84D;
-    private static final double MAX_AIM_RANGE = 4.2D;
-    private static final double MIN_FALL_DIST = 1.3D;
-
-    private static final Random random = new Random();
-    private static int reactionDelayTicks = 0;
-    private static final float ROTATION_SMOOTHNESS = 0.65F;
-
-    private static Player currentTarget = null;
-    private static State state = State.IDLE;
-    private static int delayTimer = 0;
-    private static int preSequenceSlot = -1;
-    private static double highestY = 0.0D;
-
-    public enum State {
-        IDLE, AXE_SWAP, AXE_STRIKE, MACE_SWAP, MACE_SLAM, RESTORE_SLOT
-    }
 
     @Override
     public void onInitializeClient() {
@@ -57,204 +42,337 @@ public class AutoMace implements ClientModInitializer {
             if (mc.player == null || mc.level == null) return;
             while (toggleKey.consumeClick()) {
                 enabled = !enabled;
-                resetState();
+                HT1CombatController.getInstance().hardReset();
             }
             if (enabled) {
-                onTick(client);
+                HT1CombatController.getInstance().onTick(client);
             }
         });
     }
 
     public static void toggle() {
         enabled = !enabled;
-        resetState();
+        HT1CombatController.getInstance().hardReset();
     }
 
-    public static void onTick(Minecraft client) {
-        if (client.player == null || client.level == null) return;
-        if (delayTimer > 0) {
-            delayTimer--;
-            return;
+    public static class HT1CombatController {
+        private static final HT1CombatController INSTANCE = new HT1CombatController();
+        private final HT1Config config = new HT1Config();
+        private final EliteTargetAuditor auditor = new EliteTargetAuditor();
+        private final HyperRotationEngine rotator = new HyperRotationEngine();
+        private final InventoryOptimizer inventory = new InventoryOptimizer();
+        private final MomentumStunEngine momentum = new MomentumStunEngine();
+        private final AggressivePipeline pipeline = new AggressivePipeline();
+
+        public static HT1CombatController getInstance() {
+            return INSTANCE;
         }
 
-        updateFallTracker();
-        double currentFallDistance = Math.max(0.0D, highestY - client.player.getY());
-        boolean isFalling = client.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
-
-        if (!isFalling) {
-            if (state != State.IDLE) restoreSlotAndReset();
-            return;
+        public void onTick(Minecraft client) {
+            if (client.player == null || client.level == null) return;
+            config.refresh();
+            pipeline.processFrame(client, config, auditor, rotator, inventory, momentum);
         }
 
-        if (state == State.IDLE) {
-            currentTarget = locateTarget(MAX_AIM_RANGE);
-            if (currentTarget != null) reactionDelayTicks = 2 + random.nextInt(2);
-        }
-
-        if (currentTarget == null || !currentTarget.isAlive()) {
-            restoreSlotAndReset();
-            return;
-        }
-
-        if (reactionDelayTicks > 0) {
-            reactionDelayTicks--;
-            return;
-        }
-
-        boolean isBlocking = currentTarget.isUsingItem() && currentTarget.getUseItem().getItem() instanceof ShieldItem;
-
-        switch (state) {
-            case IDLE:
-                if (preSequenceSlot == -1) preSequenceSlot = client.player.getInventory().getSelectedSlot();
-                state = isBlocking ? State.AXE_SWAP : State.MACE_SWAP;
-                break;
-            case AXE_SWAP:
-                int axeSlot = findAxeSlot();
-                if (axeSlot != -1) {
-                    setInventorySlot(axeSlot);
-                    delayTimer = 2;
-                    state = State.AXE_STRIKE;
-                } else {
-                    state = State.MACE_SWAP;
-                }
-                break;
-            case AXE_STRIKE:
-                if (canValidlyAttack(currentTarget)) {
-                    applyBypassedRotation(currentTarget);
-                    client.player.swing(InteractionHand.MAIN_HAND);
-                    client.gameMode.attack(client.player, currentTarget);
-                    delayTimer = 2;
-                    state = State.MACE_SWAP;
-                }
-                break;
-            case MACE_SWAP:
-                int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
-                if (maceSlot != -1) {
-                    setInventorySlot(maceSlot);
-                    delayTimer = 2;
-                    state = State.MACE_SLAM;
-                } else {
-                    restoreSlotAndReset();
-                }
-                break;
-            case MACE_SLAM:
-                if (canValidlyAttack(currentTarget)) {
-                    applyBypassedRotation(currentTarget);
-                    client.player.swing(InteractionHand.MAIN_HAND);
-                    client.gameMode.attack(client.player, currentTarget);
-                    delayTimer = 2;
-                    state = State.RESTORE_SLOT;
-                }
-                break;
-            case RESTORE_SLOT:
-                restoreSlotAndReset();
-                break;
+        public void hardReset() {
+            pipeline.abortPipeline();
         }
     }
 
-    private static void setInventorySlot(int slot) {
-        if (mc.player == null) return;
-        mc.player.getInventory().setSelectedSlot(slot);
-        if (mc.getConnection() != null) {
-            mc.getConnection().send(new ServerboundSetCarriedItemPacket(slot));
+    public static class HT1Config {
+        private final double maxSwingRange = 3.0D;
+        private final double maxAimRange = 7.0D; // HT1 7-block divebomb engagement threshold
+        private final double minFallDist = 0.5D; // Aggressive low-threshold fall trigger
+        private final float hyperSnapSpeed = 0.95F;
+        private final int zeroLatencyDelay = 0; // Zero artificial delay for hyper-fast execution
+
+        public void refresh() {}
+
+        public double getMaxSwingRange() { return maxSwingRange; }
+        public double getMaxAimRange() { return maxAimRange; }
+        public double getMinFallDist() { return minFallDist; }
+        public float getHyperSnapSpeed() { return hyperSnapSpeed; }
+        public int getZeroLatencyDelay() { return zeroLatencyDelay; }
+    }
+
+    public static class EliteTargetAuditor {
+        private final ConcurrentHashMap<UUID, Vec3> posHistory = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<UUID, Vec3> velocityHistory = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<UUID, Long> timeHistory = new ConcurrentHashMap<>();
+
+        public Player selectPrimaryTarget(Minecraft client, double radius) {
+            if (client.level == null || client.player == null) return null;
+            Player topTarget = null;
+            double topScore = Double.MAX_VALUE;
+
+            for (Player p : client.level.players()) {
+                if (p == client.player || !p.isAlive() || p.isSpectator()) continue;
+                double distSq = client.player.distanceToSqr(p);
+                if (distSq > radius * radius) continue;
+
+                calculateVelocityVector(p);
+                double score = distSq + calculateAggressionFactor(p);
+                if (score < topScore) {
+                    topScore = score;
+                    topTarget = p;
+                }
+            }
+            return topTarget;
+        }
+
+        private void calculateVelocityVector(Player player) {
+            long now = System.currentTimeMillis();
+            Vec3 current = player.position();
+            Vec3 prev = posHistory.getOrDefault(player.getUUID(), current);
+            long oldTime = timeHistory.getOrDefault(player.getUUID(), now);
+
+            long elapsed = Math.max(1L, now - oldTime);
+            Vec3 diff = current.subtract(prev);
+            Vec3 velocity = new Vec3(
+                diff.x / (elapsed / 50.0D),
+                diff.y / (elapsed / 50.0D),
+                diff.z / (elapsed / 50.0D)
+            );
+
+            velocityHistory.put(player.getUUID(), velocity);
+            posHistory.put(player.getUUID(), current);
+            timeHistory.put(player.getUUID(), now);
+        }
+
+        private double calculateAggressionFactor(Player player) {
+            double factor = 0.0D;
+            if (player.getMainHandItem().getItem() instanceof MaceItem) factor -= 20.0D;
+            if (player.isUsingItem()) factor -= 10.0D;
+            return factor;
+        }
+
+        public Vec3 extrapolatePosition(Player player, double scale) {
+            Vec3 vel = velocityHistory.getOrDefault(player.getUUID(), Vec3.ZERO);
+            return player.position().add(vel.scale(scale));
         }
     }
 
-    private static boolean canValidlyAttack(Player target) {
-        return mc.player != null && target != null && mc.player.hasLineOfSight(target) && mc.player.distanceTo(target) <= MAX_SWING_RANGE;
+    public static class HyperRotationEngine {
+        private final Random jitter = new Random();
+
+        public void snapToCoordinates(Vec3 target, float speed, boolean isDive) {
+            if (mc.player == null) return;
+
+            double dx = target.x - mc.player.getX();
+            double dy = target.y - mc.player.getEyeY();
+            double dz = target.z - mc.player.getZ();
+            double distPlane = Math.sqrt(dx * dx + dz * dz);
+
+            float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
+            float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, distPlane)));
+
+            float yawErr = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
+            float pitchErr = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
+
+            float velocityFactor = isDive ? 0.98F : speed;
+            float stepYaw = yawErr * (velocityFactor + (jitter.nextFloat() * 0.02F));
+            float stepPitch = pitchErr * (velocityFactor + (jitter.nextFloat() * 0.02F));
+
+            float rawYaw = mc.player.getYRot() + stepYaw;
+            float rawPitch = mc.player.getXRot() + stepPitch;
+
+            double sens = mc.options.sensitivity().get();
+            double m = sens * 0.6D + 0.2D;
+            double gcd = m * m * m * 8.0D * 0.15D;
+
+            float finalYaw = (float) (mc.player.getYRot() + Math.round((rawYaw - mc.player.getYRot()) / gcd) * gcd);
+            float finalPitch = (float) (mc.player.getXRot() + Math.round((rawPitch - mc.player.getXRot()) / gcd) * gcd);
+
+            mc.player.setYRot(finalYaw);
+            mc.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
+        }
     }
 
-    private static void updateFallTracker() {
-        if (mc.player == null) return;
-        if (mc.player.onGround()) highestY = mc.player.getY();
-        else highestY = Math.max(highestY, mc.player.getY());
-    }
+    public static class InventoryOptimizer {
+        private int cachedAxe = -1;
+        private int cachedMace = -1;
 
-    private static int selectOptimalMaceSlot(Player target, double fallDist) {
-        if (mc.player == null || target == null) return -1;
-        int bestSlot = -1, maxDensity = -1, maxBreach = -1;
-        for (int i = 0; i < 9; i++) {
-            ItemStack stack = mc.player.getInventory().getItem(i);
-            if (stack.getItem() instanceof MaceItem) {
-                int density = getEnchantmentLevel(stack, "density");
-                int breach = getEnchantmentLevel(stack, "breach");
-                if (fallDist >= 7.0D) {
-                    if (density > maxDensity) { maxDensity = density; bestSlot = i; }
-                } else {
-                    if (breach > maxBreach) { maxBreach = breach; bestSlot = i; }
+        public void scanHotbar(Player player, double fallHeight) {
+            cachedAxe = -1;
+            cachedMace = -1;
+            int bestDensity = -1;
+            int bestBreach = -1;
+
+            for (int i = 0; i < 9; i++) {
+                ItemStack stack = player.getInventory().getItem(i);
+                if (stack.isEmpty()) continue;
+
+                if (stack.getItem() instanceof AxeItem && cachedAxe == -1) {
+                    cachedAxe = i;
+                } else if (stack.getItem() instanceof MaceItem) {
+                    int density = getEncLvl(stack, "density");
+                    int breach = getEncLvl(stack, "breach");
+
+                    if (fallHeight >= 5.0D) {
+                        if (density > bestDensity) {
+                            bestDensity = density;
+                            cachedMace = i;
+                        }
+                    } else {
+                        if (breach > bestBreach) {
+                            bestBreach = breach;
+                            cachedMace = i;
+                        }
+                    }
+                    if (cachedMace == -1) cachedMace = i;
                 }
-                if (bestSlot == -1) bestSlot = i;
             }
         }
-        return bestSlot;
-    }
 
-    private static int getEnchantmentLevel(ItemStack stack, String id) {
-        if (stack.isEmpty()) return 0;
-        ItemEnchantments enchants = stack.get(DataComponents.ENCHANTMENTS);
-        if (enchants == null) return 0;
-        for (var entry : enchants.entrySet()) {
-            if (entry.getKey().toString().contains(id)) return entry.getIntValue();
+        private int getEncLvl(ItemStack stack, String key) {
+            if (stack.isEmpty()) return 0;
+            ItemEnchantments map = stack.get(DataComponents.ENCHANTMENTS);
+            if (map == null) return 0;
+            for (var entry : map.entrySet()) {
+                if (entry.getKey().toString().contains(key)) return entry.getIntValue();
+            }
+            return 0;
         }
-        return 0;
-    }
 
-    private static void applyBypassedRotation(Player target) {
-        if (mc.player == null || target == null) return;
-        AABB box = target.getBoundingBox();
-        Vec3 center = box.getCenter();
-        double aimY = box.minY + (target.getBbHeight() * (0.42D + (random.nextDouble() * 0.08D)));
-        Vec3 targetPos = new Vec3(center.x + (random.nextDouble() - 0.5D) * 0.08D, aimY, center.z + (random.nextDouble() - 0.5D) * 0.08D);
-        double dx = targetPos.x - mc.player.getX();
-        double dy = targetPos.y - mc.player.getEyeY();
-        double dz = targetPos.z - mc.player.getZ();
-        double hDist = Math.sqrt(dx * dx + dz * dz);
-        float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
-        float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
-        float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
-        float pitchDelta = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
-        float iYaw = mc.player.getYRot() + (yawDelta * (ROTATION_SMOOTHNESS + (random.nextFloat() * 0.1F)));
-        float iPitch = mc.player.getXRot() + (pitchDelta * (ROTATION_SMOOTHNESS + (random.nextFloat() * 0.1F)));
-        double sens = mc.options.sensitivity().get();
-        double gcd = (sens * 0.6D + 0.2D);
-        gcd = gcd * gcd * gcd * 8.0D * 0.15D;
-        float finalYaw = (float) (mc.player.getYRot() + Math.round((iYaw - mc.player.getYRot()) / gcd) * gcd);
-        float finalPitch = (float) (mc.player.getXRot() + Math.round((iPitch - mc.player.getXRot()) / gcd) * gcd);
-        mc.player.setYRot(finalYaw);
-        mc.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
-    }
+        public int getAxeSlot() { return cachedAxe; }
+        public int getMaceSlot() { return cachedMace; }
 
-    private static int findAxeSlot() {
-        if (mc.player == null) return -1;
-        for (int i = 0; i < 9; i++) {
-            if (mc.player.getInventory().getItem(i).getItem() instanceof AxeItem) return i;
-        }
-        return -1;
-    }
-
-    private static Player locateTarget(double range) {
-        if (mc.level == null || mc.player == null) return null;
-        Player best = null;
-        double bestDist = Double.MAX_VALUE;
-        for (Player p : mc.level.players()) {
-            if (p != mc.player && p.isAlive() && !p.isSpectator()) {
-                double dist = mc.player.distanceToSqr(p);
-                if (dist <= range * range && dist < bestDist) { bestDist = dist; best = p; }
+        public void swapSlot(int slot) {
+            if (mc.player == null) return;
+            mc.player.getInventory().setSelectedSlot(slot);
+            if (mc.getConnection() != null) {
+                mc.getConnection().send(new ServerboundSetCarriedItemPacket(slot));
             }
         }
-        return best;
     }
 
-    private static void restoreSlotAndReset() {
-        if (mc.player != null && preSequenceSlot >= 0 && preSequenceSlot < 9) setInventorySlot(preSequenceSlot);
-        resetState();
+    public static class MomentumStunEngine {
+        private double peakY = 0.0D;
+        private int airTicks = 0;
+
+        public void updatePhysics(Player player) {
+            if (player == null) return;
+            if (player.onGround()) {
+                peakY = player.getY();
+                airTicks = 0;
+            } else {
+                peakY = Math.max(peakY, player.getY());
+                airTicks++;
+            }
+        }
+
+        public double getFall(Player player) {
+            if (player == null) return 0.0D;
+            return Math.max(0.0D, peakY - player.getY());
+        }
+
+        public boolean isDiving(Player player) {
+            return player != null && player.getDeltaMovement().y < -0.3D;
+        }
+
+        public boolean isStunned(Player target) {
+            return target != null && (target.hurtTime > 0 || airTicks > 2);
+        }
     }
 
-    private static void resetState() {
-        currentTarget = null;
-        state = State.IDLE;
-        delayTimer = 0;
-        preSequenceSlot = -1;
-        reactionDelayTicks = 0;
+    public static class AggressivePipeline {
+        private enum State { INACTIVE, AXE_PREP, AXE_HIT, MACE_PREP, MACE_HIT, COMPLETE }
+        private State currentStage = State.INACTIVE;
+        private int ticksLeft = 0;
+        private int startingSlot = -1;
+        private long watchdogTimer = 0L;
+
+        public void processFrame(Minecraft client, HT1Config cfg, EliteTargetAuditor auditor, HyperRotationEngine rotator, InventoryOptimizer inv, MomentumStunEngine momentum) {
+            if (ticksLeft > 0) {
+                ticksLeft--;
+                return;
+            }
+
+            if (System.currentTimeMillis() > watchdogTimer && currentStage != State.INACTIVE) {
+                abortPipeline();
+                return;
+            }
+
+            momentum.updatePhysics(client.player);
+            double fall = momentum.getFall(client.player);
+            boolean diving = momentum.isDiving(client.player);
+
+            Player target = auditor.selectPrimaryTarget(client, cfg.getMaxAimRange());
+            if (target == null) {
+                if (currentStage != State.INACTIVE) abortPipeline();
+                return;
+            }
+
+            inv.scanHotbar(client.player, fall);
+            boolean shield = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
+
+            switch (currentStage) {
+                case INACTIVE:
+                    startingSlot = client.player.getInventory().getSelectedSlot();
+                    currentStage = shield ? State.AXE_PREP : State.MACE_PREP;
+                    watchdogTimer = System.currentTimeMillis() + 1000L;
+                    break;
+
+                case AXE_PREP:
+                    int axe = inv.getAxeSlot();
+                    if (axe != -1) {
+                        inv.swapSlot(axe);
+                        ticksLeft = cfg.getZeroLatencyDelay();
+                        currentStage = State.AXE_HIT;
+                    } else {
+                        currentStage = State.MACE_PREP;
+                    }
+                    break;
+
+                case AXE_HIT:
+                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange()) {
+                        rotator.snapToCoordinates(auditor.extrapolatePosition(target, 0.2D), cfg.getHyperSnapSpeed(), diving);
+                        client.player.swing(InteractionHand.MAIN_HAND);
+                        client.gameMode.attack(client, target);
+                        ticksLeft = cfg.getZeroLatencyDelay();
+                        currentStage = State.MACE_PREP;
+                    }
+                    break;
+
+                case MACE_PREP:
+                    int mace = inv.getMaceSlot();
+                    if (mace != -1) {
+                        inv.swapSlot(mace);
+                        ticksLeft = cfg.getZeroLatencyDelay();
+                        currentStage = State.MACE_HIT;
+                    } else {
+                        currentStage = State.COMPLETE;
+                    }
+                    break;
+
+                case MACE_HIT:
+                    boolean ready = fall >= cfg.getMinFallDist() || diving || momentum.isStunned(target);
+                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && ready) {
+                        rotator.snapToCoordinates(auditor.extrapolatePosition(target, 0.2D), cfg.getHyperSnapSpeed(), diving);
+                        client.player.swing(InteractionHand.MAIN_HAND);
+                        client.gameMode.attack(client, target);
+                        ticksLeft = cfg.getZeroLatencyDelay();
+                        currentStage = State.COMPLETE;
+                    }
+                    break;
+
+                case COMPLETE:
+                    if (startingSlot >= 0 && startingSlot < 9) {
+                        inv.swapSlot(startingSlot);
+                    }
+                    abortPipeline();
+                    break;
+            }
+        }
+
+        public void abortPipeline() {
+            currentStage = State.INACTIVE;
+            ticksLeft = 0;
+            if (startingSlot >= 0 && startingSlot < 9 && mc.player != null) {
+                mc.player.getInventory().setSelectedSlot(startingSlot);
+            }
+            startingSlot = -1;
+            watchdogTimer = 0L;
+        }
     }
-}
+        }
