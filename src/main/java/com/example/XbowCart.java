@@ -45,7 +45,6 @@ public class XbowCart implements ClientModInitializer {
             boolean lookingAtBlock = mc.hitResult instanceof BlockHitResult;
             boolean holdingAnyRail = isAnyRail(mc.player.getMainHandItem().getItem());
 
-            // Armed via GUI toggle, fires only when looking at ground with ANY rail variant
             if (enabled && lookingAtBlock && holdingAnyRail) {
                 onTick(client);
             } else {
@@ -98,11 +97,13 @@ public class XbowCart implements ClientModInitializer {
     public static class CartConfiguration {
         private final int actionDelayTicks = 1;
         private final double maxPlacementDistance = 6.0D;
+        private final boolean towerMode = true;
 
         public void refresh() {}
 
         public int getActionDelayTicks() { return actionDelayTicks; }
         public double getMaxPlacementDistance() { return maxPlacementDistance; }
+        public boolean isTowerMode() { return towerMode; }
     }
 
     public static class HotbarSlotAuditor {
@@ -297,4 +298,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-                        }
+                                         }
