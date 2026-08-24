@@ -63,9 +63,10 @@ public class XbowCart implements ClientModInitializer {
 
     public static class HT1CartEngine {
         private static final HT1CartEngine INSTANCE = new HT1CartEngine();
-        private final CartConfig config = new CartConfig();
-        private final PlacementOptimizer placement = new PlacementOptimizer();
-        private final CrossbowSimulator crossbow = new CrossbowSimulator();
+        private final CartConfiguration config = new CartConfiguration();
+        private final HotbarAuditor auditor = new HotbarAuditor();
+        private final PlacementGeometryEngine placement = new PlacementGeometryEngine();
+        private final CrossbowBurstSimulator crossbow = new CrossbowBurstSimulator();
         private final CartStateMachine stateMachine = new CartStateMachine();
 
         public static HT1CartEngine getInstance() {
@@ -75,7 +76,7 @@ public class XbowCart implements ClientModInitializer {
         public void processTick(Minecraft client) {
             if (client.player == null || client.level == null) return;
             config.refresh();
-            stateMachine.executeSequence(client, config, placement, crossbow);
+            stateMachine.executeSequence(client, config, auditor, placement, crossbow);
         }
 
         public void hardReset() {
@@ -83,30 +84,33 @@ public class XbowCart implements ClientModInitializer {
         }
     }
 
-    public static class CartConfig {
-        private final int executionDelay = 1;
-        private final double maxPlacementRange = 5.0D;
+    public static class CartConfiguration {
+        private final int executionDelayTicks = 1;
+        private final double maxPlacementDistance = 6.0D;
+        private final boolean towerPenetrationMode = true;
 
         public void refresh() {}
-        public int getExecutionDelay() { return executionDelay; }
-        public double getMaxPlacementRange() { return maxPlacementRange; }
+
+        public int getExecutionDelayTicks() { return executionDelayTicks; }
+        public double getMaxPlacementDistance() { return maxPlacementDistance; }
+        public boolean isTowerPenetrationMode() { return towerPenetrationMode; }
     }
 
-    public static class PlacementOptimizer {
-        public boolean verifyHotbarRequirements(Minecraft client) {
-            boolean railFound = false;
-            boolean cartFound = false;
-            boolean fireFound = false;
-            boolean crossbowFound = false;
+    public static class HotbarAuditor {
+        public boolean validateInventoryLoadout(Minecraft client) {
+            boolean hasRail = false;
+            boolean hasCart = false;
+            boolean hasFireSource = false;
+            boolean hasCrossbow = false;
 
-            for (int i = 0; i < 9; i++) {
-                Item item = client.player.getInventory().getItem(i).getItem();
-                if (item == Items.RAIL) railFound = true;
-                if (item == Items.TNT_MINECART) cartFound = true;
-                if (item == Items.FLINT_AND_STEEL || item == Items.FIRE_CHARGE) fireFound = true;
-                if (item == Items.CROSSBOW) crossbowFound = true;
+            for (int slot = 0; slot < 9; slot++) {
+                Item itemType = client.player.getInventory().getItem(slot).getItem();
+                if (itemType == Items.RAIL) hasRail = true;
+                if (itemType == Items.TNT_MINECART) hasCart = true;
+                if (itemType == Items.FLINT_AND_STEEL || itemType == Items.FIRE_CHARGE) hasFireSource = true;
+                if (itemType == Items.CROSSBOW) hasCrossbow = true;
             }
-            return railFound && cartFound && fireFound && crossbowFound;
+            return hasRail && hasCart && hasFireSource && hasCrossbow;
         }
 
         public boolean selectAndSyncSlot(Minecraft client, Item targetItem) {
@@ -138,20 +142,33 @@ public class XbowCart implements ClientModInitializer {
         }
     }
 
-    public static class CrossbowSimulator {
-        private final Random jitter = new Random();
-        private int pressCounter = 0;
+    public static class PlacementGeometryEngine {
+        public BlockHitResult resolveTargetHit(Minecraft client, double maxRange) {
+            if (client.hitResult instanceof BlockHitResult blockHit) {
+                if (client.player.distanceToSqr(blockHit.getLocation()) <= maxRange * maxRange) {
+                    return blockHit;
+                }
+            }
+            // Fallback raycast position directly beneath player or in front
+            BlockPos fallbackPos = client.player.blockPosition().below();
+            return new BlockHitResult(Vec3.atCenterOf(fallbackPos), Direction.UP, fallbackPos, false);
+        }
+    }
 
-        public void simulateButterflyClick(Minecraft client) {
+    public static class CrossbowBurstSimulator {
+        private final Random stochasticJitter = new Random();
+        private int pressTicks = 0;
+
+        public void simulateButterflyFire(Minecraft client) {
             ItemStack activeStack = client.player.getMainHandItem();
             if (activeStack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(activeStack)) {
                 client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
             } else {
                 client.options.keyUse.setDown(true);
-                pressCounter++;
-                if (pressCounter > 5 + jitter.nextInt(4)) {
+                pressTicks++;
+                if (pressTicks > 6 + stochasticJitter.nextFloat() * 4) {
                     client.options.keyUse.setDown(false);
-                    pressCounter = 0;
+                    pressTicks = 0;
                 }
             }
         }
@@ -160,101 +177,105 @@ public class XbowCart implements ClientModInitializer {
             if (mc.options != null) {
                 mc.options.keyUse.setDown(false);
             }
-            pressCounter = 0;
+            pressTicks = 0;
         }
     }
 
     public static class CartStateMachine {
-        private enum CartPhase { DORMANT, DEPLOY_RAIL, DEPLOY_CART, IGNITE_FIRE, FIRE_CROSSBOW, FINALIZE }
-        private CartPhase phase = CartPhase.DORMANT;
-        private int delayTicks = 0;
+        private enum SequencePhase { INACTIVE, STAGE_RAIL, STAGE_CART, STAGE_FIRE, STAGE_CROSSBOW, TERMINATE }
+        private SequencePhase currentPhase = SequencePhase.INACTIVE;
+        private int internalDelay = 0;
+        private long safetyWatchdog = 0L;
 
-        public void executeSequence(Minecraft client, CartConfig cfg, PlacementOptimizer placer, CrossbowSimulator shooter) {
-            if (!placer.verifyHotbarRequirements(client)) {
+        public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarAuditor auditor, PlacementGeometryEngine geometry, CrossbowSimulator simulator) {
+            if (!auditor.validateInventoryLoadout(client)) {
                 abortSequence();
                 return;
             }
 
-            if (delayTicks > 0) {
-                delayTicks--;
+            if (internalDelay > 0) {
+                internalDelay--;
                 return;
             }
 
-            BlockHitResult hit = client.hitResult instanceof BlockHitResult ? (BlockHitResult) client.hitResult : null;
-            if (hit == null) {
-                hit = new BlockHitResult(client.player.position(), Direction.UP, client.player.blockPosition().below(), false);
+            if (System.currentTimeMillis() > safetyWatchdog && currentPhase != SequencePhase.INACTIVE) {
+                abortSequence();
+                return;
             }
 
-            BlockPos targetBlock = hit.getBlockPos();
-            Direction face = hit.getDirection();
+            BlockHitResult resolvedHit = geometry.resolveTargetHit(client, cfg.getMaxPlacementDistance());
+            BlockPos targetPos = resolvedHit.getBlockPos();
+            Direction hitFace = resolvedHit.getDirection();
             var connection = client.getConnection();
 
-            switch (phase) {
-                case DORMANT:
-                    phase = CartPhase.DEPLOY_RAIL;
+            switch (currentPhase) {
+                case INACTIVE:
+                    currentPhase = SequencePhase.STAGE_RAIL;
+                    safetyWatchdog = System.currentTimeMillis() + 1500L;
                     break;
 
-                case DEPLOY_RAIL:
-                    if (placer.selectAndSyncSlot(client, Items.RAIL)) {
+                case STAGE_RAIL:
+                    if (auditor.selectAndSyncSlot(client, Items.RAIL)) {
                         if (connection != null) {
                             connection.send(new ServerboundUseItemOnPacket(
                                 InteractionHand.MAIN_HAND,
-                                new BlockHitResult(hit.getLocation(), face, targetBlock, false),
+                                new BlockHitResult(resolvedHit.getLocation(), hitFace, targetPos, false),
                                 0
                             ));
                         }
-                        delayTicks = cfg.getExecutionDelay();
-                        phase = CartPhase.DEPLOY_CART;
+                        internalDelay = cfg.getExecutionDelayTicks();
+                        currentPhase = SequencePhase.STAGE_CART;
                     }
                     break;
 
-                case DEPLOY_CART:
-                    if (placer.selectAndSyncSlot(client, Items.TNT_MINECART)) {
+                case STAGE_CART:
+                    if (auditor.selectAndSyncSlot(client, Items.TNT_MINECART)) {
                         if (connection != null) {
                             connection.send(new ServerboundUseItemOnPacket(
                                 InteractionHand.MAIN_HAND,
-                                new BlockHitResult(hit.getLocation(), face, targetBlock, false),
+                                new BlockHitResult(resolvedHit.getLocation(), hitFace, targetPos, false),
                                 0
                             ));
                         }
-                        delayTicks = cfg.getExecutionDelay();
-                        phase = CartPhase.IGNITE_FIRE;
+                        internalDelay = cfg.getExecutionDelayTicks();
+                        currentPhase = SequencePhase.STAGE_FIRE;
                     }
                     break;
 
-                case IGNITE_FIRE:
-                    if (placer.selectAndSyncSlot(client, Items.FLINT_AND_STEEL) || placer.selectAndSyncSlot(client, Items.FIRE_CHARGE)) {
+                case STAGE_FIRE:
+                    if (auditor.selectAndSyncSlot(client, Items.FLINT_AND_STEEL) || auditor.selectAndSyncSlot(client, Items.FIRE_CHARGE)) {
                         if (connection != null) {
                             connection.send(new ServerboundUseItemOnPacket(
                                 InteractionHand.MAIN_HAND,
-                                new BlockHitResult(hit.getLocation(), face, targetBlock, false),
+                                new BlockHitResult(resolvedHit.getLocation(), hitFace, targetPos, false),
                                 0
                             ));
                         }
-                        delayTicks = cfg.getExecutionDelay();
-                        phase = CartPhase.FIRE_CROSSBOW;
+                        internalDelay = cfg.getExecutionDelayTicks();
+                        currentPhase = SequencePhase.STAGE_CROSSBOW;
                     }
                     break;
 
-                case FIRE_CROSSBOW:
-                    if (placer.selectChargedOrAnyCrossbow(client)) {
-                        shooter.simulateButterflyClick(client);
-                        delayTicks = cfg.getExecutionDelay();
+                case STAGE_CROSSBOW:
+                    if (auditor.selectChargedOrAnyCrossbow(client)) {
+                        simulator.simulateButterflyFire(client);
+                        internalDelay = cfg.getExecutionDelayTicks();
                     }
                     break;
 
-                case FINALIZE:
+                case TERMINATE:
                     abortSequence();
                     break;
             }
         }
 
         public void abortSequence() {
-            phase = CartPhase.DORMANT;
-            delayTicks = 0;
+            currentPhase = SequencePhase.INACTIVE;
+            internalDelay = 0;
             if (mc.options != null) {
                 mc.options.keyUse.setDown(false);
             }
+            safetyWatchdog = 0L;
         }
     }
-        }
+}
