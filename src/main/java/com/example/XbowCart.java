@@ -32,7 +32,7 @@ public class XbowCart implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-            "key.xbowcart.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_X, "key.categories.misc"
+            "key.xbowcart.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_X, KeyMapping.Category.MISC
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -63,7 +63,12 @@ public class XbowCart implements ClientModInitializer {
             return;
         }
 
-        BlockPos targetPos = client.player.blockPosition().below();
+        // Tower & Wall-Penetration Carting: Target the exact block face being looked at (supports towers and walls)
+        BlockHitResult hitResult = client.hitResult instanceof BlockHitResult ? (BlockHitResult) client.hitResult : null;
+        if (hitResult == null) return;
+
+        BlockPos targetPos = hitResult.getBlockPos();
+        Direction face = hitResult.getDirection();
         var connection = client.getConnection();
 
         switch (sequenceState) {
@@ -72,7 +77,7 @@ public class XbowCart implements ClientModInitializer {
                     if (connection != null) {
                         connection.send(new ServerboundUseItemOnPacket(
                             InteractionHand.MAIN_HAND,
-                            new BlockHitResult(Vec3.atCenterOf(targetPos), Direction.UP, targetPos, false),
+                            new BlockHitResult(hitResult.getLocation(), face, targetPos, false),
                             0
                         ));
                     }
@@ -86,7 +91,7 @@ public class XbowCart implements ClientModInitializer {
                     if (connection != null) {
                         connection.send(new ServerboundUseItemOnPacket(
                             InteractionHand.MAIN_HAND,
-                            new BlockHitResult(Vec3.atCenterOf(targetPos), Direction.UP, targetPos, false),
+                            new BlockHitResult(hitResult.getLocation(), face, targetPos, false),
                             0
                         ));
                     }
@@ -96,11 +101,11 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 2:
-                if (selectItem(client, Items.FLINT_AND_STEEL)) {
+                if (selectItem(client, Items.FLINT_AND_STEEL) || selectItem(client, Items.FIRE_CHARGE)) {
                     if (connection != null) {
                         connection.send(new ServerboundUseItemOnPacket(
                             InteractionHand.MAIN_HAND,
-                            new BlockHitResult(Vec3.atCenterOf(targetPos), Direction.UP, targetPos, false),
+                            new BlockHitResult(hitResult.getLocation(), face, targetPos, false),
                             0
                         ));
                     }
