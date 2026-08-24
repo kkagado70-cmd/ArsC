@@ -39,7 +39,7 @@ public class XbowCart implements ClientModInitializer {
             if (mc.player == null || mc.level == null) return;
             while (toggleKey.consumeClick()) {
                 enabled = !enabled;
-                HT1TowerCartDirector.getInstance().hardResetSequence();
+                HT1CartDirector.getInstance().hardResetSequence();
             }
             if (enabled) {
                 onTick(client);
@@ -49,7 +49,7 @@ public class XbowCart implements ClientModInitializer {
 
     public static void toggle() {
         enabled = !enabled;
-        HT1TowerCartDirector.getInstance().hardResetSequence();
+        HT1CartDirector.getInstance().hardResetSequence();
     }
 
     public static void onTick() {
@@ -58,18 +58,18 @@ public class XbowCart implements ClientModInitializer {
 
     public static void onTick(Minecraft client) {
         if (client.player == null || client.level == null) return;
-        HT1TowerCartDirector.getInstance().processTick(client);
+        HT1CartDirector.getInstance().processTick(client);
     }
 
-    public static class HT1TowerCartDirector {
-        private static final HT1TowerCartDirector INSTANCE = new HT1TowerCartDirector();
+    public static class HT1CartDirector {
+        private static final HT1CartDirector INSTANCE = new HT1CartDirector();
         private final CartConfiguration configuration = new CartConfiguration();
         private final HotbarSlotAuditor auditor = new HotbarSlotAuditor();
         private final TowerGeometryCalculator geometry = new TowerGeometryCalculator();
         private final EyezingzCrossbowSimulator shooter = new EyezingzCrossbowSimulator();
-        private final TowerCartStateMachine pipeline = new TowerCartStateMachine();
+        private final CartExecutionStateMachine pipeline = new CartExecutionStateMachine();
 
-        public static HT1TowerCartDirector getInstance() {
+        public static HT1CartDirector getInstance() {
             return INSTANCE;
         }
 
@@ -86,12 +86,14 @@ public class XbowCart implements ClientModInitializer {
 
     public static class CartConfiguration {
         private final int actionDelayTicks = 1;
-        private final double maxTowerScanDistance = 6.5D;
+        private final double maxPlacementDistance = 6.0D;
+        private final boolean towerMode = true;
 
         public void refresh() {}
 
         public int getActionDelayTicks() { return actionDelayTicks; }
-        public double getMaxTowerScanDistance() { return maxTowerScanDistance; }
+        public double getMaxPlacementDistance() { return maxPlacementDistance; }
+        public boolean isTowerMode() { return towerMode; }
     }
 
     public static class HotbarSlotAuditor {
@@ -142,13 +144,11 @@ public class XbowCart implements ClientModInitializer {
 
     public static class TowerGeometryCalculator {
         public TowerData resolveTowerStructure(Minecraft client, double maxRange) {
-            // Scans vertical columns and raycasts to locate enemy tower top and base pillar
             if (client.hitResult instanceof BlockHitResult blockHit) {
                 if (client.player.distanceToSqr(blockHit.getLocation()) <= maxRange * maxRange) {
                     BlockPos basePos = blockHit.getBlockPos();
                     BlockPos topPos = basePos;
                     
-                    // Trace vertically upwards to find the peak of the tower column
                     for (int yOffset = 1; yOffset <= 4; yOffset++) {
                         BlockPos upper = basePos.above(yOffset);
                         if (!client.level.getBlockState(upper).isAir()) {
@@ -158,8 +158,8 @@ public class XbowCart implements ClientModInitializer {
                         }
                     }
 
-                    BlockPos cartPlacementTarget = topPos.above(); // Top of the tower
-                    BlockPos firePlacementTarget = basePos;        // Wood pillar below/base
+                    BlockPos cartPlacementTarget = topPos.above();
+                    BlockPos firePlacementTarget = basePos;
                     return new TowerData(cartPlacementTarget, firePlacementTarget, blockHit.getDirection());
                 }
             }
@@ -195,9 +195,9 @@ public class XbowCart implements ClientModInitializer {
         }
     }
 
-    public static class TowerCartStateMachine {
-        private enum TowerPhase { INACTIVE, DEPLOY_TOP_RAIL, DEPLOY_TOP_CART, IGNITE_BASE_FIRE, FIRE_UPWARD_CROSSBOW, COMPLETE_RESET }
-        private TowerPhase activePhase = TowerPhase.INACTIVE;
+    public static class CartExecutionStateMachine {
+        private enum CartPhase { INACTIVE, STAGE_RAIL_DEPLOY, STAGE_CART_DEPLOY, STAGE_FIRE_IGNITE, STAGE_CROSSBOW_BURST, COMPLETE_RESET }
+        private CartPhase activePhase = CartPhase.INACTIVE;
         private int sequenceDelay = 0;
         private long safetyWatchdogEpoch = 0L;
 
@@ -207,21 +207,21 @@ public class XbowCart implements ClientModInitializer {
                 return;
             }
 
-            if (System.currentTimeMillis() > safetyWatchdogEpoch && activePhase != TowerPhase.INACTIVE) {
+            if (System.currentTimeMillis() > safetyWatchdogEpoch && activePhase != CartPhase.INACTIVE) {
                 abortSequence();
                 return;
             }
 
-            TowerData tower = geometry.resolveTowerStructure(client, cfg.getMaxTowerScanDistance());
+            TowerData tower = geometry.resolveTowerStructure(client, cfg.getMaxPlacementDistance());
             var networkConnection = client.getConnection();
 
             switch (activePhase) {
                 case INACTIVE:
-                    activePhase = TowerPhase.DEPLOY_TOP_RAIL;
+                    activePhase = CartPhase.STAGE_RAIL_DEPLOY;
                     safetyWatchdogEpoch = System.currentTimeMillis() + 1500L;
                     break;
 
-                case DEPLOY_TOP_RAIL:
+                case STAGE_RAIL_DEPLOY:
                     if (auditor.selectAndSyncSlot(client, Items.RAIL)) {
                         if (networkConnection != null) {
                             networkConnection.send(new ServerboundUseItemOnPacket(
@@ -231,11 +231,11 @@ public class XbowCart implements ClientModInitializer {
                             ));
                         }
                         sequenceDelay = cfg.getActionDelayTicks();
-                        activePhase = TowerPhase.DEPLOY_TOP_CART;
+                        activePhase = CartPhase.STAGE_CART_DEPLOY;
                     }
                     break;
 
-                case DEPLOY_TOP_CART:
+                case STAGE_CART_DEPLOY:
                     if (auditor.selectAndSyncSlot(client, Items.TNT_MINECART)) {
                         if (networkConnection != null) {
                             networkConnection.send(new ServerboundUseItemOnPacket(
@@ -245,11 +245,11 @@ public class XbowCart implements ClientModInitializer {
                             ));
                         }
                         sequenceDelay = cfg.getActionDelayTicks();
-                        activePhase = TowerPhase.IGNITE_BASE_FIRE;
+                        activePhase = CartPhase.STAGE_FIRE_IGNITE;
                     }
                     break;
 
-                case IGNITE_BASE_FIRE:
+                case STAGE_FIRE_IGNITE:
                     if (auditor.selectAndSyncSlot(client, Items.FLINT_AND_STEEL) || auditor.selectAndSyncSlot(client, Items.FIRE_CHARGE)) {
                         if (networkConnection != null) {
                             networkConnection.send(new ServerboundUseItemOnPacket(
@@ -259,11 +259,11 @@ public class XbowCart implements ClientModInitializer {
                             ));
                         }
                         sequenceDelay = cfg.getActionDelayTicks();
-                        activePhase = TowerPhase.FIRE_UPWARD_CROSSBOW;
+                        activePhase = CartPhase.STAGE_CROSSBOW_BURST;
                     }
                     break;
 
-                case FIRE_UPWARD_CROSSBOW:
+                case STAGE_CROSSBOW_BURST:
                     if (auditor.selectChargedOrAnyCrossbow(client)) {
                         shooter.simulateEyezingzBurst(client);
                         sequenceDelay = cfg.getActionDelayTicks();
@@ -271,13 +271,14 @@ public class XbowCart implements ClientModInitializer {
                     break;
 
                 case COMPLETE_RESET:
+                    // Intentionally NO slot restoration performed here to prevent loop glitches with rail activation
                     abortSequence();
                     break;
             }
         }
 
         public void abortSequence() {
-            activePhase = TowerPhase.INACTIVE;
+            activePhase = CartPhase.INACTIVE;
             sequenceDelay = 0;
             if (mc.options != null) {
                 mc.options.keyUse.setDown(false);
