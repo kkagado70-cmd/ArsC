@@ -95,11 +95,13 @@ public class XbowCart implements ClientModInitializer {
     public static class CartConfiguration {
         private final int actionDelayTicks = 1;
         private final double maxPlacementDistance = 6.0D;
+        private final boolean towerMode = true;
 
         public void refresh() {}
 
         public int getActionDelayTicks() { return actionDelayTicks; }
         public double getMaxPlacementDistance() { return maxPlacementDistance; }
+        public boolean isTowerMode() { return towerMode; }
     }
 
     public static class HotbarSlotAuditor {
@@ -290,7 +292,7 @@ public class XbowCart implements ClientModInitializer {
                     break;
 
                 case COMPLETE_LOCK:
-                    // Prevents infinite looping: holds execution until player releases rail or toggles off
+                    // Holds execution until player releases rail or toggles off, preventing infinite loops
                     break;
             }
         }
@@ -301,4 +303,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-                            }
+}
