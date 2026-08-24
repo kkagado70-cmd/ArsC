@@ -41,8 +41,15 @@ public class XbowCart implements ClientModInitializer {
                 enabled = !enabled;
                 HT1CartDirector.getInstance().hardResetSequence();
             }
-            if (enabled) {
+
+            boolean lookingAtBlock = mc.hitResult instanceof BlockHitResult;
+            boolean holdingRail = mc.player.getMainHandItem().getItem() == Items.RAIL;
+
+            // Armed via GUI toggle, fires only when looking at ground with a rail
+            if (enabled && lookingAtBlock && holdingRail) {
                 onTick(client);
+            } else {
+                HT1CartDirector.getInstance().hardResetSequence();
             }
         });
     }
@@ -271,7 +278,7 @@ public class XbowCart implements ClientModInitializer {
                     break;
 
                 case COMPLETE_RESET:
-                    // Intentionally NO slot restoration performed here to prevent loop glitches with rail activation
+                    // Intentionally NO slot restoration performed here to prevent rail-activation loop glitches
                     abortSequence();
                     break;
             }
@@ -286,4 +293,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-}
+            }
