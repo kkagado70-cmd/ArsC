@@ -17,6 +17,7 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
+import net.minecraft.world.level.block.Blocks;
 
 import java.util.Optional;
 import java.util.Random;
@@ -75,8 +76,8 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static class ConfigurationRegistry {
-        private final double defaultSwingRange = 3.0D;
-        private final double spearSwingRange = 4.5D; // Extended 4.5 block spear range
+        private final double maxSwingRange = 3.0D;
+        private final double spearSwingRange = 4.5D;
         private final double maxAimRange = 7.0D;
         private final double minFallDistance = 1.0D;
         private final float baseSnapSpeed = 0.75F;
@@ -84,7 +85,7 @@ public class AutoMace implements ClientModInitializer {
 
         public void refreshParameters() {}
 
-        public double getDefaultSwingRange() { return defaultSwingRange; }
+        public double getMaxSwingRange() { return maxSwingRange; }
         public double getSpearSwingRange() { return spearSwingRange; }
         public double getMaxAimRange() { return maxAimRange; }
         public double getMinFallDistance() { return minFallDistance; }
@@ -93,10 +94,10 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static class WebMovementHandler {
-        public boolean isTrappedInWeb(Player player) {
-            if (player == null) return false;
-            // Evaluates cobweb or bubble resistance state
-            return player.isInWeb || player.isSlowedByInfested();
+        public boolean isTrappedInWeb(Minecraft client, Player player) {
+            if (client.level == null || player == null) return false;
+            return client.level.getBlockState(player.blockPosition()).is(Blocks.COBWEB) || 
+                   client.level.getBlockState(player.blockPosition().above()).is(Blocks.COBWEB);
         }
 
         public int adjustTicksForWeb(int baseTicks, boolean inWeb) {
@@ -181,7 +182,7 @@ public class AutoMace implements ClientModInitializer {
             double distancePlane = Math.sqrt(diffX * diffX + diffZ * diffZ);
 
             float targetYaw = (float) (Math.toDegrees(Math.atan2(diffZ, diffX)) - 90.0D);
-            float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, distancePlane)));
+            float targetPitch = (float) (-Math.toDegrees(Math.atan2(diffY, distancePlane)));
 
             float yawError = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
             float pitchError = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
@@ -221,8 +222,6 @@ public class AutoMace implements ClientModInitializer {
                 if (slotStack.isEmpty()) continue;
 
                 String itemName = slotStack.getItem().getDescriptionId().toLowerCase();
-
-                // Detect Netherite Spear or extended reach weapons containing "spear"
                 if ((itemName.contains("spear") || slotStack.getHoverName().getString().toLowerCase().contains("spear")) && cachedSpearSlot == -1) {
                     cachedSpearSlot = slotIndex;
                 } else if (slotStack.getItem() instanceof AxeItem && cachedAxeSlot == -1) {
@@ -319,7 +318,7 @@ public class AutoMace implements ClientModInitializer {
 
             diveEngine.evaluatePlayerPhysics(client.player);
             double verticalFall = diveEngine.calculateCurrentFall(client.player);
-            boolean inWeb = webHandler.isTrappedInWeb(client.player);
+            boolean inWeb = webHandler.isTrappedInWeb(client, client.player);
 
             Player target = pred.acquireStrictCrosshairTarget(client, cfg.getMaxAimRange());
             if (target == null) {
@@ -331,9 +330,8 @@ public class AutoMace implements ClientModInitializer {
             boolean shieldUp = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
             double distanceToTarget = client.player.distanceTo(target);
 
-            // Dynamic range determination: check spear reach (4.5 blocks) if target is outside standard swing range
             int spearSlot = inv.getSpearSlot();
-            boolean useSpear = spearSlot != -1 && distanceToTarget > cfg.getDefaultSwingRange() && distanceToTarget <= cfg.getSpearSwingRange();
+            boolean useSpear = spearSlot != -1 && distanceToTarget > cfg.getMaxSwingRange() && distanceToTarget <= cfg.getSpearSwingRange();
 
             switch (stage) {
                 case DORMANT:
@@ -378,7 +376,7 @@ public class AutoMace implements ClientModInitializer {
                     break;
 
                 case EXECUTE_AXE_PHASE:
-                    if (distanceToTarget <= cfg.getDefaultSwingRange()) {
+                    if (distanceToTarget <= cfg.getMaxSwingRange()) {
                         rot.executeSmoothSnap(pred.extrapolateFuturePosition(target, 0.3D), cfg.getBaseSnapSpeed());
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
@@ -400,7 +398,7 @@ public class AutoMace implements ClientModInitializer {
 
                 case EXECUTE_MACE_PHASE:
                     boolean ready = verticalFall >= cfg.getMinFallDistance() || diveEngine.checkStunOpportunity(target);
-                    if (distanceToTarget <= cfg.getDefaultSwingRange() && ready) {
+                    if (distanceToTarget <= cfg.getMaxSwingRange() && ready) {
                         rot.executeSmoothSnap(pred.extrapolateFuturePosition(target, 0.3D), cfg.getBaseSnapSpeed());
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
@@ -428,4 +426,4 @@ public class AutoMace implements ClientModInitializer {
             watchdogTimeout = 0L;
         }
     }
-                            }
+            }
