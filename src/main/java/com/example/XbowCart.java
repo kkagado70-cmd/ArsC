@@ -32,17 +32,29 @@ public class XbowCart implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-            "key.xbowcart.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_X, KeyMapping.Category.MISC
+            "key.xbowcart.toggle",
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_X,
+            KeyMapping.Category.MISC
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (mc.player == null || mc.level == null) return;
-            while (toggleKey.consumeClick()) {
-                enabled = !enabled;
-                resetState();
-            }
-            if (enabled) {
+            
+            boolean lookingAtBlock = mc.hitResult instanceof BlockHitResult;
+            boolean holdingRail = mc.player.getMainHandItem().getItem() == Items.RAIL;
+
+            if (lookingAtBlock && holdingRail) {
+                if (!enabled) {
+                    enabled = true;
+                    resetState();
+                }
                 onTick(client);
+            } else {
+                if (enabled) {
+                    enabled = false;
+                    resetState();
+                }
             }
         });
     }
@@ -63,7 +75,6 @@ public class XbowCart implements ClientModInitializer {
             return;
         }
 
-        // Tower & Wall-Penetration Carting: Target the exact block face being looked at (supports towers and walls)
         BlockHitResult hitResult = client.hitResult instanceof BlockHitResult ? (BlockHitResult) client.hitResult : null;
         if (hitResult == null) return;
 
