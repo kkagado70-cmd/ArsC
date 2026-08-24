@@ -18,16 +18,13 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
+
 import java.util.Random;
 
 public class XbowCart implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
-    private static final Random random = new Random();
-    private static int clickTimer = 0;
-    private static int sequenceState = 0;
-    private static int actionDelay = 0;
 
     @Override
     public void onInitializeClient() {
@@ -40,28 +37,19 @@ public class XbowCart implements ClientModInitializer {
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (mc.player == null || mc.level == null) return;
-            
-            boolean lookingAtBlock = mc.hitResult instanceof BlockHitResult;
-            boolean holdingRail = mc.player.getMainHandItem().getItem() == Items.RAIL;
-
-            if (lookingAtBlock && holdingRail) {
-                if (!enabled) {
-                    enabled = true;
-                    resetState();
-                }
+            while (toggleKey.consumeClick()) {
+                enabled = !enabled;
+                HT1CartEngine.getInstance().hardReset();
+            }
+            if (enabled) {
                 onTick(client);
-            } else {
-                if (enabled) {
-                    enabled = false;
-                    resetState();
-                }
             }
         });
     }
 
     public static void toggle() {
         enabled = !enabled;
-        resetState();
+        HT1CartEngine.getInstance().hardReset();
     }
 
     public static void onTick() {
@@ -69,115 +57,204 @@ public class XbowCart implements ClientModInitializer {
     }
 
     public static void onTick(Minecraft client) {
-        if (client.player == null || client.level == null || client.gameMode == null) return;
-        if (actionDelay > 0) {
-            actionDelay--;
-            return;
+        if (client.player == null || client.level == null) return;
+        HT1CartEngine.getInstance().processTick(client);
+    }
+
+    public static class HT1CartEngine {
+        private static final HT1CartEngine INSTANCE = new HT1CartEngine();
+        private final CartConfig config = new CartConfig();
+        private final PlacementOptimizer placement = new PlacementOptimizer();
+        private final CrossbowSimulator crossbow = new CrossbowSimulator();
+        private final CartStateMachine stateMachine = new CartStateMachine();
+
+        public static HT1CartEngine getInstance() {
+            return INSTANCE;
         }
 
-        BlockHitResult hitResult = client.hitResult instanceof BlockHitResult ? (BlockHitResult) client.hitResult : null;
-        if (hitResult == null) return;
+        public void processTick(Minecraft client) {
+            if (client.player == null || client.level == null) return;
+            config.refresh();
+            stateMachine.executeSequence(client, config, placement, crossbow);
+        }
 
-        BlockPos targetPos = hitResult.getBlockPos();
-        Direction face = hitResult.getDirection();
-        var connection = client.getConnection();
+        public void hardReset() {
+            stateMachine.abortSequence();
+        }
+    }
 
-        switch (sequenceState) {
-            case 0:
-                if (selectItem(client, Items.RAIL)) {
-                    if (connection != null) {
-                        connection.send(new ServerboundUseItemOnPacket(
-                            InteractionHand.MAIN_HAND,
-                            new BlockHitResult(hitResult.getLocation(), face, targetPos, false),
-                            0
-                        ));
+    public static class CartConfig {
+        private final int executionDelay = 1;
+        private final double maxPlacementRange = 5.0D;
+
+        public void refresh() {}
+        public int getExecutionDelay() { return executionDelay; }
+        public double getMaxPlacementRange() { return maxPlacementRange; }
+    }
+
+    public static class PlacementOptimizer {
+        public boolean verifyHotbarRequirements(Minecraft client) {
+            boolean railFound = false;
+            boolean cartFound = false;
+            boolean fireFound = false;
+            boolean crossbowFound = false;
+
+            for (int i = 0; i < 9; i++) {
+                Item item = client.player.getInventory().getItem(i).getItem();
+                if (item == Items.RAIL) railFound = true;
+                if (item == Items.TNT_MINECART) cartFound = true;
+                if (item == Items.FLINT_AND_STEEL || item == Items.FIRE_CHARGE) fireFound = true;
+                if (item == Items.CROSSBOW) crossbowFound = true;
+            }
+            return railFound && cartFound && fireFound && crossbowFound;
+        }
+
+        public boolean selectAndSyncSlot(Minecraft client, Item targetItem) {
+            for (int i = 0; i < 9; i++) {
+                ItemStack stack = client.player.getInventory().getItem(i);
+                if (stack.getItem() == targetItem) {
+                    client.player.getInventory().setSelectedSlot(i);
+                    if (client.getConnection() != null) {
+                        client.getConnection().send(new ServerboundSetCarriedItemPacket(i));
                     }
-                    actionDelay = 1 + random.nextInt(2);
-                    sequenceState = 1;
+                    return true;
                 }
-                break;
+            }
+            return false;
+        }
 
-            case 1:
-                if (selectItem(client, Items.TNT_MINECART)) {
-                    if (connection != null) {
-                        connection.send(new ServerboundUseItemOnPacket(
-                            InteractionHand.MAIN_HAND,
-                            new BlockHitResult(hitResult.getLocation(), face, targetPos, false),
-                            0
-                        ));
+        public boolean selectChargedOrAnyCrossbow(Minecraft client) {
+            for (int i = 0; i < 9; i++) {
+                ItemStack stack = client.player.getInventory().getItem(i);
+                if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) {
+                    client.player.getInventory().setSelectedSlot(i);
+                    if (client.getConnection() != null) {
+                        client.getConnection().send(new ServerboundSetCarriedItemPacket(i));
                     }
-                    actionDelay = 1 + random.nextInt(2);
-                    sequenceState = 2;
+                    return true;
                 }
-                break;
+            }
+            return selectAndSyncSlot(client, Items.CROSSBOW);
+        }
+    }
 
-            case 2:
-                if (selectItem(client, Items.FLINT_AND_STEEL) || selectItem(client, Items.FIRE_CHARGE)) {
-                    if (connection != null) {
-                        connection.send(new ServerboundUseItemOnPacket(
-                            InteractionHand.MAIN_HAND,
-                            new BlockHitResult(hitResult.getLocation(), face, targetPos, false),
-                            0
-                        ));
-                    }
-                    actionDelay = 1;
-                    sequenceState = 3;
+    public static class CrossbowSimulator {
+        private final Random jitter = new Random();
+        private int pressCounter = 0;
+
+        public void simulateButterflyClick(Minecraft client) {
+            ItemStack activeStack = client.player.getMainHandItem();
+            if (activeStack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(activeStack)) {
+                client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
+            } else {
+                client.options.keyUse.setDown(true);
+                pressCounter++;
+                if (pressCounter > 5 + jitter.nextInt(4)) {
+                    client.options.keyUse.setDown(false);
+                    pressCounter = 0;
                 }
-                break;
+            }
+        }
 
-            case 3:
-                if (selectChargedCrossbowOrAny(client)) {
-                    ItemStack stack = client.player.getMainHandItem();
-                    if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) {
-                        client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
-                    } else {
-                        client.options.keyUse.setDown(true);
-                        clickTimer++;
-                        if (clickTimer > 10 + random.nextInt(5)) {
-                            client.options.keyUse.setDown(false);
-                            clickTimer = 0;
+        public void releaseTriggers() {
+            if (mc.options != null) {
+                mc.options.keyUse.setDown(false);
+            }
+            pressCounter = 0;
+        }
+    }
+
+    public static class CartStateMachine {
+        private enum CartPhase { DORMANT, DEPLOY_RAIL, DEPLOY_CART, IGNITE_FIRE, FIRE_CROSSBOW, FINALIZE }
+        private CartPhase phase = CartPhase.DORMANT;
+        private int delayTicks = 0;
+
+        public void executeSequence(Minecraft client, CartConfig cfg, PlacementOptimizer placer, CrossbowSimulator shooter) {
+            if (!placer.verifyHotbarRequirements(client)) {
+                abortSequence();
+                return;
+            }
+
+            if (delayTicks > 0) {
+                delayTicks--;
+                return;
+            }
+
+            BlockHitResult hit = client.hitResult instanceof BlockHitResult ? (BlockHitResult) client.hitResult : null;
+            if (hit == null) {
+                hit = new BlockHitResult(client.player.position(), Direction.UP, client.player.blockPosition().below(), false);
+            }
+
+            BlockPos targetBlock = hit.getBlockPos();
+            Direction face = hit.getDirection();
+            var connection = client.getConnection();
+
+            switch (phase) {
+                case DORMANT:
+                    phase = CartPhase.DEPLOY_RAIL;
+                    break;
+
+                case DEPLOY_RAIL:
+                    if (placer.selectAndSyncSlot(client, Items.RAIL)) {
+                        if (connection != null) {
+                            connection.send(new ServerboundUseItemOnPacket(
+                                InteractionHand.MAIN_HAND,
+                                new BlockHitResult(hit.getLocation(), face, targetBlock, false),
+                                0
+                            ));
                         }
+                        delayTicks = cfg.getExecutionDelay();
+                        phase = CartPhase.DEPLOY_CART;
                     }
-                    actionDelay = 1;
-                }
-                break;
-        }
-    }
+                    break;
 
-    private static boolean selectItem(Minecraft client, Item item) {
-        for (int i = 0; i < 9; i++) {
-            ItemStack stack = client.player.getInventory().getItem(i);
-            if (stack.getItem() == item) {
-                client.player.getInventory().setSelectedSlot(i);
-                if (client.getConnection() != null) {
-                    client.getConnection().send(new ServerboundSetCarriedItemPacket(i));
-                }
-                return true;
+                case DEPLOY_CART:
+                    if (placer.selectAndSyncSlot(client, Items.TNT_MINECART)) {
+                        if (connection != null) {
+                            connection.send(new ServerboundUseItemOnPacket(
+                                InteractionHand.MAIN_HAND,
+                                new BlockHitResult(hit.getLocation(), face, targetBlock, false),
+                                0
+                            ));
+                        }
+                        delayTicks = cfg.getExecutionDelay();
+                        phase = CartPhase.IGNITE_FIRE;
+                    }
+                    break;
+
+                case IGNITE_FIRE:
+                    if (placer.selectAndSyncSlot(client, Items.FLINT_AND_STEEL) || placer.selectAndSyncSlot(client, Items.FIRE_CHARGE)) {
+                        if (connection != null) {
+                            connection.send(new ServerboundUseItemOnPacket(
+                                InteractionHand.MAIN_HAND,
+                                new BlockHitResult(hit.getLocation(), face, targetBlock, false),
+                                0
+                            ));
+                        }
+                        delayTicks = cfg.getExecutionDelay();
+                        phase = CartPhase.FIRE_CROSSBOW;
+                    }
+                    break;
+
+                case FIRE_CROSSBOW:
+                    if (placer.selectChargedOrAnyCrossbow(client)) {
+                        shooter.simulateButterflyClick(client);
+                        delayTicks = cfg.getExecutionDelay();
+                    }
+                    break;
+
+                case FINALIZE:
+                    abortSequence();
+                    break;
             }
         }
-        return false;
-    }
 
-    private static boolean selectChargedCrossbowOrAny(Minecraft client) {
-        for (int i = 0; i < 9; i++) {
-            ItemStack stack = client.player.getInventory().getItem(i);
-            if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) {
-                client.player.getInventory().setSelectedSlot(i);
-                if (client.getConnection() != null) {
-                    client.getConnection().send(new ServerboundSetCarriedItemPacket(i));
-                }
-                return true;
+        public void abortSequence() {
+            phase = CartPhase.DORMANT;
+            delayTicks = 0;
+            if (mc.options != null) {
+                mc.options.keyUse.setDown(false);
             }
         }
-        return selectItem(client, Items.CROSSBOW);
     }
-
-    private static void resetState() {
-        sequenceState = 0;
-        actionDelay = 0;
-        clickTimer = 0;
-        if (mc.options != null) {
-            mc.options.keyUse.setDown(false);
         }
-    }
-}
