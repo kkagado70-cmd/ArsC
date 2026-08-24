@@ -18,6 +18,7 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 
+import java.util.Optional;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -80,9 +81,7 @@ public class AutoMace implements ClientModInitializer {
         private final int tickInterval = 1;
         private final boolean strictCrosshairLock = true;
 
-        public void refreshParameters() {
-            // Real-time telemetry adjustments
-        }
+        public void refreshParameters() {}
 
         public double getMaxSwingRange() { return maxSwingRange; }
         public double getMaxAimRange() { return maxAimRange; }
@@ -97,7 +96,7 @@ public class AutoMace implements ClientModInitializer {
         private final ConcurrentHashMap<UUID, Vec3> velocityBuffer = new ConcurrentHashMap<>();
         private final ConcurrentHashMap<UUID, Long> timestampBuffer = new ConcurrentHashMap<>();
 
-        public Player acquireCrosshairTarget(Minecraft client, double searchRadius) {
+        public Player acquireStrictCrosshairTarget(Minecraft client, double searchRadius) {
             if (client.level == null || client.player == null) return null;
             Player selectedTarget = null;
             double lowestAngle = Double.MAX_VALUE;
@@ -120,11 +119,9 @@ public class AutoMace implements ClientModInitializer {
 
                 calculateTargetDynamics(candidate);
 
-                Vec3 vectorToEntity = candidate.position().subtract(eyePosition).normalize();
-                double angleDot = lookVector.dot(vectorToEntity);
-
-                if (client.player.distanceTo(candidate) <= 3.0D || angleDot > 0.50D) {
-                    double score = client.player.distanceToSqr(candidate) - (angleDot * 5.0D);
+                Optional<Vec3> rayBoxIntersection = candidate.getBoundingBox().clip(eyePosition, eyePosition.add(lookVector.scale(searchRadius)));
+                if (rayBoxIntersection.isPresent() || client.player.distanceTo(candidate) <= 2.5D) {
+                    double score = client.player.distanceToSqr(candidate);
                     if (score < lowestAngle) {
                         lowestAngle = score;
                         selectedTarget = candidate;
@@ -302,7 +299,7 @@ public class AutoMace implements ClientModInitializer {
             diveEngine.evaluatePlayerPhysics(client.player);
             double verticalFall = diveEngine.calculateCurrentFall(client.player);
 
-            Player target = pred.acquireCrosshairTarget(client, cfg.getMaxAimRange());
+            Player target = pred.acquireStrictCrosshairTarget(client, cfg.getMaxAimRange());
             if (target == null) {
                 if (stage != PipelineState.DORMANT) abortPipeline();
                 return;
@@ -380,4 +377,4 @@ public class AutoMace implements ClientModInitializer {
             watchdogTimeout = 0L;
         }
     }
-        }
+                }
