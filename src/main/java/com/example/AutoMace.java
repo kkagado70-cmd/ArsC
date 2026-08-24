@@ -45,7 +45,7 @@ public class AutoMace implements ClientModInitializer {
                 HT1CombatController.getInstance().hardReset();
             }
             if (enabled) {
-                HT1CombatController.getInstance().onTick(client);
+                onTick(client);
             }
         });
     }
@@ -53,6 +53,15 @@ public class AutoMace implements ClientModInitializer {
     public static void toggle() {
         enabled = !enabled;
         HT1CombatController.getInstance().hardReset();
+    }
+
+    public static void onTick() {
+        onTick(Minecraft.getInstance());
+    }
+
+    public static void onTick(Minecraft client) {
+        if (client.player == null || client.level == null) return;
+        HT1CombatController.getInstance().onTick(client);
     }
 
     public static class HT1CombatController {
@@ -81,10 +90,10 @@ public class AutoMace implements ClientModInitializer {
 
     public static class HT1Config {
         private final double maxSwingRange = 3.0D;
-        private final double maxAimRange = 7.0D; // HT1 7-block divebomb engagement threshold
-        private final double minFallDist = 0.5D; // Aggressive low-threshold fall trigger
+        private final double maxAimRange = 7.0D;
+        private final double minFallDist = 0.5D;
         private final float hyperSnapSpeed = 0.95F;
-        private final int zeroLatencyDelay = 0; // Zero artificial delay for hyper-fast execution
+        private final int zeroLatencyDelay = 0;
 
         public void refresh() {}
 
@@ -328,7 +337,7 @@ public class AutoMace implements ClientModInitializer {
                     if (client.player.distanceTo(target) <= cfg.getMaxSwingRange()) {
                         rotator.snapToCoordinates(auditor.extrapolatePosition(target, 0.2D), cfg.getHyperSnapSpeed(), diving);
                         client.player.swing(InteractionHand.MAIN_HAND);
-                        client.gameMode.attack(client, target);
+                        client.gameMode.attack(client.player, target);
                         ticksLeft = cfg.getZeroLatencyDelay();
                         currentStage = State.MACE_PREP;
                     }
@@ -350,7 +359,7 @@ public class AutoMace implements ClientModInitializer {
                     if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && ready) {
                         rotator.snapToCoordinates(auditor.extrapolatePosition(target, 0.2D), cfg.getHyperSnapSpeed(), diving);
                         client.player.swing(InteractionHand.MAIN_HAND);
-                        client.gameMode.attack(client, target);
+                        client.gameMode.attack(client.player, target);
                         ticksLeft = cfg.getZeroLatencyDelay();
                         currentStage = State.COMPLETE;
                     }
@@ -375,4 +384,4 @@ public class AutoMace implements ClientModInitializer {
             watchdogTimer = 0L;
         }
     }
-        }
+}
