@@ -25,77 +25,125 @@ public class AutoMace implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
+
     private static final double MAX_SWING_RANGE = 2.84D;
     private static final double MAX_AIM_RANGE = 4.2D;
     private static final double MIN_FALL_DIST = 1.3D;
+
     private static final Random random = new Random();
     private static int reactionDelayTicks = 0;
     private static final float ROTATION_SMOOTHNESS = 0.65F;
+
     private static Player currentTarget = null;
     private static State state = State.IDLE;
     private static int delayTimer = 0;
     private static int preSequenceSlot = -1;
     private static double highestY = 0.0D;
 
-    public enum State { IDLE, AXE_SWAP, AXE_STRIKE, MACE_SWAP, MACE_SLAM, RESTORE_SLOT }
+    public enum State {
+        IDLE, AXE_SWAP, AXE_STRIKE, MACE_SWAP, MACE_SLAM, RESTORE_SLOT
+    }
 
     @Override
     public void onInitializeClient() {
-        toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping("key.automace.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_M, KeyMapping.CATEGORY_MISC));
+        toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+            "key.automace.toggle",
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_M,
+            "key.categories.misc"
+        ));
+
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (mc.player == null || mc.level == null) return;
-            while (toggleKey.consumeClick()) { toggle(); }
-            if (enabled) { onTick(client); }
+            while (toggleKey.consumeClick()) {
+                enabled = !enabled;
+                resetState();
+            }
+            if (enabled) {
+                onTick(client);
+            }
         });
     }
 
-    public static void toggle() { enabled = !enabled; resetState(); }
+    public static void toggle() {
+        enabled = !enabled;
+        resetState();
+    }
 
     public static void onTick(Minecraft client) {
-        if (mc.player == null || mc.level == null) return;
-        if (delayTimer > 0) { delayTimer--; return; }
+        if (client.player == null || client.level == null) return;
+        if (delayTimer > 0) {
+            delayTimer--;
+            return;
+        }
+
         updateFallTracker();
-        double currentFallDistance = Math.max(0.0D, highestY - mc.player.getY());
-        if (!(mc.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST)) {
+        double currentFallDistance = Math.max(0.0D, highestY - client.player.getY());
+        boolean isFalling = client.player.fallDistance >= MIN_FALL_DIST || currentFallDistance >= MIN_FALL_DIST;
+
+        if (!isFalling) {
             if (state != State.IDLE) restoreSlotAndReset();
             return;
         }
+
         if (state == State.IDLE) {
             currentTarget = locateTarget(MAX_AIM_RANGE);
             if (currentTarget != null) reactionDelayTicks = 2 + random.nextInt(2);
         }
-        if (currentTarget == null || !currentTarget.isAlive()) { restoreSlotAndReset(); return; }
-        if (reactionDelayTicks > 0) { reactionDelayTicks--; return; }
+
+        if (currentTarget == null || !currentTarget.isAlive()) {
+            restoreSlotAndReset();
+            return;
+        }
+
+        if (reactionDelayTicks > 0) {
+            reactionDelayTicks--;
+            return;
+        }
+
         boolean isBlocking = currentTarget.isUsingItem() && currentTarget.getUseItem().getItem() instanceof ShieldItem;
+
         switch (state) {
             case IDLE:
-                if (preSequenceSlot == -1) preSequenceSlot = mc.player.getInventory().getSelectedSlot();
+                if (preSequenceSlot == -1) preSequenceSlot = client.player.getInventory().getSelectedSlot();
                 state = isBlocking ? State.AXE_SWAP : State.MACE_SWAP;
                 break;
             case AXE_SWAP:
                 int axeSlot = findAxeSlot();
-                if (axeSlot != -1) { setInventorySlot(axeSlot); delayTimer = 2; state = State.AXE_STRIKE; }
-                else { state = State.MACE_SWAP; }
+                if (axeSlot != -1) {
+                    setInventorySlot(axeSlot);
+                    delayTimer = 2;
+                    state = State.AXE_STRIKE;
+                } else {
+                    state = State.MACE_SWAP;
+                }
                 break;
             case AXE_STRIKE:
                 if (canValidlyAttack(currentTarget)) {
                     applyBypassedRotation(currentTarget);
-                    mc.player.swing(InteractionHand.MAIN_HAND);
-                    mc.gameMode.attack(mc.player, currentTarget);
-                    delayTimer = 2; state = State.MACE_SWAP;
+                    client.player.swing(InteractionHand.MAIN_HAND);
+                    client.gameMode.attack(client.player, currentTarget);
+                    delayTimer = 2;
+                    state = State.MACE_SWAP;
                 }
                 break;
             case MACE_SWAP:
                 int maceSlot = selectOptimalMaceSlot(currentTarget, currentFallDistance);
-                if (maceSlot != -1) { setInventorySlot(maceSlot); delayTimer = 2; state = State.MACE_SLAM; }
-                else { restoreSlotAndReset(); }
+                if (maceSlot != -1) {
+                    setInventorySlot(maceSlot);
+                    delayTimer = 2;
+                    state = State.MACE_SLAM;
+                } else {
+                    restoreSlotAndReset();
+                }
                 break;
             case MACE_SLAM:
                 if (canValidlyAttack(currentTarget)) {
                     applyBypassedRotation(currentTarget);
-                    mc.player.swing(InteractionHand.MAIN_HAND);
-                    mc.gameMode.attack(mc.player, currentTarget);
-                    delayTimer = 2; state = State.RESTORE_SLOT;
+                    client.player.swing(InteractionHand.MAIN_HAND);
+                    client.gameMode.attack(client.player, currentTarget);
+                    delayTimer = 2;
+                    state = State.RESTORE_SLOT;
                 }
                 break;
             case RESTORE_SLOT:
@@ -107,7 +155,9 @@ public class AutoMace implements ClientModInitializer {
     private static void setInventorySlot(int slot) {
         if (mc.player == null) return;
         mc.player.getInventory().setSelectedSlot(slot);
-        if (mc.getConnection() != null) mc.getConnection().send(new ServerboundSetCarriedItemPacket(slot));
+        if (mc.getConnection() != null) {
+            mc.getConnection().send(new ServerboundSetCarriedItemPacket(slot));
+        }
     }
 
     private static boolean canValidlyAttack(Player target) {
@@ -122,16 +172,16 @@ public class AutoMace implements ClientModInitializer {
 
     private static int selectOptimalMaceSlot(Player target, double fallDist) {
         if (mc.player == null || target == null) return -1;
-        int bestSlot = -1, maxDensityScore = -1, maxBreachScore = -1;
+        int bestSlot = -1, maxDensity = -1, maxBreach = -1;
         for (int i = 0; i < 9; i++) {
             ItemStack stack = mc.player.getInventory().getItem(i);
             if (stack.getItem() instanceof MaceItem) {
                 int density = getEnchantmentLevel(stack, "density");
                 int breach = getEnchantmentLevel(stack, "breach");
                 if (fallDist >= 7.0D) {
-                    if (density > maxDensityScore) { maxDensityScore = density; bestSlot = i; }
+                    if (density > maxDensity) { maxDensity = density; bestSlot = i; }
                 } else {
-                    if (breach > maxBreachScore) { maxBreachScore = breach; bestSlot = i; }
+                    if (breach > maxBreach) { maxBreach = breach; bestSlot = i; }
                 }
                 if (bestSlot == -1) bestSlot = i;
             }
@@ -139,12 +189,12 @@ public class AutoMace implements ClientModInitializer {
         return bestSlot;
     }
 
-    private static int getEnchantmentLevel(ItemStack stack, String identifier) {
+    private static int getEnchantmentLevel(ItemStack stack, String id) {
         if (stack.isEmpty()) return 0;
         ItemEnchantments enchants = stack.get(DataComponents.ENCHANTMENTS);
         if (enchants == null) return 0;
         for (var entry : enchants.entrySet()) {
-            if (entry.getKey().toString().contains(identifier)) return entry.getIntValue();
+            if (entry.getKey().toString().contains(id)) return entry.getIntValue();
         }
         return 0;
     }
@@ -154,10 +204,10 @@ public class AutoMace implements ClientModInitializer {
         AABB box = target.getBoundingBox();
         Vec3 center = box.getCenter();
         double aimY = box.minY + (target.getBbHeight() * (0.42D + (random.nextDouble() * 0.08D)));
-        Vec3 targetEyePos = new Vec3(center.x + (random.nextDouble() - 0.5D) * 0.08D, aimY, center.z + (random.nextDouble() - 0.5D) * 0.08D);
-        double dx = targetEyePos.x - mc.player.getX();
-        double dy = targetEyePos.y - mc.player.getEyeY();
-        double dz = targetEyePos.z - mc.player.getZ();
+        Vec3 targetPos = new Vec3(center.x + (random.nextDouble() - 0.5D) * 0.08D, aimY, center.z + (random.nextDouble() - 0.5D) * 0.08D);
+        double dx = targetPos.x - mc.player.getX();
+        double dy = targetPos.y - mc.player.getEyeY();
+        double dz = targetPos.z - mc.player.getZ();
         double hDist = Math.sqrt(dx * dx + dz * dz);
         float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
         float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
@@ -166,8 +216,8 @@ public class AutoMace implements ClientModInitializer {
         float iYaw = mc.player.getYRot() + (yawDelta * (ROTATION_SMOOTHNESS + (random.nextFloat() * 0.1F)));
         float iPitch = mc.player.getXRot() + (pitchDelta * (ROTATION_SMOOTHNESS + (random.nextFloat() * 0.1F)));
         double sens = mc.options.sensitivity().get();
-        double f = sens * 0.6D + 0.2D;
-        double gcd = f * f * f * 8.0D * 0.15D;
+        double gcd = (sens * 0.6D + 0.2D);
+        gcd = gcd * gcd * gcd * 8.0D * 0.15D;
         float finalYaw = (float) (mc.player.getYRot() + Math.round((iYaw - mc.player.getYRot()) / gcd) * gcd);
         float finalPitch = (float) (mc.player.getXRot() + Math.round((iPitch - mc.player.getXRot()) / gcd) * gcd);
         mc.player.setYRot(finalYaw);
@@ -207,4 +257,4 @@ public class AutoMace implements ClientModInitializer {
         preSequenceSlot = -1;
         reactionDelayTicks = 0;
     }
-                                 }
+}
