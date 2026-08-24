@@ -76,7 +76,7 @@ public class AutoMace implements ClientModInitializer {
     public static class ConfigurationRegistry {
         private final double maxSwingRange = 3.0D;
         private final double maxAimRange = 4.5D;
-        private final double minFallDistance = 0.5D;
+        private final double minFallDistance = 1.0D;
         private final float baseSnapSpeed = 0.75F;
         private final int tickInterval = 1;
         private final boolean strictCrosshairLock = true;
@@ -159,7 +159,7 @@ public class AutoMace implements ClientModInitializer {
     public static class RotationManager {
         private final Random stochasticRandom = new Random();
 
-        public void executeChestLevelSnap(Vec3 destination, float velocityModifier) {
+        public void executeSmoothSnap(Vec3 destination, float velocityModifier) {
             if (mc.player == null) return;
 
             double diffX = destination.x - mc.player.getX();
@@ -274,7 +274,7 @@ public class AutoMace implements ClientModInitializer {
         }
 
         public boolean checkStunOpportunity(Player targetEntity) {
-            return targetEntity != null && (targetEntity.hurtTime > 0 || hitStunTimer > 3);
+            return targetEntity != null && (targetEntity.hurtTime > 0 || hitStunTimer > 4);
         }
     }
 
@@ -328,7 +328,6 @@ public class AutoMace implements ClientModInitializer {
 
                 case EXECUTE_AXE_PHASE:
                     if (client.player.distanceTo(target) <= cfg.getMaxSwingRange()) {
-                        // Strict chest-level target aiming
                         Vec3 chestTarget = target.getBoundingBox().getCenter();
                         rot.executeSmoothSnap(chestTarget, cfg.getBaseSnapSpeed());
                         client.player.swing(InteractionHand.MAIN_HAND);
