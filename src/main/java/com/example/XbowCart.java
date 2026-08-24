@@ -43,15 +43,19 @@ public class XbowCart implements ClientModInitializer {
             }
 
             boolean lookingAtBlock = mc.hitResult instanceof BlockHitResult;
-            boolean holdingRail = mc.player.getMainHandItem().getItem() == Items.RAIL;
+            boolean holdingAnyRail = isAnyRail(mc.player.getMainHandItem().getItem());
 
-            // Armed via GUI toggle, fires only when looking at ground with a rail
-            if (enabled && lookingAtBlock && holdingRail) {
+            // Armed via GUI toggle, fires only when looking at ground with ANY rail variant
+            if (enabled && lookingAtBlock && holdingAnyRail) {
                 onTick(client);
             } else {
                 HT1CartDirector.getInstance().hardResetSequence();
             }
         });
+    }
+
+    private static boolean isAnyRail(Item item) {
+        return item == Items.RAIL || item == Items.POWERED_RAIL || item == Items.DETECTOR_RAIL || item == Items.ACTIVATOR_RAIL;
     }
 
     public static void toggle() {
@@ -73,7 +77,7 @@ public class XbowCart implements ClientModInitializer {
         private final CartConfiguration configuration = new CartConfiguration();
         private final HotbarSlotAuditor auditor = new HotbarSlotAuditor();
         private final TowerGeometryCalculator geometry = new TowerGeometryCalculator();
-        private final EyezingzCrossbowSimulator shooter = new EyezingzCrossbowSimulator();
+        private final SingleShotCrossbowSimulator shooter = new SingleShotCrossbowSimulator();
         private final CartExecutionStateMachine pipeline = new CartExecutionStateMachine();
 
         public static HT1CartDirector getInstance() {
@@ -94,13 +98,11 @@ public class XbowCart implements ClientModInitializer {
     public static class CartConfiguration {
         private final int actionDelayTicks = 1;
         private final double maxPlacementDistance = 6.0D;
-        private final boolean towerMode = true;
 
         public void refresh() {}
 
         public int getActionDelayTicks() { return actionDelayTicks; }
         public double getMaxPlacementDistance() { return maxPlacementDistance; }
-        public boolean isTowerMode() { return towerMode; }
     }
 
     public static class HotbarSlotAuditor {
@@ -108,6 +110,20 @@ public class XbowCart implements ClientModInitializer {
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = client.player.getInventory().getItem(i);
                 if (stack.getItem() == targetItem) {
+                    client.player.getInventory().setSelectedSlot(i);
+                    if (client.getConnection() != null) {
+                        client.getConnection().send(new ServerboundSetCarriedItemPacket(i));
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public boolean selectAnyRail(Minecraft client) {
+            for (int i = 0; i < 9; i++) {
+                Item item = client.player.getInventory().getItem(i).getItem();
+                if (isAnyRail(item)) {
                     client.player.getInventory().setSelectedSlot(i);
                     if (client.getConnection() != null) {
                         client.getConnection().send(new ServerboundSetCarriedItemPacket(i));
@@ -176,29 +192,20 @@ public class XbowCart implements ClientModInitializer {
         }
     }
 
-    public static class EyezingzCrossbowSimulator {
-        private final Random stochasticJitter = new Random();
-        private int pressTickCounter = 0;
+    public static class SingleShotCrossbowSimulator {
+        private boolean hasFired = false;
 
-        public void simulateEyezingzBurst(Minecraft client) {
+        public void fireOnce(Minecraft client) {
+            if (hasFired) return;
             ItemStack activeStack = client.player.getMainHandItem();
             if (activeStack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(activeStack)) {
                 client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
-            } else {
-                client.options.keyUse.setDown(true);
-                pressTickCounter++;
-                if (pressTickCounter > 4 + stochasticJitter.nextFloat() * 3) {
-                    client.options.keyUse.setDown(false);
-                    pressTickCounter = 0;
-                }
+                hasFired = true;
             }
         }
 
-        public void releaseTriggers() {
-            if (mc.options != null) {
-                mc.options.keyUse.setDown(false);
-            }
-            pressTickCounter = 0;
+        public void reset() {
+            hasFired = false;
         }
     }
 
@@ -208,7 +215,7 @@ public class XbowCart implements ClientModInitializer {
         private int sequenceDelay = 0;
         private long safetyWatchdogEpoch = 0L;
 
-        public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarSlotAuditor auditor, TowerGeometryCalculator geometry, EyezingzCrossbowSimulator shooter) {
+        public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarSlotAuditor auditor, TowerGeometryCalculator geometry, SingleShotCrossbowSimulator shooter) {
             if (sequenceDelay > 0) {
                 sequenceDelay--;
                 return;
@@ -224,12 +231,13 @@ public class XbowCart implements ClientModInitializer {
 
             switch (activePhase) {
                 case INACTIVE:
+                    shooter.reset();
                     activePhase = CartPhase.STAGE_RAIL_DEPLOY;
                     safetyWatchdogEpoch = System.currentTimeMillis() + 1500L;
                     break;
 
                 case STAGE_RAIL_DEPLOY:
-                    if (auditor.selectAndSyncSlot(client, Items.RAIL)) {
+                    if (auditor.selectAnyRail(client)) {
                         if (networkConnection != null) {
                             networkConnection.send(new ServerboundUseItemOnPacket(
                                 InteractionHand.MAIN_HAND,
@@ -272,13 +280,12 @@ public class XbowCart implements ClientModInitializer {
 
                 case STAGE_CROSSBOW_BURST:
                     if (auditor.selectChargedOrAnyCrossbow(client)) {
-                        shooter.simulateEyezingzBurst(client);
+                        shooter.fireOnce(client);
                         sequenceDelay = cfg.getActionDelayTicks();
                     }
                     break;
 
                 case COMPLETE_RESET:
-                    // Intentionally NO slot restoration performed here to prevent rail-activation loop glitches
                     abortSequence();
                     break;
             }
@@ -287,10 +294,7 @@ public class XbowCart implements ClientModInitializer {
         public void abortSequence() {
             activePhase = CartPhase.INACTIVE;
             sequenceDelay = 0;
-            if (mc.options != null) {
-                mc.options.keyUse.setDown(false);
-            }
             safetyWatchdogEpoch = 0L;
         }
     }
-}
+                        }
