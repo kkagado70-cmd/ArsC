@@ -126,7 +126,7 @@ public class XbowCart implements ClientModInitializer {
                 break;
 
             case 3:
-                if (selectItem(client, Items.CROSSBOW)) {
+                if (selectChargedCrossbowOrAny(client)) {
                     ItemStack stack = client.player.getMainHandItem();
                     if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) {
                         client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
@@ -156,6 +156,20 @@ public class XbowCart implements ClientModInitializer {
             }
         }
         return false;
+    }
+
+    private static boolean selectChargedCrossbowOrAny(Minecraft client) {
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = client.player.getInventory().getItem(i);
+            if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) {
+                client.player.getInventory().setSelectedSlot(i);
+                if (client.getConnection() != null) {
+                    client.getConnection().send(new ServerboundSetCarriedItemPacket(i));
+                }
+                return true;
+            }
+        }
+        return selectItem(client, Items.CROSSBOW);
     }
 
     private static void resetState() {
