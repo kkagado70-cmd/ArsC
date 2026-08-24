@@ -66,7 +66,7 @@ public class XbowCart implements ClientModInitializer {
         private final CartConfiguration config = new CartConfiguration();
         private final HotbarAuditor auditor = new HotbarAuditor();
         private final PlacementGeometryEngine placement = new PlacementGeometryEngine();
-        private final CrossbowBurstSimulator crossbow = new CrossbowBurstSimulator();
+        private final CrossbowSimulator crossbow = new CrossbowSimulator();
         private final CartStateMachine stateMachine = new CartStateMachine();
 
         public static HT1CartEngine getInstance() {
@@ -149,13 +149,12 @@ public class XbowCart implements ClientModInitializer {
                     return blockHit;
                 }
             }
-            // Fallback raycast position directly beneath player or in front
             BlockPos fallbackPos = client.player.blockPosition().below();
             return new BlockHitResult(Vec3.atCenterOf(fallbackPos), Direction.UP, fallbackPos, false);
         }
     }
 
-    public static class CrossbowBurstSimulator {
+    public static class CrossbowSimulator {
         private final Random stochasticJitter = new Random();
         private int pressTicks = 0;
 
