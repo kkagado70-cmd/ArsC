@@ -56,6 +56,7 @@ public class AutoMace implements ClientModInitializer {
         private final RotationManager rotator = new RotationManager();
         private final InventoryManager inventory = new InventoryManager();
         private final StunSlamEngine stunEngine = new StunSlamEngine();
+        private final WebMovementHandler webHandler = new WebMovementHandler();
         private final CombatStateMachine pipeline = new CombatStateMachine();
 
         public static EnterpriseCombatCore getInstance() {
@@ -65,7 +66,7 @@ public class AutoMace implements ClientModInitializer {
         public void onTick(Minecraft client) {
             if (client.player == null || client.level == null) return;
             config.refreshParameters();
-            pipeline.processTick(client, config, predictor, rotator, inventory, stunEngine);
+            pipeline.processTick(client, config, predictor, rotator, inventory, stunEngine, webHandler);
         }
 
         public void hardReset() {
@@ -74,21 +75,33 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static class ConfigurationRegistry {
-        private final double maxSwingRange = 3.0D;
-        private final double maxAimRange = 4.5D;
+        private final double defaultSwingRange = 3.0D;
+        private final double spearSwingRange = 4.5D; // Extended 4.5 block spear range
+        private final double maxAimRange = 7.0D;
         private final double minFallDistance = 1.0D;
         private final float baseSnapSpeed = 0.75F;
         private final int tickInterval = 1;
-        private final boolean strictCrosshairLock = true;
 
         public void refreshParameters() {}
 
-        public double getMaxSwingRange() { return maxSwingRange; }
+        public double getDefaultSwingRange() { return defaultSwingRange; }
+        public double getSpearSwingRange() { return spearSwingRange; }
         public double getMaxAimRange() { return maxAimRange; }
         public double getMinFallDistance() { return minFallDistance; }
         public float getBaseSnapSpeed() { return baseSnapSpeed; }
         public int getTickInterval() { return tickInterval; }
-        public boolean isStrictCrosshairLock() { return strictCrosshairLock; }
+    }
+
+    public static class WebMovementHandler {
+        public boolean isTrappedInWeb(Player player) {
+            if (player == null) return false;
+            // Evaluates cobweb or bubble resistance state
+            return player.isInWeb || player.isSlowedByInfested();
+        }
+
+        public int adjustTicksForWeb(int baseTicks, boolean inWeb) {
+            return inWeb ? baseTicks + 1 : baseTicks;
+        }
     }
 
     public static class TargetPredictor {
@@ -120,7 +133,7 @@ public class AutoMace implements ClientModInitializer {
                 calculateTargetDynamics(candidate);
 
                 Optional<Vec3> rayBoxIntersection = candidate.getBoundingBox().clip(eyePosition, eyePosition.add(lookVector.scale(searchRadius)));
-                if (rayBoxIntersection.isPresent() || client.player.distanceTo(candidate) <= 2.5D) {
+                if (rayBoxIntersection.isPresent() || client.player.distanceTo(candidate) <= 3.0D) {
                     double score = client.player.distanceToSqr(candidate);
                     if (score < lowestAngle) {
                         lowestAngle = score;
@@ -168,7 +181,7 @@ public class AutoMace implements ClientModInitializer {
             double distancePlane = Math.sqrt(diffX * diffX + diffZ * diffZ);
 
             float targetYaw = (float) (Math.toDegrees(Math.atan2(diffZ, diffX)) - 90.0D);
-            float targetPitch = (float) (-Math.toDegrees(Math.atan2(diffY, distancePlane)));
+            float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, distancePlane)));
 
             float yawError = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
             float pitchError = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
@@ -194,10 +207,12 @@ public class AutoMace implements ClientModInitializer {
     public static class InventoryManager {
         private int cachedAxeSlot = -1;
         private int cachedMaceSlot = -1;
+        private int cachedSpearSlot = -1;
 
         public void scanHotbarSlots(Player userPlayer, double fallAltitude) {
             cachedAxeSlot = -1;
             cachedMaceSlot = -1;
+            cachedSpearSlot = -1;
             int maxDensityScore = -1;
             int maxBreachScore = -1;
 
@@ -205,7 +220,12 @@ public class AutoMace implements ClientModInitializer {
                 ItemStack slotStack = userPlayer.getInventory().getItem(slotIndex);
                 if (slotStack.isEmpty()) continue;
 
-                if (slotStack.getItem() instanceof AxeItem && cachedAxeSlot == -1) {
+                String itemName = slotStack.getItem().getDescriptionId().toLowerCase();
+
+                // Detect Netherite Spear or extended reach weapons containing "spear"
+                if ((itemName.contains("spear") || slotStack.getHoverName().getString().toLowerCase().contains("spear")) && cachedSpearSlot == -1) {
+                    cachedSpearSlot = slotIndex;
+                } else if (slotStack.getItem() instanceof AxeItem && cachedAxeSlot == -1) {
                     if (slotStack.getDamageValue() < slotStack.getMaxDamage() - 3) {
                         cachedAxeSlot = slotIndex;
                     }
@@ -241,6 +261,7 @@ public class AutoMace implements ClientModInitializer {
 
         public int getAxeSlot() { return cachedAxeSlot; }
         public int getMaceSlot() { return cachedMaceSlot; }
+        public int getSpearSlot() { return cachedSpearSlot; }
 
         public void sendSlotPacket(int slotNumber) {
             if (mc.player == null) return;
@@ -279,13 +300,13 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static class CombatStateMachine {
-        private enum PipelineState { DORMANT, PREPARE_AXE_PHASE, EXECUTE_AXE_PHASE, PREPARE_MACE_PHASE, EXECUTE_MACE_PHASE, FLUSH_RESET }
+        private enum PipelineState { DORMANT, PREPARE_SPEAR_PHASE, EXECUTE_SPEAR_PHASE, PREPARE_AXE_PHASE, EXECUTE_AXE_PHASE, PREPARE_MACE_PHASE, EXECUTE_MACE_PHASE, FLUSH_RESET }
         private PipelineState stage = PipelineState.DORMANT;
         private int internalTickClock = 0;
         private int originalSelectedSlot = -1;
         private long watchdogTimeout = 0L;
 
-        public void processTick(Minecraft client, ConfigurationRegistry cfg, TargetPredictor pred, RotationManager rot, InventoryManager inv, StunSlamEngine diveEngine) {
+        public void processTick(Minecraft client, ConfigurationRegistry cfg, TargetPredictor pred, RotationManager rot, InventoryManager inv, StunSlamEngine diveEngine, WebMovementHandler webHandler) {
             if (internalTickClock > 0) {
                 internalTickClock--;
                 return;
@@ -298,6 +319,7 @@ public class AutoMace implements ClientModInitializer {
 
             diveEngine.evaluatePlayerPhysics(client.player);
             double verticalFall = diveEngine.calculateCurrentFall(client.player);
+            boolean inWeb = webHandler.isTrappedInWeb(client.player);
 
             Player target = pred.acquireStrictCrosshairTarget(client, cfg.getMaxAimRange());
             if (target == null) {
@@ -307,19 +329,48 @@ public class AutoMace implements ClientModInitializer {
 
             inv.scanHotbarSlots(client.player, verticalFall);
             boolean shieldUp = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
+            double distanceToTarget = client.player.distanceTo(target);
+
+            // Dynamic range determination: check spear reach (4.5 blocks) if target is outside standard swing range
+            int spearSlot = inv.getSpearSlot();
+            boolean useSpear = spearSlot != -1 && distanceToTarget > cfg.getDefaultSwingRange() && distanceToTarget <= cfg.getSpearSwingRange();
 
             switch (stage) {
                 case DORMANT:
                     originalSelectedSlot = client.player.getInventory().getSelectedSlot();
-                    stage = shieldUp ? PipelineState.PREPARE_AXE_PHASE : PipelineState.PREPARE_MACE_PHASE;
+                    if (useSpear) {
+                        stage = PipelineState.PREPARE_SPEAR_PHASE;
+                    } else {
+                        stage = shieldUp ? PipelineState.PREPARE_AXE_PHASE : PipelineState.PREPARE_MACE_PHASE;
+                    }
                     watchdogTimeout = System.currentTimeMillis() + 1500L;
+                    break;
+
+                case PREPARE_SPEAR_PHASE:
+                    if (spearSlot != -1) {
+                        inv.sendSlotPacket(spearSlot);
+                        internalTickClock = webHandler.adjustTicksForWeb(cfg.getTickInterval(), inWeb);
+                        stage = PipelineState.EXECUTE_SPEAR_PHASE;
+                    } else {
+                        stage = shieldUp ? PipelineState.PREPARE_AXE_PHASE : PipelineState.PREPARE_MACE_PHASE;
+                    }
+                    break;
+
+                case EXECUTE_SPEAR_PHASE:
+                    if (distanceToTarget <= cfg.getSpearSwingRange()) {
+                        rot.executeSmoothSnap(pred.extrapolateFuturePosition(target, 0.25D), cfg.getBaseSnapSpeed());
+                        client.player.swing(InteractionHand.MAIN_HAND);
+                        client.gameMode.attack(client.player, target);
+                        internalTickClock = webHandler.adjustTicksForWeb(cfg.getTickInterval(), inWeb);
+                        stage = PipelineState.FLUSH_RESET;
+                    }
                     break;
 
                 case PREPARE_AXE_PHASE:
                     int axeSol = inv.getAxeSlot();
                     if (axeSol != -1) {
                         inv.sendSlotPacket(axeSol);
-                        internalTickClock = cfg.getTickInterval();
+                        internalTickClock = webHandler.adjustTicksForWeb(cfg.getTickInterval(), inWeb);
                         stage = PipelineState.EXECUTE_AXE_PHASE;
                     } else {
                         stage = PipelineState.PREPARE_MACE_PHASE;
@@ -327,11 +378,11 @@ public class AutoMace implements ClientModInitializer {
                     break;
 
                 case EXECUTE_AXE_PHASE:
-                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange()) {
+                    if (distanceToTarget <= cfg.getDefaultSwingRange()) {
                         rot.executeSmoothSnap(pred.extrapolateFuturePosition(target, 0.3D), cfg.getBaseSnapSpeed());
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
-                        internalTickClock = cfg.getTickInterval();
+                        internalTickClock = webHandler.adjustTicksForWeb(cfg.getTickInterval(), inWeb);
                         stage = PipelineState.PREPARE_MACE_PHASE;
                     }
                     break;
@@ -340,7 +391,7 @@ public class AutoMace implements ClientModInitializer {
                     int maceSol = inv.getMaceSlot();
                     if (maceSol != -1) {
                         inv.sendSlotPacket(maceSol);
-                        internalTickClock = cfg.getTickInterval();
+                        internalTickClock = webHandler.adjustTicksForWeb(cfg.getTickInterval(), inWeb);
                         stage = PipelineState.EXECUTE_MACE_PHASE;
                     } else {
                         stage = PipelineState.FLUSH_RESET;
@@ -349,11 +400,11 @@ public class AutoMace implements ClientModInitializer {
 
                 case EXECUTE_MACE_PHASE:
                     boolean ready = verticalFall >= cfg.getMinFallDistance() || diveEngine.checkStunOpportunity(target);
-                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && ready) {
+                    if (distanceToTarget <= cfg.getDefaultSwingRange() && ready) {
                         rot.executeSmoothSnap(pred.extrapolateFuturePosition(target, 0.3D), cfg.getBaseSnapSpeed());
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
-                        internalTickClock = cfg.getTickInterval();
+                        internalTickClock = webHandler.adjustTicksForWeb(cfg.getTickInterval(), inWeb);
                         stage = PipelineState.FLUSH_RESET;
                     }
                     break;
@@ -377,4 +428,4 @@ public class AutoMace implements ClientModInitializer {
             watchdogTimeout = 0L;
         }
     }
-                }
+                            }
