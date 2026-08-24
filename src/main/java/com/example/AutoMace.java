@@ -28,12 +28,12 @@ public class AutoMace implements ClientModInitializer {
     public static boolean enabled = false;
 
     private static final double MAX_SWING_RANGE = 2.84D;
-    private static final double MAX_AIM_RANGE = 4.5D;
+    private static final double MAX_AIM_RANGE = 4.2D;
     private static final double MIN_FALL_DIST = 1.3D;
 
     private static final Random random = new Random();
     private static int reactionDelayTicks = 0;
-    private static final float ROTATION_SMOOTHNESS = 0.8F;
+    private static final float ROTATION_SMOOTHNESS = 0.65F;
 
     private static Player currentTarget = null;
     private static State state = State.IDLE;
@@ -56,7 +56,7 @@ public class AutoMace implements ClientModInitializer {
             "key.automace.toggle",
             InputConstants.Type.KEYSYM,
             GLFW.GLFW_KEY_M,
-            "key.categories.misc"
+            KeyMapping.CATEGORY_MISC
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -100,7 +100,7 @@ public class AutoMace implements ClientModInitializer {
         if (state == State.IDLE) {
             currentTarget = locateTarget(MAX_AIM_RANGE);
             if (currentTarget != null) {
-                reactionDelayTicks = 1 + random.nextInt(2);
+                reactionDelayTicks = 2 + random.nextInt(2);
             }
         }
 
@@ -142,7 +142,7 @@ public class AutoMace implements ClientModInitializer {
 
             case AXE_STRIKE:
                 if (canValidlyAttack(currentTarget)) {
-                    applyProfessionalRotation(currentTarget);
+                    applyBypassedRotation(currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     mc.gameMode.attack(mc.player, currentTarget);
                     delayTimer = 2;
@@ -163,7 +163,7 @@ public class AutoMace implements ClientModInitializer {
 
             case MACE_SLAM:
                 if (canValidlyAttack(currentTarget)) {
-                    applyProfessionalRotation(currentTarget);
+                    applyBypassedRotation(currentTarget);
                     mc.player.swing(InteractionHand.MAIN_HAND);
                     mc.gameMode.attack(mc.player, currentTarget);
                     delayTimer = 2;
@@ -245,13 +245,13 @@ public class AutoMace implements ClientModInitializer {
         return 0;
     }
 
-    private static void applyProfessionalRotation(Player target) {
+    private static void applyBypassedRotation(Player target) {
         if (mc.player == null || target == null) return;
 
         AABB box = target.getBoundingBox();
         Vec3 center = box.getCenter();
-        double aimY = box.minY + (target.getBbHeight() * 0.45D);
-        Vec3 targetEyePos = new Vec3(center.x, aimY, center.z);
+        double aimY = box.minY + (target.getBbHeight() * (0.42D + (random.nextDouble() * 0.08D)));
+        Vec3 targetEyePos = new Vec3(center.x + (random.nextDouble() - 0.5D) * 0.08D, aimY, center.z + (random.nextDouble() - 0.5D) * 0.08D);
 
         double dx = targetEyePos.x - mc.player.getX();
         double dy = targetEyePos.y - mc.player.getEyeY();
@@ -264,8 +264,8 @@ public class AutoMace implements ClientModInitializer {
         float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
         float pitchDelta = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
 
-        float interpolatedYaw = mc.player.getYRot() + (yawDelta * ROTATION_SMOOTHNESS);
-        float interpolatedPitch = mc.player.getXRot() + (pitchDelta * ROTATION_SMOOTHNESS);
+        float interpolatedYaw = mc.player.getYRot() + (yawDelta * (ROTATION_SMOOTHNESS + (random.nextFloat() * 0.1F)));
+        float interpolatedPitch = mc.player.getXRot() + (pitchDelta * (ROTATION_SMOOTHNESS + (random.nextFloat() * 0.1F)));
 
         double sensitivity = mc.options.sensitivity().get();
         double f = sensitivity * 0.6D + 0.2D;
