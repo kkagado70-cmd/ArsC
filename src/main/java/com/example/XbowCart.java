@@ -19,8 +19,6 @@ import net.minecraft.world.phys.Vec3;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
-import java.util.Random;
-
 public class XbowCart implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
@@ -97,13 +95,11 @@ public class XbowCart implements ClientModInitializer {
     public static class CartConfiguration {
         private final int actionDelayTicks = 1;
         private final double maxPlacementDistance = 6.0D;
-        private final boolean towerMode = true;
 
         public void refresh() {}
 
         public int getActionDelayTicks() { return actionDelayTicks; }
         public double getMaxPlacementDistance() { return maxPlacementDistance; }
-        public boolean isTowerMode() { return towerMode; }
     }
 
     public static class HotbarSlotAuditor {
@@ -205,13 +201,17 @@ public class XbowCart implements ClientModInitializer {
             }
         }
 
+        public boolean hasFired() {
+            return hasFired;
+        }
+
         public void reset() {
             hasFired = false;
         }
     }
 
     public static class CartExecutionStateMachine {
-        private enum CartPhase { INACTIVE, STAGE_RAIL_DEPLOY, STAGE_CART_DEPLOY, STAGE_FIRE_IGNITE, STAGE_CROSSBOW_BURST, COMPLETE_RESET }
+        private enum CartPhase { INACTIVE, STAGE_RAIL_DEPLOY, STAGE_CART_DEPLOY, STAGE_FIRE_IGNITE, STAGE_CROSSBOW_BURST, COMPLETE_LOCK }
         private CartPhase activePhase = CartPhase.INACTIVE;
         private int sequenceDelay = 0;
         private long safetyWatchdogEpoch = 0L;
@@ -282,12 +282,15 @@ public class XbowCart implements ClientModInitializer {
                 case STAGE_CROSSBOW_BURST:
                     if (auditor.selectChargedOrAnyCrossbow(client)) {
                         shooter.fireOnce(client);
+                        if (shooter.hasFired()) {
+                            activePhase = CartPhase.COMPLETE_LOCK;
+                        }
                         sequenceDelay = cfg.getActionDelayTicks();
                     }
                     break;
 
-                case COMPLETE_RESET:
-                    abortSequence();
+                case COMPLETE_LOCK:
+                    // Prevents infinite looping: holds execution until player releases rail or toggles off
                     break;
             }
         }
@@ -298,4 +301,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-                                         }
+                            }
