@@ -77,9 +77,8 @@ public class AutoMace implements ClientModInitializer {
         private final double maxSwingRange = 3.0D;
         private final double maxAimRange = 4.5D;
         private final double minFallDistance = 1.0D;
-        private final float baseSnapSpeed = 0.75F;
+        private final float baseSnapSpeed = 0.85F;
         private final int tickInterval = 1;
-        private final boolean strictCrosshairLock = true;
 
         public void refreshParameters() {}
 
@@ -88,7 +87,6 @@ public class AutoMace implements ClientModInitializer {
         public double getMinFallDistance() { return minFallDistance; }
         public float getBaseSnapSpeed() { return baseSnapSpeed; }
         public int getTickInterval() { return tickInterval; }
-        public boolean isStrictCrosshairLock() { return strictCrosshairLock; }
     }
 
     public static class TargetPredictor {
@@ -296,14 +294,19 @@ public class AutoMace implements ClientModInitializer {
                 return;
             }
 
-            diveEngine.evaluatePlayerPhysics(client.player);
-            double verticalFall = diveEngine.calculateCurrentFall(client.player);
-
             Player target = pred.acquireStrictCrosshairTarget(client, cfg.getMaxAimRange());
             if (target == null) {
                 if (stage != PipelineState.DORMANT) abortPipeline();
                 return;
             }
+
+            // Strict Gate: Do NOT initiate combat swapping until the target is actually within swing range!
+            if (client.player.distanceTo(target) > cfg.getMaxSwingRange() && stage == PipelineState.DORMANT) {
+                return;
+            }
+
+            diveEngine.evaluatePlayerPhysics(client.player);
+            double verticalFall = diveEngine.calculateCurrentFall(client.player);
 
             inv.scanHotbarSlots(client.player, verticalFall);
             boolean shieldUp = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
