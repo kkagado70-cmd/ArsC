@@ -79,6 +79,7 @@ public class AutoMace implements ClientModInitializer {
         private final double minFallDistance = 1.0D;
         private final float baseSnapSpeed = 0.85F;
         private final int tickInterval = 1;
+        private final boolean strictCrosshairLock = true;
 
         public void refreshParameters() {}
 
@@ -87,6 +88,7 @@ public class AutoMace implements ClientModInitializer {
         public double getMinFallDistance() { return minFallDistance; }
         public float getBaseSnapSpeed() { return baseSnapSpeed; }
         public int getTickInterval() { return tickInterval; }
+        public boolean isStrictCrosshairLock() { return strictCrosshairLock; }
     }
 
     public static class TargetPredictor {
@@ -294,28 +296,30 @@ public class AutoMace implements ClientModInitializer {
                 return;
             }
 
+            diveEngine.evaluatePlayerPhysics(client.player);
+            double verticalFall = diveEngine.calculateCurrentFall(client.player);
+
             Player target = pred.acquireStrictCrosshairTarget(client, cfg.getMaxAimRange());
             if (target == null) {
                 if (stage != PipelineState.DORMANT) abortPipeline();
                 return;
             }
 
-            // Strict Gate: Do NOT initiate combat swapping until the target is actually within swing range!
-            if (client.player.distanceTo(target) > cfg.getMaxSwingRange() && stage == PipelineState.DORMANT) {
-                return;
-            }
-
-            diveEngine.evaluatePlayerPhysics(client.player);
-            double verticalFall = diveEngine.calculateCurrentFall(client.player);
-
             inv.scanHotbarSlots(client.player, verticalFall);
             boolean shieldUp = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
+            boolean isFallingOrStunned = verticalFall >= cfg.getMinFallDistance() || diveEngine.checkStunOpportunity(target);
 
             switch (stage) {
                 case DORMANT:
                     originalSelectedSlot = client.player.getInventory().getSelectedSlot();
-                    stage = shieldUp ? PipelineState.PREPARE_AXE_PHASE : PipelineState.PREPARE_MACE_PHASE;
-                    watchdogTimeout = System.currentTimeMillis() + 1500L;
+                    if (shieldUp) {
+                        stage = PipelineState.PREPARE_AXE_PHASE;
+                        watchdogTimeout = System.currentTimeMillis() + 1500L;
+                    } else if (isFallingOrStunned) {
+                        // Strict gate: NEVER switch to mace unless actually falling or stunned
+                        stage = PipelineState.PREPARE_MACE_PHASE;
+                        watchdogTimeout = System.currentTimeMillis() + 1500L;
+                    }
                     break;
 
                 case PREPARE_AXE_PHASE:
@@ -325,7 +329,7 @@ public class AutoMace implements ClientModInitializer {
                         internalTickClock = cfg.getTickInterval();
                         stage = PipelineState.EXECUTE_AXE_PHASE;
                     } else {
-                        stage = PipelineState.PREPARE_MACE_PHASE;
+                        stage = PipelineState.FLUSH_RESET;
                     }
                     break;
 
@@ -336,13 +340,13 @@ public class AutoMace implements ClientModInitializer {
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
                         internalTickClock = cfg.getTickInterval();
-                        stage = PipelineState.PREPARE_MACE_PHASE;
+                        stage = PipelineState.FLUSH_RESET;
                     }
                     break;
 
                 case PREPARE_MACE_PHASE:
                     int maceSol = inv.getMaceSlot();
-                    if (maceSol != -1) {
+                    if (maceSol != -1 && isFallingOrStunned) {
                         inv.sendSlotPacket(maceSol);
                         internalTickClock = cfg.getTickInterval();
                         stage = PipelineState.EXECUTE_MACE_PHASE;
@@ -352,8 +356,7 @@ public class AutoMace implements ClientModInitializer {
                     break;
 
                 case EXECUTE_MACE_PHASE:
-                    boolean ready = verticalFall >= cfg.getMinFallDistance() || diveEngine.checkStunOpportunity(target);
-                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && ready) {
+                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && isFallingOrStunned) {
                         Vec3 chestTarget = target.getBoundingBox().getCenter();
                         rot.executeSmoothSnap(chestTarget, cfg.getBaseSnapSpeed());
                         client.player.swing(InteractionHand.MAIN_HAND);
@@ -382,4 +385,4 @@ public class AutoMace implements ClientModInitializer {
             watchdogTimeout = 0L;
         }
     }
-                }
+                    }
