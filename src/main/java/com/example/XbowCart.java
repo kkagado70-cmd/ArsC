@@ -11,6 +11,7 @@ import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
+import net.minecraft.network.protocol.game.ServerboundUseItemOnPacket;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -22,6 +23,7 @@ public class XbowCart implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
+    private static boolean wasRightClicking = false;
 
     @Override
     public void onInitializeClient() {
@@ -39,14 +41,25 @@ public class XbowCart implements ClientModInitializer {
                 HT1CartDirector.getInstance().hardResetSequence();
             }
 
+            if (!enabled) {
+                HT1CartDirector.getInstance().hardResetSequence();
+                wasRightClicking = false;
+                return;
+            }
+
             boolean lookingAtBlock = mc.hitResult instanceof BlockHitResult;
             boolean holdingAnyRail = isAnyRail(mc.player.getMainHandItem().getItem());
+            boolean isRightClicking = mc.options.keyUse.isDown();
 
-            // Reusable look-at-ground trigger: runs while enabled and looking down with a rail
-            if (enabled && lookingAtBlock && holdingAnyRail) {
-                onTick(client);
-            } else {
-                HT1CartDirector.getInstance().hardResetSequence();
+            // Trigger ONLY on right-click down while looking at a block with a rail, avoiding hotbar shuffling while idle
+            if (enabled && lookingAtBlock && holdingAnyRail && isRightClicking && !wasRightClicking) {
+                HT1CartDirector.getInstance().startSequence();
+            }
+
+            wasRightClicking = isRightClicking;
+
+            if (HT1CartDirector.getInstance().isExecuting()) {
+                HT1CartDirector.getInstance().processTick(client);
             }
         });
     }
@@ -58,15 +71,6 @@ public class XbowCart implements ClientModInitializer {
     public static void toggle() {
         enabled = !enabled;
         HT1CartDirector.getInstance().hardResetSequence();
-    }
-
-    public static void onTick() {
-        onTick(Minecraft.getInstance());
-    }
-
-    public static void onTick(Minecraft client) {
-        if (client.player == null || client.level == null) return;
-        HT1CartDirector.getInstance().processTick(client);
     }
 
     public static class HT1CartDirector {
@@ -87,21 +91,27 @@ public class XbowCart implements ClientModInitializer {
             pipeline.executeSequence(client, configuration, auditor, geometry, simulator);
         }
 
+        public void startSequence() {
+            pipeline.triggerSequence();
+        }
+
+        public boolean isExecuting() {
+            return pipeline.isExecuting();
+        }
+
         public void hardResetSequence() {
             pipeline.abortSequence();
         }
     }
 
     public static class CartConfiguration {
-        private final int actionDelayTicks = 2;
+        private final int actionDelayTicks = 1;
         private final double maxPlacementDistance = 6.0D;
-        private final boolean towerMode = true;
 
         public void refresh() {}
 
         public int getActionDelayTicks() { return actionDelayTicks; }
         public double getMaxPlacementDistance() { return maxPlacementDistance; }
-        public boolean isTowerMode() { return towerMode; }
     }
 
     public static class HotbarSlotAuditor {
@@ -116,15 +126,6 @@ public class XbowCart implements ClientModInitializer {
                     return true;
                 }
             }
-            // Auto-refill from main inventory slots (9-35) to hotbar if depleted
-            for (int i = 9; i < 36; i++) {
-                ItemStack stack = client.player.getInventory().getItem(i);
-                if (stack.getItem() == targetItem) {
-                    client.player.getInventory().setSelectedSlot(0);
-                    client.gameMode.handleInventoryMouseClick(0, i, 0, net.minecraft.world.inventory.ClickType.SWAP, client.player);
-                    return true;
-                }
-            }
             return false;
         }
 
@@ -136,15 +137,6 @@ public class XbowCart implements ClientModInitializer {
                     if (client.getConnection() != null) {
                         client.getConnection().send(new ServerboundSetCarriedItemPacket(i));
                     }
-                    return true;
-                }
-            }
-            // Auto-refill rail from main inventory
-            for (int i = 9; i < 36; i++) {
-                ItemStack stack = client.player.getInventory().getItem(i);
-                if (isAnyRail(stack.getItem())) {
-                    client.player.getInventory().setSelectedSlot(0);
-                    client.gameMode.handleInventoryMouseClick(0, i, 0, net.minecraft.world.inventory.ClickType.SWAP, client.player);
                     return true;
                 }
             }
@@ -266,18 +258,22 @@ public class XbowCart implements ClientModInitializer {
     }
 
     public static class CartExecutionStateMachine {
-        private enum CartPhase { INACTIVE, STAGE_RAIL_DEPLOY, STAGE_CART_DEPLOY, STAGE_FIRE_IGNITE, STAGE_CROSSBOW_BURST, COMPLETE_RESET }
+        private enum CartPhase { INACTIVE, STAGE_RAIL_DEPLOY, STAGE_CART_DEPLOY, STAGE_FIRE_IGNITE, STAGE_CROSSBOW_BURST, COMPLETE_LOCK }
         private CartPhase activePhase = CartPhase.INACTIVE;
         private int sequenceDelay = 0;
         private long safetyWatchdogEpoch = 0L;
 
         public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarSlotAuditor auditor, TowerGeometryCalculator geometry, LegitimateInteractionSimulator simulator) {
+            if (activePhase == CartPhase.INACTIVE || activePhase == CartPhase.COMPLETE_LOCK) {
+                return;
+            }
+
             if (sequenceDelay > 0) {
                 sequenceDelay--;
                 return;
             }
 
-            if (System.currentTimeMillis() > safetyWatchdogEpoch && activePhase != CartPhase.INACTIVE) {
+            if (System.currentTimeMillis() > safetyWatchdogEpoch) {
                 abortSequence();
                 return;
             }
@@ -285,12 +281,6 @@ public class XbowCart implements ClientModInitializer {
             TowerData tower = geometry.resolveTowerStructure(client, cfg.getMaxPlacementDistance());
 
             switch (activePhase) {
-                case INACTIVE:
-                    simulator.reset();
-                    activePhase = CartPhase.STAGE_RAIL_DEPLOY;
-                    safetyWatchdogEpoch = System.currentTimeMillis() + 1500L;
-                    break;
-
                 case STAGE_RAIL_DEPLOY:
                     if (auditor.selectAnyRail(client)) {
                         simulator.placeRailOnce(client, tower.getCartPosition(), tower.getHitFace());
@@ -319,13 +309,26 @@ public class XbowCart implements ClientModInitializer {
                     if (auditor.selectChargedOrAnyCrossbow(client)) {
                         simulator.fireCrossbowOnce(client);
                         if (simulator.hasFired()) {
-                            // Immediately reset state machine so it can be reused on the next tower instantly
-                            abortSequence();
+                            activePhase = CartPhase.COMPLETE_LOCK;
                         }
                         sequenceDelay = cfg.getActionDelayTicks();
                     }
                     break;
+
+                default:
+                    break;
             }
+        }
+
+        public void triggerSequence() {
+            if (activePhase == CartPhase.INACTIVE || activePhase == CartPhase.COMPLETE_LOCK) {
+                activePhase = CartPhase.STAGE_RAIL_DEPLOY;
+                safetyWatchdogEpoch = System.currentTimeMillis() + 1500L;
+            }
+        }
+
+        public boolean isExecuting() {
+            return activePhase != CartPhase.INACTIVE && activePhase != CartPhase.COMPLETE_LOCK;
         }
 
         public void abortSequence() {
@@ -334,4 +337,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-                                }
+}
