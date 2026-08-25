@@ -76,19 +76,17 @@ public class AutoMace implements ClientModInitializer {
     public static class ConfigurationRegistry {
         private final double maxSwingRange = 3.0D;
         private final double maxAimRange = 4.5D;
-        private final double minFallDistance = 2.0D;
-        private final float baseSnapSpeed = 0.85F;
+        private final double minFallDistance = 1.5D;
+        private final float baseSnapSpeed = 0.90Y = 0.90F; // Fast, fluid human snap
         private final int tickInterval = 1;
-        private final boolean strictCrosshairLock = true;
 
         public void refreshParameters() {}
 
         public double getMaxSwingRange() { return maxSwingRange; }
         public double getMaxAimRange() { return maxAimRange; }
         public double getMinFallDist() { return minFallDistance; }
-        public float getBaseSnapSpeed() { return baseSnapSpeed; }
+        public float getBaseSnapSpeed() { return 0.90F; }
         public int getTickInterval() { return tickInterval; }
-        public boolean isStrictCrosshairLock() { return strictCrosshairLock; }
     }
 
     public static class TargetPredictor {
@@ -173,8 +171,9 @@ public class AutoMace implements ClientModInitializer {
             float yawError = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
             float pitchError = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
 
-            float stepYaw = yawError * (velocityModifier + (stochasticRandom.nextFloat() * 0.04F));
-            float stepPitch = pitchError * (velocityModifier + (stochasticRandom.nextFloat() * 0.04F));
+            // Humanized easing curve: fast yet completely smooth
+            float stepYaw = yawError * (velocityModifier + (stochasticRandom.nextFloat() * 0.03F));
+            float stepPitch = pitchError * (velocityModifier + (stochasticRandom.nextFloat() * 0.03F));
 
             float rawYaw = mc.player.getYRot() + stepYaw;
             float rawPitch = mc.player.getXRot() + stepPitch;
@@ -274,7 +273,7 @@ public class AutoMace implements ClientModInitializer {
         }
 
         public boolean checkStunOpportunity(Player targetEntity) {
-            return targetEntity != null && (targetEntity.hurtTime > 0 || hitStunTimer > 4);
+            return targetEntity != null && (targetEntity.hurtTime > 0 || hitStunTimer > 3);
         }
     }
 
@@ -306,19 +305,18 @@ public class AutoMace implements ClientModInitializer {
                 return;
             }
 
-            Vec3 chestTarget = target.getBoundingBox().getCenter();
-            rot.executeSmoothSnap(chestTarget, cfg.getBaseSnapSpeed());
-
             inv.scanHotbarSlots(client.player, verticalFall);
             boolean shieldUp = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
 
             switch (stage) {
                 case DORMANT:
-                    originalSelectedSlot = client.player.getInventory().getSelectedSlot();
+                    // Strict Gate: Never activate aiming or swapping unless shielding or actually falling!
                     if (shieldUp) {
+                        originalSelectedSlot = client.player.getInventory().getSelectedSlot();
                         stage = PipelineState.PREPARE_AXE_PHASE;
                         watchdogTimeout = System.currentTimeMillis() + 1500L;
                     } else if (isActuallyFalling) {
+                        originalSelectedSlot = client.player.getInventory().getSelectedSlot();
                         stage = PipelineState.PREPARE_MACE_PHASE;
                         watchdogTimeout = System.currentTimeMillis() + 1500L;
                     }
@@ -337,6 +335,8 @@ public class AutoMace implements ClientModInitializer {
 
                 case EXECUTE_AXE_PHASE:
                     if (client.player.distanceTo(target) <= cfg.getMaxSwingRange()) {
+                        Vec3 chestTarget = target.getBoundingBox().getCenter();
+                        rot.executeSmoothSnap(chestTarget, cfg.getBaseSnapSpeed());
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
                         internalTickClock = cfg.getTickInterval();
@@ -357,6 +357,8 @@ public class AutoMace implements ClientModInitializer {
 
                 case EXECUTE_MACE_PHASE:
                     if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && isActuallyFalling) {
+                        Vec3 chestTarget = target.getBoundingBox().getCenter();
+                        rot.executeSmoothSnap(chestTarget, cfg.getBaseSnapSpeed());
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
                         internalTickClock = cfg.getTickInterval();
@@ -383,4 +385,4 @@ public class AutoMace implements ClientModInitializer {
             watchdogTimeout = 0L;
         }
     }
-        }
+                                }
