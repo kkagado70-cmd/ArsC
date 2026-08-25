@@ -55,6 +55,7 @@ public class AutoMace implements ClientModInitializer {
         private final TargetPredictor predictor = new TargetPredictor();
         private final RotationManager rotator = new RotationManager();
         private final InventoryManager inventory = new InventoryManager();
+        private final StunSlamEngine stunEngine = new StunSlamEngine();
         private final CombatStateMachine pipeline = new CombatStateMachine();
 
         public static EnterpriseCombatCore getInstance() {
@@ -64,7 +65,7 @@ public class AutoMace implements ClientModInitializer {
         public void onTick(Minecraft client) {
             if (client.player == null || client.level == null) return;
             config.refreshParameters();
-            pipeline.processTick(client, config, predictor, rotator, inventory);
+            pipeline.processTick(client, config, predictor, rotator, inventory, stunEngine);
         }
 
         public void hardReset() {
@@ -75,9 +76,10 @@ public class AutoMace implements ClientModInitializer {
     public static class ConfigurationRegistry {
         private final double maxSwingRange = 3.0D;
         private final double maxAimRange = 4.5D;
-        private final double minFallDistance = 2.0D; // Strict 2-block fall gate
+        private final double minFallDistance = 2.0D;
         private final float baseSnapSpeed = 0.85F;
         private final int tickInterval = 1;
+        private final boolean strictCrosshairLock = true;
 
         public void refreshParameters() {}
 
@@ -86,6 +88,7 @@ public class AutoMace implements ClientModInitializer {
         public double getMinFallDist() { return minFallDistance; }
         public float getBaseSnapSpeed() { return baseSnapSpeed; }
         public int getTickInterval() { return tickInterval; }
+        public boolean isStrictCrosshairLock() { return strictCrosshairLock; }
     }
 
     public static class TargetPredictor {
@@ -248,6 +251,33 @@ public class AutoMace implements ClientModInitializer {
         }
     }
 
+    public static class StunSlamEngine {
+        private double baselinePeakY = 0.0D;
+        private int hitStunTimer = 0;
+
+        public void evaluatePlayerPhysics(Player localPlayer) {
+            if (localPlayer == null) return;
+            if (localPlayer.onGround()) {
+                baselinePeakY = localPlayer.getY();
+                hitStunTimer = 0;
+            } else {
+                if (localPlayer.getY() > baselinePeakY || baselinePeakY - localPlayer.getY() > 600.0D) {
+                    baselinePeakY = localPlayer.getY();
+                }
+                hitStunTimer++;
+            }
+        }
+
+        public double calculateCurrentFall(Player localPlayer) {
+            if (localPlayer == null) return 0.0D;
+            return Math.max(0.0D, baselinePeakY - localPlayer.getY());
+        }
+
+        public boolean checkStunOpportunity(Player targetEntity) {
+            return targetEntity != null && (targetEntity.hurtTime > 0 || hitStunTimer > 4);
+        }
+    }
+
     public static class CombatStateMachine {
         private enum PipelineState { DORMANT, PREPARE_AXE_PHASE, EXECUTE_AXE_PHASE, PREPARE_MACE_PHASE, EXECUTE_MACE_PHASE, FLUSH_RESET }
         private PipelineState stage = PipelineState.DORMANT;
@@ -255,7 +285,7 @@ public class AutoMace implements ClientModInitializer {
         private int originalSelectedSlot = -1;
         private long watchdogTimeout = 0L;
 
-        public void processTick(Minecraft client, ConfigurationRegistry cfg, TargetPredictor pred, RotationManager rot, InventoryManager inv) {
+        public void processTick(Minecraft client, ConfigurationRegistry cfg, TargetPredictor pred, RotationManager rot, InventoryManager inv, StunSlamEngine diveEngine) {
             if (internalTickClock > 0) {
                 internalTickClock--;
                 return;
@@ -266,8 +296,9 @@ public class AutoMace implements ClientModInitializer {
                 return;
             }
 
-            double currentFall = client.player.fallDistance;
-            boolean isActuallyFalling = currentFall >= cfg.getMinFallDist() && client.player.getDeltaMovement().y < -0.1D;
+            diveEngine.evaluatePlayerPhysics(client.player);
+            double verticalFall = diveEngine.calculateCurrentFall(client.player);
+            boolean isActuallyFalling = verticalFall >= cfg.getMinFallDist() && client.player.getDeltaMovement().y < -0.1D;
 
             Player target = pred.acquireStrictCrosshairTarget(client, cfg.getMaxAimRange());
             if (target == null) {
@@ -275,7 +306,10 @@ public class AutoMace implements ClientModInitializer {
                 return;
             }
 
-            inv.scanHotbarSlots(client.player, currentFall);
+            Vec3 chestTarget = target.getBoundingBox().getCenter();
+            rot.executeSmoothSnap(chestTarget, cfg.getBaseSnapSpeed());
+
+            inv.scanHotbarSlots(client.player, verticalFall);
             boolean shieldUp = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
 
             switch (stage) {
@@ -303,8 +337,6 @@ public class AutoMace implements ClientModInitializer {
 
                 case EXECUTE_AXE_PHASE:
                     if (client.player.distanceTo(target) <= cfg.getMaxSwingRange()) {
-                        Vec3 chestTarget = target.getBoundingBox().getCenter();
-                        rot.executeSmoothSnap(chestTarget, cfg.getBaseSnapSpeed());
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
                         internalTickClock = cfg.getTickInterval();
@@ -325,8 +357,6 @@ public class AutoMace implements ClientModInitializer {
 
                 case EXECUTE_MACE_PHASE:
                     if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && isActuallyFalling) {
-                        Vec3 chestTarget = target.getBoundingBox().getCenter();
-                        rot.executeSmoothSnap(chestTarget, cfg.getBaseSnapSpeed());
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
                         internalTickClock = cfg.getTickInterval();
@@ -353,4 +383,4 @@ public class AutoMace implements ClientModInitializer {
             watchdogTimeout = 0L;
         }
     }
-                        }
+        }
