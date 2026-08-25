@@ -11,7 +11,6 @@ import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
-import net.minecraft.network.protocol.game.ServerboundUseItemOnPacket;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -41,25 +40,11 @@ public class XbowCart implements ClientModInitializer {
                 HT1CartDirector.getInstance().hardResetSequence();
             }
 
-            if (!enabled) {
+            if (enabled) {
+                onTick(client);
+            } else {
                 HT1CartDirector.getInstance().hardResetSequence();
                 wasRightClicking = false;
-                return;
-            }
-
-            boolean lookingAtBlock = mc.hitResult instanceof BlockHitResult;
-            boolean holdingAnyRail = isAnyRail(mc.player.getMainHandItem().getItem());
-            boolean isRightClicking = mc.options.keyUse.isDown();
-
-            // Trigger ONLY on right-click down while looking at a block with a rail, avoiding hotbar shuffling while idle
-            if (enabled && lookingAtBlock && holdingAnyRail && isRightClicking && !wasRightClicking) {
-                HT1CartDirector.getInstance().startSequence();
-            }
-
-            wasRightClicking = isRightClicking;
-
-            if (HT1CartDirector.getInstance().isExecuting()) {
-                HT1CartDirector.getInstance().processTick(client);
             }
         });
     }
@@ -71,6 +56,28 @@ public class XbowCart implements ClientModInitializer {
     public static void toggle() {
         enabled = !enabled;
         HT1CartDirector.getInstance().hardResetSequence();
+    }
+
+    public static void onTick() {
+        onTick(Minecraft.getInstance());
+    }
+
+    public static void onTick(Minecraft client) {
+        if (client.player == null || client.level == null) return;
+
+        boolean lookingAtBlock = client.hitResult instanceof BlockHitResult;
+        boolean holdingAnyRail = isAnyRail(client.player.getMainHandItem().getItem());
+        boolean isRightClicking = client.options.keyUse.isDown();
+
+        if (lookingAtBlock && holdingAnyRail && isRightClicking && !wasRightClicking) {
+            HT1CartDirector.getInstance().startSequence();
+        }
+
+        wasRightClicking = isRightClicking;
+
+        if (HT1CartDirector.getInstance().isExecuting()) {
+            HT1CartDirector.getInstance().processTick(client);
+        }
     }
 
     public static class HT1CartDirector {
@@ -105,13 +112,15 @@ public class XbowCart implements ClientModInitializer {
     }
 
     public static class CartConfiguration {
-        private final int actionDelayTicks = 1;
+        private final int actionDelayTicks = 2;
         private final double maxPlacementDistance = 6.0D;
+        private final boolean towerMode = true;
 
         public void refresh() {}
 
         public int getActionDelayTicks() { return actionDelayTicks; }
         public double getMaxPlacementDistance() { return maxPlacementDistance; }
+        public boolean isTowerMode() { return towerMode; }
     }
 
     public static class HotbarSlotAuditor {
@@ -264,7 +273,7 @@ public class XbowCart implements ClientModInitializer {
         private long safetyWatchdogEpoch = 0L;
 
         public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarSlotAuditor auditor, TowerGeometryCalculator geometry, LegitimateInteractionSimulator simulator) {
-            if (activePhase == CartPhase.INACTIVE || activePhase == CartPhase.COMPLETE_LOCK) {
+            if (activePhase == CartPhase.COMPLETE_LOCK) {
                 return;
             }
 
@@ -273,7 +282,7 @@ public class XbowCart implements ClientModInitializer {
                 return;
             }
 
-            if (System.currentTimeMillis() > safetyWatchdogEpoch) {
+            if (System.currentTimeMillis() > safetyWatchdogEpoch && activePhase != CartPhase.INACTIVE) {
                 abortSequence();
                 return;
             }
@@ -281,6 +290,12 @@ public class XbowCart implements ClientModInitializer {
             TowerData tower = geometry.resolveTowerStructure(client, cfg.getMaxPlacementDistance());
 
             switch (activePhase) {
+                case INACTIVE:
+                    simulator.reset();
+                    activePhase = CartPhase.STAGE_RAIL_DEPLOY;
+                    safetyWatchdogEpoch = System.currentTimeMillis() + 1500L;
+                    break;
+
                 case STAGE_RAIL_DEPLOY:
                     if (auditor.selectAnyRail(client)) {
                         simulator.placeRailOnce(client, tower.getCartPosition(), tower.getHitFace());
@@ -315,7 +330,7 @@ public class XbowCart implements ClientModInitializer {
                     }
                     break;
 
-                default:
+                case COMPLETE_LOCK:
                     break;
             }
         }
@@ -337,4 +352,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-}
+                    }
