@@ -39,10 +39,7 @@ public class XbowCart implements ClientModInitializer {
                 HT1CartDirector.getInstance().hardResetSequence();
             }
 
-            boolean lookingAtBlock = mc.hitResult instanceof BlockHitResult;
-            boolean holdingAnyRail = isAnyRail(mc.player.getMainHandItem().getItem());
-
-            if (enabled && lookingAtBlock && holdingAnyRail) {
+            if (enabled) {
                 onTick(client);
             } else {
                 HT1CartDirector.getInstance().hardResetSequence();
@@ -230,10 +227,6 @@ public class XbowCart implements ClientModInitializer {
             }
         }
 
-        public boolean hasFired() {
-            return hasFired;
-        }
-
         public boolean hasCompleted() {
             return railPlaced && cartPlaced && firePlaced && hasFired;
         }
@@ -322,4 +315,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-                }
+        }
