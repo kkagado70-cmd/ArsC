@@ -74,16 +74,14 @@ public class AutoMace implements ClientModInitializer {
 
     public static class ConfigurationRegistry {
         private final double maxSwingRange = 3.0D;
-        private final double spearSwingRange = 4.5D; // Extended 4.5 block spear range
-        private final double maxAimRange = 7.0D;
+        private final double maxAimRange = 4.5D;
         private final double minFallDistance = 2.0D;
-        private final float baseSnapSpeed = 0.90F; // Fixed typo from 0.90Y = 0.90F
+        private final float baseSnapSpeed = 0.85F;
         private final int tickInterval = 1;
 
         public void refreshParameters() {}
 
         public double getMaxSwingRange() { return maxSwingRange; }
-        public double getSpearSwingRange() { return spearSwingRange; }
         public double getMaxAimRange() { return maxAimRange; }
         public double getMinFallDist() { return minFallDistance; }
         public float getBaseSnapSpeed() { return baseSnapSpeed; }
@@ -193,12 +191,10 @@ public class AutoMace implements ClientModInitializer {
     public static class InventoryManager {
         private int cachedAxeSlot = -1;
         private int cachedMaceSlot = -1;
-        private int cachedSpearSlot = -1;
 
         public void scanHotbarSlots(Player userPlayer, double fallAltitude) {
             cachedAxeSlot = -1;
             cachedMaceSlot = -1;
-            cachedSpearSlot = -1;
             int maxDensityScore = -1;
             int maxBreachScore = -1;
 
@@ -206,10 +202,7 @@ public class AutoMace implements ClientModInitializer {
                 ItemStack slotStack = userPlayer.getInventory().getItem(slotIndex);
                 if (slotStack.isEmpty()) continue;
 
-                String itemName = slotStack.getItem().getDescriptionId().toLowerCase();
-                if ((itemName.contains("spear") || slotStack.getHoverName().getString().toLowerCase().contains("spear")) && cachedSpearSlot == -1) {
-                    cachedSpearSlot = slotIndex;
-                } else if (slotStack.getItem() instanceof AxeItem && cachedAxeSlot == -1) {
+                if (slotStack.getItem() instanceof AxeItem && cachedAxeSlot == -1) {
                     if (slotStack.getDamageValue() < slotStack.getMaxDamage() - 3) {
                         cachedAxeSlot = slotIndex;
                     }
@@ -245,7 +238,6 @@ public class AutoMace implements ClientModInitializer {
 
         public int getAxeSlot() { return cachedAxeSlot; }
         public int getMaceSlot() { return cachedMaceSlot; }
-        public int getSpearSlot() { return cachedSpearSlot; }
 
         public void sendSlotPacket(int slotNumber) {
             if (mc.player == null) return;
@@ -257,7 +249,7 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static class CombatStateMachine {
-        private enum PipelineState { DORMANT, PREPARE_SPEAR_PHASE, EXECUTE_SPEAR_PHASE, PREPARE_AXE_PHASE, EXECUTE_AXE_PHASE, PREPARE_MACE_PHASE, EXECUTE_MACE_PHASE, FLUSH_RESET }
+        private enum PipelineState { DORMANT, PREPARE_AXE_PHASE, EXECUTE_AXE_PHASE, PREPARE_MACE_PHASE, EXECUTE_MACE_PHASE, FLUSH_RESET }
         private PipelineState stage = PipelineState.DORMANT;
         private int internalTickClock = 0;
         private int originalSelectedSlot = -1;
@@ -274,55 +266,31 @@ public class AutoMace implements ClientModInitializer {
                 return;
             }
 
-            double currentFall = client.player.fallDistance;
-            boolean isActuallyFalling = currentFall >= cfg.getMinFallDist() && client.player.getDeltaMovement().y < -0.1D;
-
             Player target = pred.acquireStrictCrosshairTarget(client, cfg.getMaxAimRange());
             if (target == null) {
                 if (stage != PipelineState.DORMANT) abortPipeline();
                 return;
             }
 
+            // Continuous smooth aiming: tracks and points head toward target every tick as soon as aimed at
+            Vec3 chestTarget = target.getBoundingBox().getCenter();
+            rot.executeSmoothSnap(chestTarget, cfg.getBaseSnapSpeed());
+
+            double currentFall = client.player.fallDistance;
+            boolean isActuallyFalling = currentFall >= cfg.getMinFallDist() && client.player.getDeltaMovement().y < -0.1D;
+
             inv.scanHotbarSlots(client.player, currentFall);
             boolean shieldUp = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
-            double distanceToTarget = client.player.distanceTo(target);
-
-            int spearSlot = inv.getSpearSlot();
-            boolean useSpear = spearSlot != -1 && distanceToTarget > cfg.getMaxSwingRange() && distanceToTarget <= cfg.getSpearSwingRange();
 
             switch (stage) {
                 case DORMANT:
                     originalSelectedSlot = client.player.getInventory().getSelectedSlot();
-                    if (useSpear) {
-                        stage = PipelineState.PREPARE_SPEAR_PHASE;
-                        watchdogTimeout = System.currentTimeMillis() + 1500L;
-                    } else if (shieldUp) {
+                    if (shieldUp) {
                         stage = PipelineState.PREPARE_AXE_PHASE;
                         watchdogTimeout = System.currentTimeMillis() + 1500L;
                     } else if (isActuallyFalling) {
                         stage = PipelineState.PREPARE_MACE_PHASE;
                         watchdogTimeout = System.currentTimeMillis() + 1500L;
-                    }
-                    break;
-
-                case PREPARE_SPEAR_PHASE:
-                    if (spearSlot != -1) {
-                        inv.sendSlotPacket(spearSlot);
-                        internalTickClock = cfg.getTickInterval();
-                        stage = PipelineState.EXECUTE_SPEAR_PHASE;
-                    } else {
-                        stage = shieldUp ? PipelineState.PREPARE_AXE_PHASE : PipelineState.PREPARE_MACE_PHASE;
-                    }
-                    break;
-
-                case EXECUTE_SPEAR_PHASE:
-                    if (distanceToTarget <= cfg.getSpearSwingRange()) {
-                        Vec3 chestTarget = target.getBoundingBox().getCenter();
-                        rot.executeSmoothSnap(chestTarget, cfg.getBaseSnapSpeed());
-                        client.player.swing(InteractionHand.MAIN_HAND);
-                        client.gameMode.attack(client.player, target);
-                        internalTickClock = cfg.getTickInterval();
-                        stage = PipelineState.FLUSH_RESET;
                     }
                     break;
 
@@ -338,9 +306,7 @@ public class AutoMace implements ClientModInitializer {
                     break;
 
                 case EXECUTE_AXE_PHASE:
-                    if (distanceToTarget <= cfg.getMaxSwingRange()) {
-                        Vec3 chestTarget = target.getBoundingBox().getCenter();
-                        rot.executeSmoothSnap(chestTarget, cfg.getBaseSnapSpeed());
+                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange()) {
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
                         internalTickClock = cfg.getTickInterval();
@@ -360,9 +326,7 @@ public class AutoMace implements ClientModInitializer {
                     break;
 
                 case EXECUTE_MACE_PHASE:
-                    if (distanceToTarget <= cfg.getMaxSwingRange() && isActuallyFalling) {
-                        Vec3 chestTarget = target.getBoundingBox().getCenter();
-                        rot.executeSmoothSnap(chestTarget, cfg.getBaseSnapSpeed());
+                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && isActuallyFalling) {
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
                         internalTickClock = cfg.getTickInterval();
@@ -389,4 +353,4 @@ public class AutoMace implements ClientModInitializer {
             watchdogTimeout = 0L;
         }
     }
-                    }
+        }
