@@ -75,16 +75,17 @@ public class AutoMace implements ClientModInitializer {
 
     public static class ConfigurationRegistry {
         private final double maxSwingRange = 3.0D;
-        private final double spearReachRange = 4.5D;
+        private final double spearSwingRange = 4.5D;
         private final double maxAimRange = 7.0D;
         private final double minFallDistance = 2.0D;
-        private final float baseSmoothness = 0.35F; // Extremely smooth, fast, and human-like
+        private final float baseSmoothness = 0.35F;
         private final int tickInterval = 1;
 
         public void refreshParameters() {}
 
         public double getMaxSwingRange() { return maxSwingRange; }
-        public double getSpearReachRange() { return spearReachRange; }
+        public double getSpearSwingRange() { return spearSwingRange; }
+        public double getSpearRange() { return spearSwingRange; } // Added alias to prevent symbol errors
         public double getMaxAimRange() { return maxAimRange; }
         public double getMinFallDist() { return minFallDistance; }
         public float getBaseSmoothness() { return baseSmoothness; }
@@ -262,7 +263,6 @@ public class AutoMace implements ClientModInitializer {
 
         public void performAttributeSwap(InventoryManager inv, int sourceSlot, int targetSlot) {
             if (sourceSlot == -1 || targetSlot == -1) return;
-            // Rapid attribute swap (Att Swap): switch to source attribute slot, then instantly to target damage slot on attack tick
             inv.sendSlotPacket(sourceSlot);
             inv.sendSlotPacket(targetSlot);
             lastSwapTimestamp = System.currentTimeMillis();
@@ -274,7 +274,7 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static class CombatStateMachine {
-        private enum PipelineState { DORMANT, PREPARE_AXE_PHASE, EXECUTE_AXE_PHASE, PREPARE_MACE_PHASE, EXECUTE_MACE_PHASE, PREPARE_SPEAR_PHASE, EXECUTE_SPEAR_PHASE, FLUSH_RESET }
+        private enum PipelineState { DORMANT, PREPARE_SPEAR_PHASE, EXECUTE_SPEAR_PHASE, PREPARE_AXE_PHASE, EXECUTE_AXE_PHASE, PREPARE_MACE_PHASE, EXECUTE_MACE_PHASE, FLUSH_RESET }
         private PipelineState stage = PipelineState.DORMANT;
         private int internalTickClock = 0;
         private int originalSelectedSlot = -1;
@@ -302,10 +302,11 @@ public class AutoMace implements ClientModInitializer {
 
             double currentFall = client.player.fallDistance;
             boolean isActuallyFalling = currentFall >= cfg.getMinFallDist() && client.player.getDeltaMovement().y < -0.1D;
-            double distanceToTarget = client.player.distanceTo(target);
 
             inv.scanHotbarSlots(client.player, currentFall);
             boolean shieldUp = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
+            double distanceToTarget = client.player.distanceTo(target);
+
             int spearSlot = inv.getSpearSlot();
             boolean useSpear = spearSlot != -1 && distanceToTarget > cfg.getMaxSwingRange() && distanceToTarget <= cfg.getSpearRange();
 
@@ -330,7 +331,7 @@ public class AutoMace implements ClientModInitializer {
                         internalTickClock = cfg.getTickInterval();
                         stage = PipelineState.EXECUTE_SPEAR_PHASE;
                     } else {
-                        stage = PipelineState.FLUSH_RESET;
+                        stage = shieldUp ? PipelineState.PREPARE_AXE_PHASE : PipelineState.PREPARE_MACE_PHASE;
                     }
                     break;
 
@@ -367,7 +368,6 @@ public class AutoMace implements ClientModInitializer {
                     int maceSol = inv.getMaceSlot();
                     int axeForSwap = inv.getAxeSlot();
                     if (maceSol != -1 && isActuallyFalling) {
-                        // Attribute Swapping (Att Swap): rapid swap from axe/sword attribute to mace density on strike
                         if (axeForSwap != -1 && attSwap.canSwap()) {
                             attSwap.performAttributeSwap(inv, axeForSwap, maceSol);
                         } else {
