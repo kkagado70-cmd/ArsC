@@ -22,7 +22,6 @@ public class XbowCart implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
-    private static boolean wasRightClicking = false;
 
     @Override
     public void onInitializeClient() {
@@ -40,11 +39,13 @@ public class XbowCart implements ClientModInitializer {
                 HT1CartDirector.getInstance().hardResetSequence();
             }
 
-            if (enabled) {
+            boolean lookingAtBlock = mc.hitResult instanceof BlockHitResult;
+            boolean holdingAnyRail = isAnyRail(mc.player.getMainHandItem().getItem());
+
+            if (enabled && lookingAtBlock && holdingAnyRail) {
                 onTick(client);
             } else {
                 HT1CartDirector.getInstance().hardResetSequence();
-                wasRightClicking = false;
             }
         });
     }
@@ -64,20 +65,7 @@ public class XbowCart implements ClientModInitializer {
 
     public static void onTick(Minecraft client) {
         if (client.player == null || client.level == null) return;
-
-        boolean lookingAtBlock = client.hitResult instanceof BlockHitResult;
-        boolean holdingAnyRail = isAnyRail(client.player.getMainHandItem().getItem());
-        boolean isRightClicking = client.options.keyUse.isDown();
-
-        if (lookingAtBlock && holdingAnyRail && isRightClicking && !wasRightClicking) {
-            HT1CartDirector.getInstance().startSequence();
-        }
-
-        wasRightClicking = isRightClicking;
-
-        if (HT1CartDirector.getInstance().isExecuting()) {
-            HT1CartDirector.getInstance().processTick(client);
-        }
+        HT1CartDirector.getInstance().processTick(client);
     }
 
     public static class HT1CartDirector {
@@ -96,14 +84,6 @@ public class XbowCart implements ClientModInitializer {
             if (client.player == null || client.level == null) return;
             configuration.refresh();
             pipeline.executeSequence(client, configuration, auditor, geometry, simulator);
-        }
-
-        public void startSequence() {
-            pipeline.triggerSequence();
-        }
-
-        public boolean isExecuting() {
-            return pipeline.isExecuting();
         }
 
         public void hardResetSequence() {
@@ -325,6 +305,7 @@ public class XbowCart implements ClientModInitializer {
                         simulator.fireCrossbowOnce(client);
                         if (simulator.hasFired()) {
                             activePhase = CartPhase.COMPLETE_LOCK;
+                            XbowCart.enabled = false;
                         }
                         sequenceDelay = cfg.getActionDelayTicks();
                     }
@@ -335,21 +316,10 @@ public class XbowCart implements ClientModInitializer {
             }
         }
 
-        public void triggerSequence() {
-            if (activePhase == CartPhase.INACTIVE || activePhase == CartPhase.COMPLETE_LOCK) {
-                activePhase = CartPhase.STAGE_RAIL_DEPLOY;
-                safetyWatchdogEpoch = System.currentTimeMillis() + 1500L;
-            }
-        }
-
-        public boolean isExecuting() {
-            return activePhase != CartPhase.INACTIVE && activePhase != CartPhase.COMPLETE_LOCK;
-        }
-
         public void abortSequence() {
             activePhase = CartPhase.INACTIVE;
             sequenceDelay = 0;
             safetyWatchdogEpoch = 0L;
         }
     }
-                    }
+                              }
