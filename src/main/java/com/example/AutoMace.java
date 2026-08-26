@@ -4,7 +4,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.AaxeItem;
+import net.minecraft.world.item.AxeItem;
 import net.minecraft.world.item.ShieldItem;
 import net.minecraft.world.item.MaceItem;
 import net.minecraft.world.item.ItemStack;
@@ -76,8 +76,9 @@ public class AutoMace implements ClientModInitializer {
         private final double maxSwingRange = 3.0D;
         private final double maxAimRange = 7.0D; // Exactly 7 blocks aim range for divebombs
         private final double minFallDistance = 2.0D;
-        private final float baseSmoothness = 0.35F; // Butter-smooth human curve
+        private final float baseSmoothness = 0.50F;
         private final int tickInterval = 1;
+        private final boolean strictCrosshairLock = true;
 
         public void refreshParameters() {}
 
@@ -86,6 +87,7 @@ public class AutoMace implements ClientModInitializer {
         public double getMinFallDist() { return minFallDistance; }
         public float getBaseSmoothness() { return baseSmoothness; }
         public int getTickInterval() { return tickInterval; }
+        public boolean isStrictCrosshairLock() { return strictCrosshairLock; }
     }
 
     public static class TargetPredictor {
@@ -202,7 +204,7 @@ public class AutoMace implements ClientModInitializer {
                 ItemStack slotStack = userPlayer.getInventory().getItem(slotIndex);
                 if (slotStack.isEmpty()) continue;
 
-                if (slotStack.getItem() instanceof net.minecraft.world.item.AxeItem && cachedAxeSlot == -1) {
+                if (slotStack.getItem() instanceof AxeItem && cachedAxeSlot == -1) {
                     if (slotStack.getDamageValue() < slotStack.getMaxDamage() - 3) {
                         cachedAxeSlot = slotIndex;
                     }
@@ -241,9 +243,11 @@ public class AutoMace implements ClientModInitializer {
 
         public void sendSlotPacket(int slotNumber) {
             if (mc.player == null) return;
-            mc.player.getInventory().setSelectedSlot(slotNumber);
-            if (mc.getConnection() != null) {
-                mc.getConnection().send(new ServerboundSetCarriedItemPacket(slotNumber));
+            if (mc.player.getInventory().getSelectedSlot() != slotNumber) {
+                mc.player.getInventory().setSelectedSlot(slotNumber);
+                if (mc.getConnection() != null) {
+                    mc.getConnection().send(new ServerboundSetCarriedItemPacket(slotNumber));
+                }
             }
         }
     }
@@ -277,7 +281,6 @@ public class AutoMace implements ClientModInitializer {
 
             double currentFall = client.player.fallDistance;
             boolean isActuallyFalling = currentFall >= cfg.getMinFallDist() && client.player.getDeltaMovement().y < -0.1D;
-            boolean isFullCooldown = client.player.getAttackStrengthScale(0.0F) >= 0.9F;
 
             inv.scanHotbarSlots(client.player, currentFall);
             boolean shieldUp = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
@@ -285,10 +288,10 @@ public class AutoMace implements ClientModInitializer {
             switch (stage) {
                 case DORMANT:
                     originalSelectedSlot = client.player.getInventory().getSelectedSlot();
-                    if (shieldUp && isFullCooldown) {
+                    if (shieldUp) {
                         stage = PipelineState.PREPARE_AXE_PHASE;
                         watchdogTimeout = System.currentTimeMillis() + 1500L;
-                    } else if (isActuallyFalling && isFullCooldown) {
+                    } else if (isActuallyFalling) {
                         stage = PipelineState.PREPARE_MACE_PHASE;
                         watchdogTimeout = System.currentTimeMillis() + 1500L;
                     }
@@ -306,7 +309,7 @@ public class AutoMace implements ClientModInitializer {
                     break;
 
                 case EXECUTE_AXE_PHASE:
-                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && isFullCooldown) {
+                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange()) {
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
                         internalTickClock = cfg.getTickInterval();
@@ -316,7 +319,7 @@ public class AutoMace implements ClientModInitializer {
 
                 case PREPARE_MACE_PHASE:
                     int maceSol = inv.getMaceSlot();
-                    if (maceSol != -1 && isActuallyFalling && isFullCooldown) {
+                    if (maceSol != -1 && isActuallyFalling) {
                         inv.sendSlotPacket(maceSol);
                         internalTickClock = cfg.getTickInterval();
                         stage = PipelineState.EXECUTE_MACE_PHASE;
@@ -326,7 +329,7 @@ public class AutoMace implements ClientModInitializer {
                     break;
 
                 case EXECUTE_MACE_PHASE:
-                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && isActuallyFalling && isFullCooldown) {
+                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && isActuallyFalling) {
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
                         internalTickClock = cfg.getTickInterval();
