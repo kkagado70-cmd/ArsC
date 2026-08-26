@@ -72,7 +72,7 @@ public class XbowCart implements ClientModInitializer {
         private final CartConfiguration configuration = new CartConfiguration();
         private final HotbarSlotAuditor auditor = new HotbarSlotAuditor();
         private final TowerGeometryCalculator geometry = new TowerGeometryCalculator();
-        private final AimedLegitimateInteractionSimulator simulator = new AimedLegitimateInteractionSimulator();
+        private final PreciseLegitimateInteractionSimulator simulator = new PreciseLegitimateInteractionSimulator();
         private final CartExecutionStateMachine pipeline = new CartExecutionStateMachine();
 
         public static HT1CartDirector getInstance() { return INSTANCE; }
@@ -172,7 +172,7 @@ public class XbowCart implements ClientModInitializer {
         }
     }
 
-    public static class AimedLegitimateInteractionSimulator {
+    public static class PreciseLegitimateInteractionSimulator {
         private boolean hasFired = false;
         private boolean railPlaced = false;
         private boolean cartPlaced = false;
@@ -188,19 +188,19 @@ public class XbowCart implements ClientModInitializer {
             }
         }
 
-        public void placeRailAimed(Minecraft client, BlockPos pos, Direction face) {
+        public void placeRailPrecise(Minecraft client, BlockPos pos, Direction face) {
             if (railPlaced) return;
             aimAndInteract(client, pos, face);
             railPlaced = true;
         }
 
-        public void placeCartAimed(Minecraft client, BlockPos pos, Direction face) {
+        public void placeCartPrecise(Minecraft client, BlockPos pos, Direction face) {
             if (cartPlaced) return;
             aimAndInteract(client, pos, face);
             cartPlaced = true;
         }
 
-        public void placeFireAimed(Minecraft client, BlockPos pos, Direction face) {
+        public void placeFirePrecise(Minecraft client, BlockPos pos, Direction face) {
             if (firePlaced) return;
             aimAndInteract(client, pos, face);
             firePlaced = true;
@@ -221,24 +221,15 @@ public class XbowCart implements ClientModInitializer {
                 double dx = targetCenter.x - client.player.getX();
                 double dy = targetCenter.y - client.player.getEyeY();
                 double dz = targetCenter.z - client.player.getZ();
+                double hDist = Math.sqrt(dx * dx + dz * dz);
                 
                 float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
-                float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, Math.sqrt(dx * dx + dz * dz))));
+                float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
                 targetPitch = Mth.clamp(targetPitch, 10.0F, 85.0F);
 
-                Random rand = new Random();
-                targetYaw += (float) (rand.nextGaussian() * 0.05);
-                targetPitch += (float) (rand.nextGaussian() * 0.04);
-
-                float yawError = Mth.wrapDegrees(targetYaw - client.player.getYRot());
-                float pitchError = Mth.wrapDegrees(targetPitch - client.player.getXRot());
-
-                float speed = 6.0f + rand.nextFloat() * 2.0f;
-                float stepYaw = Math.max(-speed, Math.min(speed, yawError * 0.7f));
-                float stepPitch = Math.max(-speed * 0.6f, Math.min(speed * 0.6f, pitchError * 0.7f));
-
-                client.player.setYRot(client.player.getYRot() + stepYaw);
-                client.player.setXRot(Mth.clamp(client.player.getXRot() + stepPitch, 10.0F, 85.0F));
+                // Precise stable aim without random jitter
+                client.player.setYRot(targetYaw);
+                client.player.setXRot(targetPitch);
 
                 mouseButtonReleaseTracker = 2;
                 BlockHitResult hitResult = new BlockHitResult(targetCenter, face, pos, false);
@@ -276,12 +267,6 @@ public class XbowCart implements ClientModInitializer {
 
             if (globalCooldownTicks > 0) {
                 globalCooldownTicks--;
-                return;
-            }
-
-            if (!isActivationConditionsMet(client) && activePhase != CartPhase.INACTIVE) {
-                restoreOriginalSlot(client);
-                abortSequence();
                 return;
             }
 
@@ -363,4 +348,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-        }
+                }
