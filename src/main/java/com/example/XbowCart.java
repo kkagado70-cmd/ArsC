@@ -14,7 +14,6 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.util.Mth;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
@@ -48,9 +47,7 @@ public class XbowCart implements ClientModInitializer {
         XbowCartMasterOrchestrator.getInstance().hardReset();
     }
 
-    public static void onTick() {
-        onTick(Minecraft.getInstance());
-    }
+    public static void onTick() { onTick(Minecraft.getInstance()); }
 
     public static void onTick(Minecraft client) {
         if (client.player == null || client.level == null || !enabled) return;
@@ -95,10 +92,6 @@ public class XbowCart implements ClientModInitializer {
 
         public int getStochasticDelay(int base) {
             return base + gaussianRandom.nextInt(2);
-        }
-
-        public float getJitterOffset(float scale) {
-            return (float) (gaussianRandom.nextGaussian() * scale);
         }
     }
 
@@ -193,7 +186,7 @@ public class XbowCart implements ClientModInitializer {
         private enum PipelinePhase { IDLE, RAIL_STEP, CART_STEP, FIRE_STEP, CROSSBOW_STEP, LOCKDOWN }
         private PipelinePhase phase = PipelinePhase.IDLE;
         private int tickBudget = 0;
-        private int mouseReleaseTracker = 0;
+        private int mouseButtonReleaseTracker = 0;
         private long safetyEpoch = 0L;
         private boolean shotDischarged = false;
 
@@ -266,7 +259,7 @@ public class XbowCart implements ClientModInitializer {
                             shotDischarged = true;
                         } else {
                             client.options.keyUse.setDown(true);
-                            mouseButtonReleaseTimer = 4;
+                            mouseButtonReleaseTracker = 4;
                         }
 
                         if (shotDischarged) {
@@ -297,7 +290,7 @@ public class XbowCart implements ClientModInitializer {
             client.player.setXRot(targetPitch);
 
             mc.options.keyUse.setDown(true);
-            mouseButtonReleaseTimer = 2;
+            mouseButtonReleaseTracker = 2;
 
             if (client.gameMode != null && client.player != null) {
                 BlockHitResult hit = new BlockHitResult(center, face, pos, false);
@@ -319,4 +312,4 @@ public class XbowCart implements ClientModInitializer {
             safetyEpoch = 0L;
         }
     }
-                }
+                    }
