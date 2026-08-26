@@ -77,7 +77,7 @@ public class AutoMace implements ClientModInitializer {
         private final double spearRange = 4.5D;
         private final double maxAimRange = 7.0D;
         private final double minFallDistance = 2.0D;
-        private final float baseSmoothness = 0.40F;
+        private final float baseSmoothness = 0.35F;
         private final int tickInterval = 2; // 2 ticks spacing for GrimAC bypass
 
         public void refreshParameters() {}
@@ -88,6 +88,7 @@ public class AutoMace implements ClientModInitializer {
         public double getMinFallDist() { return minFallDistance; }
         public float getBaseSmoothness() { return baseSmoothness; }
         public int getTickInterval() { return tickInterval; }
+        public int getSlotChangeDelay() { return tickInterval; } // Added alias to prevent symbol errors
     }
 
     public static class TargetPredictor {
@@ -259,7 +260,15 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static class CombatStateMachine {
-        private enum PipelineState { DORMANT, PREPARE_SLOT, WAIT_SLOT_DELAY, EXECUTE_SWING, WAIT_ATTACK_DELAY, EXECUTE_ATTACK, FLUSH_RESET }
+        private enum PipelineState { 
+            DORMANT, 
+            PREPARE_SLOT, 
+            WAIT_SLOT_DELAY, 
+            EXECUTE_SWING, 
+            WAIT_ATTACK_DELAY, 
+            EXECUTE_ATTACK, 
+            FLUSH_RESET 
+        }
         private PipelineState stage = PipelineState.DORMANT;
         private int tickCounter = 0;
         private int targetExecutionSlot = -1;
@@ -288,6 +297,7 @@ public class AutoMace implements ClientModInitializer {
 
             double currentFall = client.player.fallDistance;
             boolean isActuallyFalling = currentFall >= cfg.getMinFallDist() && client.player.getDeltaMovement().y < -0.1D;
+            boolean isFullCooldown = client.player.getAttackStrengthScale(0.0F) >= 0.9F;
 
             inv.scanHotbarSlots(client.player, currentFall);
             boolean shieldUp = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
@@ -299,19 +309,18 @@ public class AutoMace implements ClientModInitializer {
             switch (stage) {
                 case DORMANT:
                     originalSelectedSlot = client.player.getInventory().getSelectedSlot();
-                    if (useSpear) {
+                    if (useSpear && isFullCooldown) {
                         targetExecutionSlot = spearSlot;
                         stage = PipelineState.PREPARE_SLOT;
                         watchdogTimeout = System.currentTimeMillis() + 1500L;
-                    } else if (shieldUp) {
+                    } else if (shieldUp && isFullCooldown) {
                         targetExecutionSlot = inv.getAxeSlot();
                         if (targetExecutionSlot != -1) {
                             stage = PipelineState.PREPARE_SLOT;
                             watchdogTimeout = System.currentTimeMillis() + 1500L;
                         }
-                    } else if (isActuallyFalling) {
+                    } else if (isActuallyFalling && isFullCooldown) {
                         targetExecutionSlot = inv.getMaceSlot();
-                        // Fluid Spear-to-Mace chaining: if spear was used or available, transition directly without flushing!
                         if (targetExecutionSlot != -1) {
                             stage = PipelineState.PREPARE_SLOT;
                             watchdogTimeout = System.currentTimeMillis() + 1500L;
@@ -360,7 +369,6 @@ public class AutoMace implements ClientModInitializer {
                         }
                     }
                     
-                    // Seamless combo chain: if falling after spear hit, transition directly to mace slot without resetting to original slot!
                     if (useSpear && isActuallyFalling && inv.getMaceSlot() != -1) {
                         targetExecutionSlot = inv.getMaceSlot();
                         stage = PipelineState.PREPARE_SLOT;
@@ -388,4 +396,4 @@ public class AutoMace implements ClientModInitializer {
             watchdogTimeout = 0L;
         }
     }
-                }
+}
