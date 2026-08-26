@@ -17,6 +17,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.entity.player.Player;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
@@ -103,7 +104,6 @@ public class XbowCart implements ClientModInitializer {
 
         public void refresh() {}
 
-        // GrimAC compliant speed: 2 to 3 ticks randomized delay
         public int getActionDelayTicks() { 
             return 2 + speedRandom.nextInt(2); 
         }
@@ -200,11 +200,10 @@ public class XbowCart implements ClientModInitializer {
     }
 
     public static class GrimBypassedInteractionSimulator {
+        private boolean hasFired = false;
         private boolean railPlaced = false;
         private boolean cartPlaced = false;
         private boolean firePlaced = false;
-        private boolean hasSwung = false;
-        private boolean hasAttacked = false;
 
         public void placeRailAimed(Minecraft client, BlockPos pos, Direction face) {
             if (railPlaced) return;
@@ -228,7 +227,6 @@ public class XbowCart implements ClientModInitializer {
             if (hasSwung) return;
             ItemStack activeStack = client.player.getMainHandItem();
             if (activeStack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(activeStack)) {
-                // Check attack strength cooldown (>= 0.9F)
                 if (client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
                     client.player.swing(InteractionHand.MAIN_HAND);
                     hasSwung = true;
@@ -236,10 +234,9 @@ public class XbowCart implements ClientModInitializer {
             }
         }
 
-        public void attackCrossbow(Minecraft client, net.minecraft.world.entity.LivingEntity target) {
+        public void attackCrossbow(Minecraft client, Player target) {
             if (hasAttacked || !hasSwung) return;
             if (target != null && client.player.distanceTo(target) <= 3.0D) {
-                // Line of sight, box clipping, and FOV verification
                 if (client.player.hasLineOfSight(target)) {
                     Vec3 eye = client.player.getEyePosition(1.0F);
                     Vec3 look = client.player.getViewVector(1.0F);
@@ -269,7 +266,6 @@ public class XbowCart implements ClientModInitializer {
                 float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
                 float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
                 
-                // Add stochastic jitter for human-like placement aim
                 Random rand = new Random();
                 targetYaw += (rand.nextFloat() - 0.5f) * 0.5f;
                 targetPitch += (rand.nextFloat() - 0.5f) * 0.3f;
@@ -280,6 +276,13 @@ public class XbowCart implements ClientModInitializer {
                 BlockHitResult hitResult = new BlockHitResult(targetCenter, face, pos, false);
                 client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hitResult);
             }
+        }
+
+        private boolean hasSwung = false;
+        private boolean hasAttacked = false;
+
+        public boolean hasFired() {
+            return hasAttacked;
         }
 
         public boolean hasCompleted() {
@@ -335,7 +338,7 @@ public class XbowCart implements ClientModInitializer {
 
                 case STAGE_RAIL_DEPLOY:
                     if (auditor.selectAnyRail(client)) {
-                        simulator.placeRailAimed(client, tower.getCartPosition(), tower.getHitFace());
+                        simulator.placeRailOnce(client, tower.getCartPosition(), tower.getHitFace());
                         sequenceDelay = cfg.getActionDelayTicks();
                         activePhase = CartPhase.STAGE_CART_DEPLOY;
                     }
@@ -343,7 +346,7 @@ public class XbowCart implements ClientModInitializer {
 
                 case STAGE_CART_DEPLOY:
                     if (auditor.selectAndSyncSlot(client, Items.TNT_MINECART)) {
-                        simulator.placeCartAimed(client, tower.getCartPosition(), tower.getHitFace());
+                        simulator.placeCartOnce(client, tower.getCartPosition(), tower.getHitFace());
                         sequenceDelay = cfg.getActionDelayTicks();
                         activePhase = CartPhase.STAGE_FIRE_IGNITE;
                     }
@@ -351,7 +354,7 @@ public class XbowCart implements ClientModInitializer {
 
                 case STAGE_FIRE_IGNITE:
                     if (auditor.selectAndSyncSlot(client, Items.FLINT_AND_STEEL) || auditor.selectAndSyncSlot(client, Items.FIRE_CHARGE)) {
-                        simulator.placeFireAimed(client, tower.getFirePosition(), tower.getHitFace());
+                        simulator.placeFireOnce(client, tower.getFirePosition(), tower.getHitFace());
                         sequenceDelay = cfg.getActionDelayTicks();
                         activePhase = CartPhase.STAGE_CROSSBOW_SWING;
                     }
@@ -371,7 +374,7 @@ public class XbowCart implements ClientModInitializer {
                     break;
 
                 case STAGE_CROSSBOW_ATTACK:
-                    net.minecraft.world.entity.LivingEntity nearestTarget = null;
+                    Player nearestTarget = null;
                     double closest = Double.MAX_VALUE;
                     for (Player p : client.level.players()) {
                         if (p != client.player && p.isAlive() && client.player.distanceTo(p) <= 3.0D) {
@@ -384,7 +387,6 @@ public class XbowCart implements ClientModInitializer {
                         sequenceDelay = cfg.getActionDelayTicks();
                         activePhase = CartPhase.COMPLETE_LOCK;
                         XbowCart.enabled = false;
-                        // Global cooldown pause before allowing next cart (5-10 ticks)
                     } else {
                         abortSequence();
                     }
@@ -401,4 +403,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-                }
+                                                }
