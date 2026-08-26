@@ -28,10 +28,7 @@ public class XbowCart implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.xbowcart.toggle",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_X,
-                KeyMapping.Category.MISC
+                "key.xbowcart.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_X, KeyMapping.Category.MISC
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -42,7 +39,7 @@ public class XbowCart implements ClientModInitializer {
             }
 
             if (enabled) {
-                HT1CartDirector.getInstance().processTick(client);
+                onTick(client);
             } else {
                 HT1CartDirector.getInstance().hardResetSequence();
             }
@@ -107,6 +104,10 @@ public class XbowCart implements ClientModInitializer {
             return false;
         }
 
+        public boolean pressNumberKeyForSlot(Minecraft client, Item targetItem) {
+            return simulateNumberKeySlot(client, targetItem);
+        }
+
         public boolean simulateNumberKeyRail(Minecraft client) {
             for (int i = 0; i < 9; i++) {
                 Item item = client.player.getInventory().getItem(i).getItem();
@@ -120,6 +121,10 @@ public class XbowCart implements ClientModInitializer {
             return false;
         }
 
+        public boolean pressNumberKeyForAnyRail(Minecraft client) {
+            return simulateNumberKeyRail(client);
+        }
+
         public boolean simulateNumberKeyCrossbow(Minecraft client) {
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = client.player.getInventory().getItem(i);
@@ -131,6 +136,10 @@ public class XbowCart implements ClientModInitializer {
                 }
             }
             return simulateNumberKeySlot(client, Items.CROSSBOW);
+        }
+
+        public boolean pressNumberKeyForChargedOrAnyCrossbow(Minecraft client) {
+            return simulateNumberKeyCrossbow(client);
         }
     }
 
@@ -171,7 +180,6 @@ public class XbowCart implements ClientModInitializer {
 
     public static class HumanAimSimulator {
         private final Random random = new Random();
-        private boolean usePressed = false;
         private int useReleaseCounter = 0;
 
         public void updateReleases(Minecraft client) {
@@ -179,7 +187,6 @@ public class XbowCart implements ClientModInitializer {
                 useReleaseCounter--;
                 if (useReleaseCounter == 0 && client.options != null) {
                     client.options.keyUse.setDown(false);
-                    usePressed = false;
                 }
             }
         }
@@ -194,7 +201,6 @@ public class XbowCart implements ClientModInitializer {
 
             float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
             float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
-
             targetPitch = Mth.clamp(targetPitch, -60.0F, 30.0F);
 
             targetYaw += (float) (random.nextGaussian() * 0.08);
@@ -208,7 +214,6 @@ public class XbowCart implements ClientModInitializer {
             float overshootPitch = pitchError * overshootFactor;
 
             float speed = 5.0f + random.nextFloat() * 2.0f;
-
             float stepYaw = Math.max(-speed, Math.min(speed, yawError * 0.65f + overshootYaw * 0.3f));
             float stepPitch = Math.max(-speed * 0.6f, Math.min(speed * 0.6f, pitchError * 0.65f + overshootPitch * 0.3f));
 
@@ -221,7 +226,6 @@ public class XbowCart implements ClientModInitializer {
             client.player.yHeadRotO = finalYaw;
 
             client.options.keyUse.setDown(true);
-            usePressed = true;
             useReleaseCounter = 2;
         }
 
@@ -237,14 +241,13 @@ public class XbowCart implements ClientModInitializer {
         }
 
         public void reset(Minecraft client) {
-            usePressed = false;
             useReleaseCounter = 0;
             if (client.options != null) client.options.keyUse.setDown(false);
         }
     }
 
     public static class CartExecutionStateMachine {
-        private enum CartPhase { INACTIVE, STAGE_RAIL_DEPLOY, STAGE_CART_DEPLOY, STAGE_FIRE_IGNITE, STAGE_CROSSBOW_BURST, COOLDOWN }
+        private enum CartPhase { INACTIVE, STAGE_RAIL_DEPLOY, STAGE_CART_DEPLOY, STAGE_FIRE_IGNITE, STAGE_CROSSBOW_BURST }
         private CartPhase activePhase = CartPhase.INACTIVE;
         private int sequenceDelay = 0;
         private int globalCooldownTicks = 0;
@@ -268,7 +271,6 @@ public class XbowCart implements ClientModInitializer {
                 return;
             }
 
-            // Continuous condition check: Abort immediately if conditions break mid-combo
             if (!isActivationConditionsMet(client) && activePhase != CartPhase.INACTIVE) {
                 restoreOriginalSlot(client);
                 abortSequence();
@@ -298,7 +300,7 @@ public class XbowCart implements ClientModInitializer {
                     break;
 
                 case STAGE_RAIL_DEPLOY:
-                    if (auditor.simulateNumberKeyRail(client)) {
+                    if (auditor.selectNumberKeyForAnyRail(client)) {
                         aimSimulator.aimHumanLike(client, Vec3.atCenterOf(tower.getCartPosition()));
                         sequenceDelay = cfg.getActionDelayTicks();
                         activePhase = CartPhase.STAGE_CART_DEPLOY;
@@ -325,14 +327,10 @@ public class XbowCart implements ClientModInitializer {
                     if (auditor.pressNumberKeyForChargedOrAnyCrossbow(client)) {
                         aimSimulator.triggerCrossbow(client);
                         restoreOriginalSlot(client);
-                        activePhase = CartPhase.COOLDOWN;
-                        globalCooldownTicks = 8; // 8 ticks global cooldown after completion
+                        activePhase = CartPhase.INACTIVE;
+                        globalCooldownTicks = 8;
                         sequenceDelay = cfg.getActionDelayTicks();
                     }
-                    break;
-
-                case COOLDOWN:
-                    activePhase = CartPhase.INACTIVE;
                     break;
             }
         }
@@ -355,4 +353,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-                                    }
+        }
