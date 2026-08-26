@@ -77,8 +77,8 @@ public class AutoMace implements ClientModInitializer {
         private final double spearRange = 4.5D;
         private final double maxAimRange = 7.0D;
         private final double minFallDistance = 2.0D;
-        private final float baseSmoothness = 0.30F; // Butter-smooth organic human curve (zero stiffness)
-        private final int tickInterval = 1;
+        private final float baseSmoothness = 0.40F;
+        private final int tickInterval = 2; // 2 ticks spacing for GrimAC bypass
 
         public void refreshParameters() {}
 
@@ -172,9 +172,8 @@ public class AutoMace implements ClientModInitializer {
             float yawError = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
             float pitchError = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
 
-            // Butter-smooth human easing curve with microscopic stochastic jitter
-            float stepYaw = yawError * (velocityModifier + (stochasticRandom.nextFloat() * 0.015F));
-            float stepPitch = pitchError * (velocityModifier + (stochasticRandom.nextFloat() * 0.015F));
+            float stepYaw = yawError * (velocityModifier + (stochasticRandom.nextFloat() * 0.02F));
+            float stepPitch = pitchError * (velocityModifier + (stochasticRandom.nextFloat() * 0.02F));
 
             float rawYaw = mc.player.getYRot() + stepYaw;
             float rawPitch = mc.player.getXRot() + stepPitch;
@@ -260,15 +259,7 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static class CombatStateMachine {
-        private enum PipelineState { 
-            DORMANT, 
-            PREPARE_SLOT, 
-            WAIT_SLOT_DELAY, 
-            EXECUTE_SWING, 
-            WAIT_ATTACK_DELAY, 
-            EXECUTE_ATTACK, 
-            FLUSH_RESET 
-        }
+        private enum PipelineState { DORMANT, PREPARE_SLOT, WAIT_SLOT_DELAY, EXECUTE_SWING, WAIT_ATTACK_DELAY, EXECUTE_ATTACK, FLUSH_RESET }
         private PipelineState stage = PipelineState.DORMANT;
         private int tickCounter = 0;
         private int targetExecutionSlot = -1;
@@ -292,9 +283,11 @@ public class AutoMace implements ClientModInitializer {
                 return;
             }
 
+            Vec3 chestTarget = target.getBoundingBox().getCenter();
+            rot.executeSmoothSnap(chestTarget, cfg.getBaseSmoothness());
+
             double currentFall = client.player.fallDistance;
             boolean isActuallyFalling = currentFall >= cfg.getMinFallDist() && client.player.getDeltaMovement().y < -0.1D;
-            boolean isFullCooldown = client.player.getAttackStrengthScale(0.0F) >= 0.9F;
 
             inv.scanHotbarSlots(client.player, currentFall);
             boolean shieldUp = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
@@ -306,18 +299,19 @@ public class AutoMace implements ClientModInitializer {
             switch (stage) {
                 case DORMANT:
                     originalSelectedSlot = client.player.getInventory().getSelectedSlot();
-                    if (useSpear && isFullCooldown) {
+                    if (useSpear) {
                         targetExecutionSlot = spearSlot;
                         stage = PipelineState.PREPARE_SLOT;
                         watchdogTimeout = System.currentTimeMillis() + 1500L;
-                    } else if (shieldUp && isFullCooldown) {
+                    } else if (shieldUp) {
                         targetExecutionSlot = inv.getAxeSlot();
                         if (targetExecutionSlot != -1) {
                             stage = PipelineState.PREPARE_SLOT;
                             watchdogTimeout = System.currentTimeMillis() + 1500L;
                         }
-                    } else if (isActuallyFalling && isFullCooldown) {
+                    } else if (isActuallyFalling) {
                         targetExecutionSlot = inv.getMaceSlot();
+                        // Fluid Spear-to-Mace chaining: if spear was used or available, transition directly without flushing!
                         if (targetExecutionSlot != -1) {
                             stage = PipelineState.PREPARE_SLOT;
                             watchdogTimeout = System.currentTimeMillis() + 1500L;
@@ -328,7 +322,7 @@ public class AutoMace implements ClientModInitializer {
                 case PREPARE_SLOT:
                     if (targetExecutionSlot != -1) {
                         inv.sendSlotPacket(targetExecutionSlot);
-                        tickCounter = cfg.getTickInterval();
+                        tickCounter = cfg.getSlotChangeDelay();
                         stage = PipelineState.WAIT_SLOT_DELAY;
                     } else {
                         stage = PipelineState.FLUSH_RESET;
@@ -341,11 +335,7 @@ public class AutoMace implements ClientModInitializer {
 
                 case EXECUTE_SWING:
                     double maxRange = useSpear ? cfg.getSpearRange() : cfg.getMaxSwingRange();
-                    if (distanceToTarget <= maxRange && isFullCooldown) {
-                        // Smoothly aim ONLY during active combat swing/attack execution
-                        Vec3 chestTarget = target.getBoundingBox().getCenter();
-                        rot.executeSmoothSnap(chestTarget, cfg.getBaseSmoothness());
-
+                    if (distanceToTarget <= maxRange && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
                         client.player.swing(InteractionHand.MAIN_HAND);
                         tickCounter = 1;
                         stage = PipelineState.WAIT_ATTACK_DELAY;
@@ -361,9 +351,6 @@ public class AutoMace implements ClientModInitializer {
                 case EXECUTE_ATTACK:
                     double attackRange = useSpear ? cfg.getSpearRange() : cfg.getMaxSwingRange();
                     if (distanceToTarget <= attackRange) {
-                        Vec3 chestTarget = target.getBoundingBox().getCenter();
-                        rot.executeSmoothSnap(chestTarget, cfg.getBaseSmoothness());
-
                         Vec3 eyePos = client.player.getEyePosition(1.0F);
                         Vec3 reachVec = eyePos.add(client.player.getViewVector(1.0F).scale(attackRange));
                         Optional<Vec3> hit = target.getBoundingBox().clip(eyePos, reachVec);
@@ -372,7 +359,14 @@ public class AutoMace implements ClientModInitializer {
                             client.gameMode.attack(client.player, target);
                         }
                     }
-                    stage = PipelineState.FLUSH_RESET;
+                    
+                    // Seamless combo chain: if falling after spear hit, transition directly to mace slot without resetting to original slot!
+                    if (useSpear && isActuallyFalling && inv.getMaceSlot() != -1) {
+                        targetExecutionSlot = inv.getMaceSlot();
+                        stage = PipelineState.PREPARE_SLOT;
+                    } else {
+                        stage = PipelineState.FLUSH_RESET;
+                    }
                     break;
 
                 case FLUSH_RESET:
