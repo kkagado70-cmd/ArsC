@@ -10,7 +10,6 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -39,7 +38,12 @@ public class XbowCart implements ClientModInitializer {
                 HT1CartDirector.getInstance().hardResetSequence();
             }
 
-            if (enabled) {
+            boolean lookingAtBlock = mc.hitResult instanceof BlockHitResult;
+            BlockHitResult hit = lookingAtBlock ? (BlockHitResult) mc.hitResult : null;
+            boolean isLookingDown = lookingAtBlock && hit != null && hit.getDirection() == Direction.UP;
+            boolean holdingRail = isAnyRail(mc.player.getMainHandItem().getItem());
+
+            if (enabled && isLookingDown && holdingRail) {
                 onTick(client);
             } else {
                 HT1CartDirector.getInstance().hardResetSequence();
@@ -65,10 +69,10 @@ public class XbowCart implements ClientModInitializer {
     public static class HT1CartDirector {
         private static final HT1CartDirector INSTANCE = new HT1CartDirector();
         private final CartConfiguration configuration = new CartConfiguration();
-        private final HotbarSlotAuditor auditor = new HotbarSlotAuditor();
-        private final TowerGeometryCalculator geometry = new TowerGeometryCalculator();
-        private final EyezingzInteractionSimulator simulator = new EyezingzInteractionSimulator();
-        private final CartExecutionStateMachine pipeline = new CartExecutionStateMachine();
+        private final HotbarKeyAuditor auditor = new HotbarKeyAuditor();
+        private final TowerGeometryResolver geometry = new TowerGeometryResolver();
+        private final PureKeySimulationSimulator simulator = new PureKeySimulationSimulator();
+        private final CartExecutionPipeline pipeline = new CartExecutionPipeline();
 
         public static HT1CartDirector getInstance() { return INSTANCE; }
 
@@ -84,295 +88,226 @@ public class XbowCart implements ClientModInitializer {
     public static class CartConfiguration {
         private final Random speedRandom = new Random();
         private final double maxPlacementDistance = 6.0D;
+        private final boolean towerMode = true;
 
         public void refresh() {}
 
         public int getActionDelayTicks() { return 2 + speedRandom.nextInt(2); }
         public double getMaxPlacementDistance() { return maxPlacementDistance; }
+        public boolean isTowerMode() { return towerMode; }
     }
 
-    public static class HotbarSlotAuditor {
-        public boolean selectAndSyncSlot(Minecraft client, Item targetItem) {
+    public static class HotbarKeyAuditor {
+        public boolean simulateSlotKeyPress(Minecraft client, Item targetItem) {
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = client.player.getInventory().getItem(i);
                 if (stack.getItem() == targetItem) {
                     client.player.getInventory().setSelectedSlot(i);
-                    simulateNumberKey(client, i + 1);
+                    client.options.keyHotbarSlots[i].setDown(true);
+                    client.options.keyHotbarSlots[i].setDown(false);
                     return true;
                 }
             }
             return false;
         }
 
-        public boolean selectAnyRail(Minecraft client) {
+        public boolean simulateSlotKeyPressForRail(Minecraft client) {
             for (int i = 0; i < 9; i++) {
                 Item item = client.player.getInventory().getItem(i).getItem();
                 if (isAnyRail(item)) {
                     client.player.getInventory().setSelectedSlot(i);
-                    simulateNumberKey(client, i + 1);
+                    client.options.keyHotbarSlots[i].setDown(true);
+                    client.options.keyHotbarSlots[i].setDown(false);
                     return true;
                 }
             }
             return false;
         }
 
-        public boolean selectChargedOrAnyCrossbow(Minecraft client) {
+        public boolean simulateSlotKeyPressForCrossbow(Minecraft client) {
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = client.player.getInventory().getItem(i);
                 if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) {
                     client.player.getInventory().setSelectedSlot(i);
-                    simulateNumberKey(client, i + 1);
+                    client.options.keyHotbarSlots[i].setDown(true);
+                    client.options.keyHotbarSlots[i].setDown(false);
                     return true;
                 }
             }
-            return selectAndSyncSlot(client, Items.CROSSBOW);
-        }
-
-        public void simulateNumberKey(Minecraft client, int slotNum) {
-            if (slotNum >= 1 && slotNum <= 9) {
-                client.options.keyHotbarSlots[slotNum - 1].setDown(true);
-                client.options.keyHotbarSlots[slotNum - 1].setDown(false);
-            }
+            return simulateSlotKeyPress(client, Items.CROSSBOW);
         }
     }
 
-    public static class TowerData {
-        private final BlockPos cartPosition;
-        private final BlockPos firePosition;
-        private final Direction hitFace;
+    public static class TowerDataStructure {
+        private final BlockPos cartPos;
+        private final BlockPos firePos;
+        private final Direction hitDirection;
 
-        public TowerData(BlockPos cartPosition, BlockPos firePosition, Direction hitFace) {
-            this.cartPosition = cartPosition;
-            this.firePosition = firePosition;
-            this.hitFace = hitFace;
+        public TowerDataStructure(BlockPos cartPos, BlockPos firePos, Direction hitDirection) {
+            this.cartPos = cartPos;
+            this.firePosition = firePos;
+            this.hitDirection = hitDirection;
         }
 
-        public BlockPos getCartPosition() { return cartPosition; }
-        public BlockPos getFirePosition() { return firePosition; }
-        public Direction getHitFace() { return hitFace; }
+        public BlockPos getCartPos() { return cartPos; }
+        public BlockPos getFirePos() { return firePosition; }
+        public Direction getHitDirection() { return hitDirection; }
     }
 
-    public static class TowerGeometryCalculator {
-        public TowerData resolveTowerStructure(Minecraft client, double maxRange) {
-            if (client.hitResult instanceof BlockHitResult blockHit) {
-                if (client.player.distanceToSqr(blockHit.getLocation()) <= maxRange * maxRange) {
-                    BlockPos basePos = blockHit.getBlockPos();
-                    BlockPos topPos = basePos;
-                    for (int yOffset = 1; yOffset <= 4; yOffset++) {
-                        BlockPos upper = basePos.above(yOffset);
-                        if (!client.level.getBlockState(upper).isAir()) { topPos = upper; }
+    public static class TowerGeometryResolver {
+        public TowerDataStructure resolveStructure(Minecraft client, double searchRange) {
+            if (client.hitResult instanceof BlockHitResult hit) {
+                if (client.player.distanceToSqr(hit.getLocation()) <= searchRange * searchRange) {
+                    BlockPos base = hit.getBlockPos();
+                    BlockPos top = base;
+                    for (int y = 1; y <= 4; y++) {
+                        BlockPos upper = base.above(y);
+                        if (!client.level.getBlockState(upper).isAir()) { top = upper; }
                         else { break; }
                     }
-                    return new TowerData(topPos.above(), basePos, blockHit.getDirection());
+                    return new TowerDataStructure(top.above(), base, hit.getDirection());
                 }
             }
             BlockPos fallback = client.player.blockPosition().below();
-            return new TowerData(fallback.above(), fallback, Direction.UP);
+            return new TowerDataStructure(fallback.above(), fallback, Direction.UP);
         }
     }
 
-    public static class EyezingzInteractionSimulator {
-        private boolean hasFired = false;
-        private boolean railPlaced = false;
-        private boolean cartPlaced = false;
-        private boolean firePlaced = false;
-        private int mouseReleaseTracker = 0;
+    public static class PureKeySimulationSimulator {
+        private boolean fired = false;
+        private boolean railDone = false;
+        private boolean cartDone = false;
+        private boolean fireDone = false;
+        private int useReleaseCounter = 0;
 
         public void updateReleases(Minecraft client) {
-            if (mouseButtonReleaseTracker > 0) {
-                mouseButtonReleaseTracker--;
-                if (mouseButtonReleaseTracker == 0 && client.options != null) {
+            if (useReleaseCounter > 0) {
+                useReleaseCounter--;
+                if (useReleaseCounter == 0 && client.options != null) {
                     client.options.keyUse.setDown(false);
                 }
             }
         }
 
-        public void placeRailAimed(Minecraft client, BlockPos pos, Direction face) {
-            if (railPlaced) return;
-            aimHumanLike(client, Vec3.atCenterOf(pos), face, pos);
-            railPlaced = true;
+        public void executeRailPlacement(Minecraft client, BlockPos pos) {
+            if (railDone) return;
+            aimAndSimulateKeyUse(client, pos);
+            railDone = true;
         }
 
-        public void placeCartAimed(Minecraft client, BlockPos pos, Direction face) {
-            if (cartPlaced) return;
-            aimHumanLike(client, Vec3.atCenterOf(pos), face, pos);
-            cartPlaced = true;
+        public void executeCartPlacement(Minecraft client, BlockPos pos) {
+            if (cartDone) return;
+            aimAndSimulateKeyUse(client, pos);
+            cartDone = true;
         }
 
-        public void placeFireAimed(Minecraft client, BlockPos pos, Direction face) {
-            if (firePlaced) return;
-            aimHumanLike(client, Vec3.atCenterOf(pos), face, pos);
-            firePlaced = true;
+        public void executeFirePlacement(Minecraft client, BlockPos pos) {
+            if (fireDone) return;
+            aimAndSimulateKeyUse(client, pos);
+            fireDone = true;
         }
 
-        public void fireCrossbowOnce(Minecraft client) {
-            if (hasFired) return;
-            ItemStack activeStack = client.player.getMainHandItem();
-            if (activeStack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(activeStack)) {
-                client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
-                hasFired = true;
+        public void executeCrossbowAction(Minecraft client) {
+            if (fired) return;
+            ItemStack stack = client.player.getMainHandItem();
+            if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) {
+                client.options.keyUse.setDown(true);
+                useReleaseCounter = 2;
+                fired = true;
+            } else {
+                client.options.keyUse.setDown(true);
+                useReleaseCounter = 4;
             }
         }
 
-        private void aimHumanLike(Minecraft client, Vec3 targetPos, Direction face, BlockPos pos) {
-            if (client.gameMode == null || client.player == null) return;
-            Random rand = new Random();
+        private void aimAndSimulateKeyUse(Minecraft client, BlockPos pos) {
+            if (client.player != null) {
+                Vec3 center = Vec3.atCenterOf(pos);
+                double dx = center.x - client.player.getX();
+                double dy = center.y - client.player.getEyeY();
+                double dz = center.z - client.player.getZ();
+                float yaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
+                float pitch = (float) (-Math.toDegrees(Math.atan2(dy, Math.sqrt(dx * dx + dz * dz))));
+                pitch = Mth.clamp(pitch, 10.0F, 85.0F);
 
-            double dx = targetPos.x - client.player.getX();
-            double dy = targetPos.y - client.player.getEyeY();
-            double dz = targetPos.z - client.player.getZ();
-            double hDist = Math.sqrt(dx * dx + dz * dz);
+                Random rand = new Random();
+                client.player.setYRot(yaw + (rand.nextFloat() - 0.5f) * 0.4f);
+                client.player.setXRot(Mth.clamp(pitch + (rand.nextFloat() - 0.5f) * 0.3f, 10.0F, 85.0F));
 
-            float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
-            float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
-
-            // Gaussian jitter
-            targetYaw += (float) (rand.nextGaussian() * 0.08);
-            targetPitch += (float) (rand.nextGaussian() * 0.06);
-
-            float yawError = Mth.wrapDegrees(targetYaw - client.player.getYRot());
-            float pitchError = Mth.wrapDegrees(targetPitch - client.player.getXRot());
-
-            // Overshoot simulation
-            float overshootFactor = 0.08f + rand.nextFloat() * 0.04f;
-            float overshootYaw = yawError * overshootFactor;
-            float overshootPitch = pitchError * overshootFactor;
-
-            float speed = 6.0f + rand.nextFloat() * 2.0f;
-            float stepYaw = Math.max(-speed, Math.min(speed, yawError * 0.65f + overshootYaw * 0.3f));
-            float stepPitch = Math.max(-speed * 0.6f, Math.min(speed * 0.6f, pitchError * 0.65f + overshootPitch * 0.3f));
-
-            float finalYaw = client.player.getYRot() + stepYaw;
-            float finalPitch = Mth.clamp(client.player.getXRot() + stepPitch, 10.0F, 85.0F);
-
-            client.player.setYRot(finalYaw);
-            client.player.setXRot(finalPitch);
-
-            client.options.keyUse.setDown(true);
-            mouseButtonReleaseTracker = 2;
-
-            BlockHitResult hitResult = new BlockHitResult(targetCenterSafe(targetPos), face, pos, false);
-            client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hitResult);
+                client.options.keyUse.setDown(true);
+                useReleaseCounter = 2;
+            }
         }
 
-        private Vec3 targetCenterSafe(Vec3 pos) {
-            return pos;
-        }
-
-        public boolean hasFired() { return hasFired; }
-        public boolean hasCompleted() { return railPlaced && cartPlaced && firePlaced && hasFired; }
+        public boolean hasFired() { return fired; }
+        public boolean hasCompleted() { return railDone && cartDone && fireDone && fired; }
 
         public void reset(Minecraft client) {
-            railPlaced = false; cartPlaced = false; firePlaced = false; hasFired = false; mouseButtonReleaseTracker = 0;
+            railDone = false; cartDone = false; fireDone = false; fired = false; useReleaseCounter = 0;
             if (client.options != null) client.options.keyUse.setDown(false);
         }
     }
 
-    public static class CartExecutionStateMachine {
-        private enum CartPhase { INACTIVE, STAGE_RAIL_DEPLOY, STAGE_CART_DEPLOY, STAGE_FIRE_IGNITE, STAGE_CROSSBOW_BURST }
-        private CartPhase activePhase = CartPhase.INACTIVE;
-        private int sequenceDelay = 0;
-        private int globalCooldownTicks = 0;
-        private int originalSlot = -1;
-        private long safetyWatchdogEpoch = 0L;
+    public static class CartExecutionPipeline {
+        private enum PipelinePhase { DORMANT, RAIL_STAGE, CART_STAGE, FIRE_STAGE, CROSSBOW_STAGE, LOCKED }
+        private PipelinePhase currentPhase = PipelinePhase.DORMANT;
+        private int tickDelay = 0;
+        private long watchdog = 0L;
 
-        private boolean isActivationConditionsMet(Minecraft client) {
-            if (!enabled || client.player == null || client.level == null) return false;
-            boolean lookingAtBlock = client.hitResult instanceof BlockHitResult;
-            BlockHitResult hit = lookingAtBlock ? (BlockHitResult) client.hitResult : null;
-            boolean isLookingGround = lookingAtBlock && hit != null && hit.getDirection() == Direction.UP;
-            boolean holdingRail = isAnyRail(client.player.getMainHandItem().getItem());
-            return isLookingGround && holdingRail;
-        }
-
-        public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarSlotAuditor auditor, TowerGeometryCalculator geometry, AimedLegitimateInteractionSimulator simulator) {
+        public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarKeyAuditor auditor, TowerGeometryResolver geometry, PureKeySimulationSimulator simulator) {
             simulator.updateReleases(client);
+            if (currentPhase == PipelinePhase.LOCKED) return;
+            if (tickDelay > 0) { tickDelay--; return; }
+            if (System.currentTimeMillis() > watchdog && currentPhase != PipelinePhase.DORMANT) { abortPipeline(); return; }
 
-            if (globalCooldownTicks > 0) {
-                globalCooldownTicks--;
-                return;
-            }
+            TowerDataModel tower = geometry.resolveStructure(client, cfg.getMaxPlacementDistance());
 
-            // Continuous condition check: Abort immediately if conditions are broken mid-combo
-            if (!isActivationConditionsMet(client) && activePhase != CartPhase.INACTIVE) {
-                restoreOriginalSlot(client);
-                abortSequence();
-                return;
-            }
-
-            if (sequenceDelay > 0) {
-                sequenceDelay--;
-                return;
-            }
-
-            if (System.currentTimeMillis() > safetyWatchdogEpoch && activePhase != CartPhase.INACTIVE) {
-                restoreOriginalSlot(client);
-                abortSequence();
-                return;
-            }
-
-            TowerData tower = geometry.resolveTowerStructure(client, cfg.getMaxPlacementDistance());
-
-            switch (activePhase) {
-                case INACTIVE:
-                    if (!isActivationConditionsMet(client)) return;
-                    originalSlot = client.player.getInventory().getSelectedSlot();
+            switch (currentPhase) {
+                case DORMANT:
                     simulator.reset(client);
-                    activePhase = CartPhase.STAGE_RAIL_DEPLOY;
-                    safetyWatchdogEpoch = System.currentTimeMillis() + 1500L;
+                    currentPhase = PipelinePhase.RAIL_STAGE;
+                    watchdog = System.currentTimeMillis() + 1500L;
                     break;
-
-                case STAGE_RAIL_DEPLOY:
-                    if (auditor.selectAnyRail(client)) {
-                        simulator.placeRailAimed(client, tower.getCartPosition(), tower.getHitFace());
-                        sequenceDelay = cfg.getActionDelayTicks();
-                        activePhase = CartPhase.STAGE_CART_DEPLOY;
+                case RAIL_STAGE:
+                    if (auditor.selectNumberKeyForAnyRail(client)) {
+                        simulator.executeRailPlacement(client, tower.getCartTarget());
+                        tickDelay = cfg.getActionDelayTicks();
+                        currentPhase = PipelinePhase.CART_STAGE;
                     }
                     break;
-
-                case STAGE_CART_DEPLOY:
-                    if (auditor.selectAndSyncSlot(client, Items.TNT_MINECART)) {
-                        simulator.placeCartAimed(client, tower.getCartPosition(), tower.getHitFace());
-                        sequenceDelay = cfg.getActionDelayTicks();
-                        activePhase = CartPhase.STAGE_FIRE_IGNITE;
+                case CART_STAGE:
+                    if (auditor.pressNumberKeyForSlot(client, Items.TNT_MINECART)) {
+                        simulator.executeCartPlacement(client, tower.getCartTarget());
+                        tickDelay = cfg.getActionDelayTicks();
+                        currentPhase = PipelinePhase.FIRE_STAGE;
                     }
                     break;
-
-                case STAGE_FIRE_IGNITE:
-                    if (auditor.selectAndSyncSlot(client, Items.FLINT_AND_STEEL) || auditor.selectAndSyncSlot(client, Items.FIRE_CHARGE)) {
-                        simulator.placeFireAimed(client, tower.getFirePosition(), tower.getHitFace());
-                        sequenceDelay = cfg.getActionDelayTicks();
-                        activePhase = CartPhase.STAGE_CROSSBOW_BURST;
+                case FIRE_STAGE:
+                    if (auditor.pressNumberKeyForSlot(client, Items.FLINT_AND_STEEL) || auditor.pressNumberKeyForSlot(client, Items.FIRE_CHARGE)) {
+                        simulator.executeFirePlacement(client, tower.getFireTarget());
+                        tickDelay = cfg.getActionDelayTicks();
+                        currentPhase = PipelinePhase.CROSSBOW_STAGE;
                     }
                     break;
-
-                case STAGE_CROSSBOW_BURST:
-                    if (auditor.selectChargedOrAnyCrossbow(client)) {
-                        simulator.fireCrossbowOnce(client);
+                case CROSSBOW_STAGE:
+                    if (auditor.pressNumberKeyForChargedOrAnyCrossbow(client)) {
+                        simulator.executeCrossbowAction(client);
                         if (simulator.hasFired()) {
-                            restoreOriginalSlot(client);
-                            abortSequence();
-                            globalCooldownTicks = 8; // 8 ticks cooldown after completion
+                            currentPhase = PipelinePhase.LOCKED;
+                            XbowCart.enabled = false;
                         }
-                        sequenceDelay = cfg.getActionDelayTicks();
+                        tickDelay = cfg.getActionDelayTicks();
                     }
+                    break;
+                case LOCKED:
                     break;
             }
         }
 
-        private void restoreOriginalSlot(Minecraft client) {
-            if (originalSlot >= 0 && originalSlot < 9 && client.player != null) {
-                client.player.getInventory().setSelectedSlot(originalSlot);
-                client.options.keyHotbarSlots[originalSlot].setDown(true);
-                client.options.keyHotbarSlots[originalSlot].setDown(false);
-            }
-            originalSlot = -1;
-        }
-
-        public void abortSequence() {
-            activePhase = CartPhase.INACTIVE;
-            sequenceDelay = 0;
-            safetyWatchdogEpoch = 0L;
+        public void abortPipeline() {
+            currentPhase = PipelinePhase.DORMANT;
+            tickDelay = 0;
+            watchdog = 0L;
         }
     }
-                                    }
+}
