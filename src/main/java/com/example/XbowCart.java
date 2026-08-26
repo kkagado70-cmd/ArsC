@@ -273,7 +273,7 @@ public class XbowCart implements ClientModInitializer {
             switch (activePhase) {
                 case INACTIVE:
                     if (!isActivationConditionsMet(client)) return;
-                    originalSlot = client.player.getInventory().selected;
+                    originalSlot = client.player.getInventory().getSelectedSlot();
                     simulator.reset();
                     activePhase = CartPhase.STAGE_RAIL_SELECT;
                     safetyWatchdogEpoch = System.currentTimeMillis() + 2000L;
@@ -281,7 +281,7 @@ public class XbowCart implements ClientModInitializer {
 
                 case STAGE_RAIL_SELECT:
                     if (auditor.selectAnyRail(client)) {
-                        sequenceDelay = 1; // Wait 1 tick for slot switch confirmation
+                        sequenceDelay = 1;
                         activePhase = CartPhase.STAGE_RAIL_DEPLOY;
                     } else {
                         abortSequence();
@@ -296,7 +296,7 @@ public class XbowCart implements ClientModInitializer {
 
                 case STAGE_FIRE_SELECT:
                     if (auditor.selectAndSyncSlot(client, Items.FLINT_AND_STEEL) || auditor.selectAndSyncSlot(client, Items.FIRE_CHARGE)) {
-                        sequenceDelay = 1; // Wait 1 tick for slot switch confirmation
+                        sequenceDelay = 1;
                         activePhase = CartPhase.STAGE_FIRE_DEPLOY;
                     } else {
                         abortSequence();
@@ -311,7 +311,7 @@ public class XbowCart implements ClientModInitializer {
 
                 case STAGE_CART_SELECT:
                     if (auditor.selectAndSyncSlot(client, Items.TNT_MINECART)) {
-                        sequenceDelay = 1; // Wait 1 tick for slot switch confirmation
+                        sequenceDelay = 1;
                         activePhase = CartPhase.STAGE_CART_DEPLOY;
                     } else {
                         abortSequence();
@@ -330,7 +330,7 @@ public class XbowCart implements ClientModInitializer {
                         return;
                     }
                     if (auditor.selectChargedOrAnyCrossbow(client)) {
-                        sequenceDelay = 1; // Wait 1 tick for slot switch confirmation
+                        sequenceDelay = 1;
                         activePhase = CartPhase.STAGE_CROSSBOW_FIRE;
                     } else {
                         abortSequence();
@@ -364,4 +364,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-                                                  }
+            }
