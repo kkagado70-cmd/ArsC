@@ -40,17 +40,17 @@ public class AutoMace implements ClientModInitializer {
             if (mc.player == null || mc.level == null) return;
             while (toggleKey.consumeClick()) {
                 enabled = !enabled;
-                BypassOrchestrator.getInstance().hardResetBypass();
+                HT1CombatController.getInstance().hardReset();
             }
             if (enabled) {
-                onTick(client);
+                HT1CombatController.getInstance().onTick(client);
             }
         });
     }
 
     public static void toggle() {
         enabled = !enabled;
-        BypassOrchestrator.getInstance().hardResetBypass();
+        HT1CombatController.getInstance().hardReset();
     }
 
     public static void onTick() {
@@ -59,353 +59,340 @@ public class AutoMace implements ClientModInitializer {
 
     public static void onTick(Minecraft client) {
         if (client.player == null || client.level == null || !enabled) return;
-        BypassOrchestrator.getInstance().processBypassTick(client);
+        HT1CombatController.getInstance().onTick(client);
     }
 
-    public static class BypassOrchestrator {
-        private static final BypassOrchestrator INSTANCE = new BypassOrchestrator();
-        private final SecurityConfigurationRegistry securityConfig = new SecurityConfigurationRegistry();
-        private final BehavioralEntropyEngine entropyEngine = new BehavioralEntropyEngine();
-        private final LatencyCompensator latencyCompensator = new LatencyCompensator();
-        private final PacketRateLimiter rateLimiter = new PacketRateLimiter();
-        private final BypassedRotationManager rotationManager = new BypassedRotationManager();
-        private final BypassedInventoryAuditor inventoryAuditor = new BypassedInventoryAuditor();
-        private final BypassedCombatPipeline combatPipeline = new BypassedCombatPipeline();
+    public static class HT1CombatController {
+        private static final HT1CombatController INSTANCE = new HT1CombatController();
+        private final HT1Config config = new HT1Config();
+        private final EliteTargetAuditor auditor = new EliteTargetAuditor();
+        private final HyperRotationEngine rotator = new HyperRotationEngine();
+        private final InventoryOptimizer inventory = new InventoryOptimizer();
+        private final MomentumStunEngine momentum = new MomentumStunEngine();
+        private final AggressivePipeline pipeline = new AggressivePipeline();
 
-        public static BypassOrchestrator getInstance() {
+        public static HT1CombatController getInstance() {
             return INSTANCE;
         }
 
-        public void processBypassTick(Minecraft client) {
+        public void onTick(Minecraft client) {
             if (client.player == null || client.level == null) return;
-            securityConfig.auditRuntime();
-            rateLimiter.enforceTickBudget();
-            combatPipeline.executeBypassedCycle(client, securityConfig, entropyEngine, latencyCompensator, rateLimiter, rotationManager, inventoryAuditor);
+            config.refresh();
+            pipeline.processFrame(client, config, auditor, rotator, inventory, momentum);
         }
 
-        public void hardResetBypass() {
-            combatPipeline.abortPipeline();
-            rateLimiter.flush();
+        public void hardReset() {
+            pipeline.abortPipeline();
         }
     }
 
-    public static class SecurityConfigurationRegistry {
-        private final double strictAimRadius = 7.0D;
-        private final double maxEngagementDistance = 3.0D;
-        private final double minimumDropAltitude = 1.3D;
-        private final float baseInterpolationFactor = 0.38F;
-        private final int antiCheatBucketLimit = 3;
+    public static class HT1Config {
+        private final double maxSwingRange = 3.0D;
+        private final double maxAimRange = 7.0D;
+        private final double minFallDist = 0.5D;
+        private final float hyperSnapSpeed = 0.95F;
+        private final int zeroLatencyDelay = 0;
 
-        public void auditRuntime() {}
+        public void refresh() {}
 
-        public double getStrictAimRadius() { return strictAimRadius; }
-        public double getMaxEngagementDistance() { return maxEngagementDistance; }
-        public double getMinimumDropAltitude() { return minimumDropAltitude; }
-        public float getBaseInterpolationFactor() { return baseInterpolationFactor; }
-        public int getAntiCheatBucketLimit() { return antiCheatBucketLimit; }
+        public double getMaxSwingRange() { return maxSwingRange; }
+        public double getMaxAimRange() { return maxAimRange; }
+        public double getMinFallDist() { return minFallDist; }
+        public float getHyperSnapSpeed() { return hyperSnapSpeed; }
+        public int getZeroLatencyDelay() { return zeroLatencyDelay; }
     }
 
-    public static class BehavioralEntropyEngine {
-        private final Random gaussianRandom = new Random();
+    public static class EliteTargetAuditor {
+        private final ConcurrentHashMap<UUID, Vec3> posHistory = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<UUID, Vec3> velocityHistory = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<UUID, Long> timeHistory = new ConcurrentHashMap<>();
 
-        public double getGaussianJitter(double scale) {
-            return gaussianRandom.nextGaussian() * scale;
+        public Player selectPrimaryTarget(Minecraft client, double radius) {
+            if (client.level == null || client.player == null) return null;
+            Player topTarget = null;
+            double topScore = Double.MAX_VALUE;
+
+            for (Player p : client.level.players()) {
+                if (p == client.player || !p.isAlive() || p.isSpectator()) continue;
+                double distSq = client.player.distanceToSqr(p);
+                if (distSq > radius * radius) continue;
+
+                calculateVelocityVector(p);
+                double score = distSq + calculateAggressionFactor(p);
+                if (score < topScore) {
+                    topScore = score;
+                    topTarget = p;
+                }
+            }
+            return topTarget;
         }
 
-        public int getVariableDelay(int baseTicks, int variance) {
-            return baseTicks + gaussianRandom.nextInt(variance + 1);
-        }
-
-        public float applyEntropyToSmoothness(float targetSmoothness) {
-            float noise = (float) (gaussianRandom.nextGaussian() * 0.012D);
-            return Mth.clamp(targetSmoothness + noise, 0.25F, 0.65F);
-        }
-    }
-
-    public static class LatencyCompensator {
-        public double estimatePingCompensation(Player target) {
-            if (target == null || mc.getConnection() == null) return 0.0D;
-            var playerInfo = mc.getConnection().getPlayerInfo(target.getUUID());
-            int latency = playerInfo != null ? playerInfo.getLatency() : 50;
-            return Math.min(1.5D, Math.max(0.2D, latency / 100.0D));
-        }
-    }
-
-    public static class PacketRateLimiter {
-        private int packetCounter = 0;
-        private long lastResetTime = System.currentTimeMillis();
-
-        public void enforceTickBudget() {
+        private void calculateVelocityVector(Player player) {
             long now = System.currentTimeMillis();
-            if (now - lastResetTime > 1000L) {
-                packetCounter = 0;
-                lastResetTime = now;
-            }
+            Vec3 current = player.position();
+            Vec3 prev = posHistory.getOrDefault(player.getUUID(), current);
+            long oldTime = timeHistory.getOrDefault(player.getUUID(), now);
+
+            long elapsed = Math.max(1L, now - oldTime);
+            Vec3 diff = current.subtract(prev);
+            Vec3 velocity = new Vec3(
+                diff.x / (elapsed / 50.0D),
+                diff.y / (elapsed / 50.0D),
+                diff.z / (elapsed / 50.0D)
+            );
+
+            velocityHistory.put(player.getUUID(), velocity);
+            posHistory.put(player.getUUID(), current);
+            timeHistory.put(player.getUUID(), now);
         }
 
-        public boolean canDispatchPacket(int limitPerSecond) {
-            if (packetCounter < limitPerSecond) {
-                packetCounter++;
-                return true;
-            }
-            return false;
+        private double calculateAggressionFactor(Player player) {
+            double factor = 0.0D;
+            if (player.getMainHandItem().getItem() instanceof MaceItem) factor -= 20.0D;
+            if (player.isUsingItem()) factor -= 10.0D;
+            return factor;
         }
 
-        public void flush() {
-            packetCounter = 0;
-            lastResetTime = System.currentTimeMillis();
+        public Vec3 extrapolatePosition(Player player, double scale) {
+            Vec3 vel = velocityHistory.getOrDefault(player.getUUID(), Vec3.ZERO);
+            return player.position().add(vel.scale(scale));
         }
     }
 
-    public static class BypassedRotationManager {
-        public void executeBypassedSnap(Vec3 targetCoordinates, float velocityModifier, BehavioralEntropyEngine entropy) {
+    public static class HyperRotationEngine {
+        private final Random jitter = new Random();
+
+        public void snapToCoordinates(Vec3 target, float speed, boolean isDive) {
             if (mc.player == null) return;
 
-            double deltaX = targetCoordinates.x - mc.player.getX();
-            double deltaY = targetCoordinates.y - mc.player.getEyeY();
-            double deltaZ = targetCoordinates.z - mc.player.getZ();
-            double planeDistance = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
+            double dx = target.x - mc.player.getX();
+            double dy = target.y - mc.player.getEyeY();
+            double dz = target.z - mc.player.getZ();
+            double distPlane = Math.sqrt(dx * dx + dz * dz);
 
-            float computedYaw = (float) (Math.toDegrees(Math.atan2(deltaZ, deltaX)) - 90.0D);
-            float computedPitch = (float) (-Math.toDegrees(Math.atan2(deltaY, planeDistance)));
+            float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
+            float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, distPlane)));
 
-            float yawDiff = Mth.wrapDegrees(computedYaw - mc.player.getYRot());
-            float pitchDiff = Mth.wrapDegrees(computedPitch - mc.player.getXRot());
+            float yawErr = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
+            float pitchErr = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
 
-            float appliedSmoothness = entropy.applyEntropyToSmoothness(velocityModifier);
-            float stepYaw = yawDiff * appliedSmoothness;
-            float stepPitch = pitchDiff * appliedSmoothness;
+            float velocityFactor = isDive ? 0.98F : speed;
+            float stepYaw = yawErr * (velocityFactor + (jitter.nextFloat() * 0.02F));
+            float stepPitch = pitchErr * (velocityFactor + (jitter.nextFloat() * 0.02F));
 
             float rawYaw = mc.player.getYRot() + stepYaw;
             float rawPitch = mc.player.getXRot() + stepPitch;
 
-            double mouseSensitivity = mc.options.sensitivity().get();
-            double multiplier = mouseSensitivity * 0.6D + 0.2D;
-            double greatestCommonDivisor = multiplier * multiplier * multiplier * 8.0D * 0.15D;
+            double sens = mc.options.sensitivity().get();
+            double m = sens * 0.6D + 0.2D;
+            double gcd = m * m * m * 8.0D * 0.15D;
 
-            float gcdQuantizedYaw = (float) (mc.player.getYRot() + Math.round((rawYaw - mc.player.getYRot()) / greatestCommonDivisor) * greatestCommonDivisor);
-            float gcdQuantizedPitch = (float) (mc.player.getXRot() + Math.round((rawPitch - mc.player.getXRot()) / greatestCommonDivisor) * greatestCommonDivisor);
+            float finalYaw = (float) (mc.player.getYRot() + Math.round((rawYaw - mc.player.getYRot()) / gcd) * gcd);
+            float finalPitch = (float) (mc.player.getXRot() + Math.round((rawPitch - mc.player.getXRot()) / gcd) * gcd);
 
-            mc.player.setYRot(gcdQuantizedYaw);
-            mc.player.setXRot(Mth.clamp(gcdQuantizedPitch, -90.0F, 90.0F));
+            mc.player.setYRot(finalYaw);
+            mc.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
         }
     }
 
-    public static class BypassedInventoryAuditor {
-        private int activeAxeIndex = -1;
-        private int activeMaceIndex = -1;
-        private int activeSpearIndex = -1;
+    public static class InventoryOptimizer {
+        private int cachedAxe = -1;
+        private int cachedMace = -1;
 
-        public void auditPlayerInventory(Player playerEntity, double verticalFall) {
-            activeAxeIndex = -1;
-            activeMaceIndex = -1;
-            activeSpearIndex = -1;
-            int bestDensityRating = -1;
-            int bestBreachRating = -1;
+        public void scanHotbar(Player player, double fallHeight) {
+            cachedAxe = -1;
+            cachedMace = -1;
+            int bestDensity = -1;
+            int bestBreach = -1;
 
-            for (int slot = 0; slot < 9; slot++) {
-                ItemStack stack = playerEntity.getInventory().getItem(slot);
+            for (int i = 0; i < 9; i++) {
+                ItemStack stack = player.getInventory().getItem(i);
                 if (stack.isEmpty()) continue;
 
-                String nameId = stack.getItem().getDescriptionId().toLowerCase();
-                if ((nameId.contains("spear") || stack.getHoverName().getString().toLowerCase().contains("spear")) && activeSpearIndex == -1) {
-                    activeSpearIndex = slot;
-                } else if (stack.getItem() instanceof AxeItem && activeAxeIndex == -1) {
+                if (stack.getItem() instanceof AxeItem && cachedAxe == -1) {
                     if (stack.getDamageValue() < stack.getMaxDamage() - 3) {
-                        activeAxeIndex = slot;
+                        cachedAxe = i;
                     }
                 } else if (stack.getItem() instanceof MaceItem) {
-                    int densityVal = extractEnchantmentWeight(stack, "density");
-                    int breachVal = extractEnchantmentWeight(stack, "breach");
+                    int density = getEncLvl(stack, "density");
+                    int breach = getEncLvl(stack, "breach");
 
-                    if (verticalFall >= 5.0D) {
-                        if (densityVal > bestDensityRating) {
-                            bestDensityRating = densityVal;
-                            activeMaceIndex = slot;
+                    if (fallHeight >= 5.0D) {
+                        if (density > bestDensity) {
+                            bestDensity = density;
+                            cachedMace = i;
                         }
                     } else {
-                        if (breachVal > bestBreachRating) {
-                            bestBreachRating = breachVal;
-                            activeMaceIndex = slot;
+                        if (breach > bestBreach) {
+                            bestBreach = breach;
+                            cachedMace = i;
                         }
                     }
-                    if (activeMaceIndex == -1) activeMaceIndex = slot;
+                    if (cachedMace == -1) cachedMace = i;
                 }
             }
         }
 
-        private int extractEnchantmentWeight(ItemStack itemStack, String keyName) {
-            if (itemStack.isEmpty()) return 0;
-            ItemEnchantments map = itemStack.get(DataComponents.ENCHANTMENTS);
+        private int getEncLvl(ItemStack stack, String key) {
+            if (stack.isEmpty()) return 0;
+            ItemEnchantments map = stack.get(DataComponents.ENCHANTMENTS);
             if (map == null) return 0;
             for (var entry : map.entrySet()) {
-                if (entry.getKey().toString().contains(keyName)) return entry.getIntValue();
+                if (entry.getKey().toString().contains(key)) return entry.getIntValue();
             }
             return 0;
         }
 
-        public int getAxeIndex() { return activeAxeIndex; }
-        public int getMaceIndex() { return activeMaceIndex; }
-        public int getSpearIndex() { return activeSpearIndex; }
+        public int getAxeSlot() { return cachedAxe; }
+        public int getMaceSlot() { return cachedMace; }
 
-        public void simulateLegitimateSlotChange(int slotNumber, PacketRateLimiter limiter) {
+        public void swapSlot(int slot) {
             if (mc.player == null) return;
-            if (mc.player.getInventory().getSelectedSlot() != slotNumber && limiter.canDispatchPacket(15)) {
-                mc.player.getInventory().setSelectedSlot(slotNumber);
-                if (slotNumber >= 0 && slotNumber < 9) {
-                    mc.options.keyHotbarSlots[slotNumber].setDown(true);
-                    mc.options.keyHotbarSlots[slotNumber].setDown(false);
-                }
+            mc.player.getInventory().setSelectedSlot(slot);
+            if (slot >= 0 && slot < 9) {
+                mc.options.keyHotbarSlots[slot].setDown(true);
+                mc.options.keyHotbarSlots[slot].setDown(false);
             }
         }
     }
 
-    public static class BypassedCombatPipeline {
-        private enum PipelineState { STANDBY, PREPARE_SLOT_CHANGE, AWAIT_SERVER_SYNC, DISPATCH_SWING, AWAIT_ATTACK_TICK, EXECUTE_ATTACK, CLEANUP_FLUSH }
-        private PipelineState currentStage = PipelineState.STANDBY;
-        private int tickBudgetTimer = 0;
-        private int targetedSlotIndex = -1;
-        private int startingSlotIndex = -1;
-        private long watchdogExpiry = 0L;
-        private int mouseButtonReleaseTimer = 0;
+    public static class MomentumStunEngine {
+        private double peakY = 0.0D;
+        private int airTicks = 0;
 
-        public void executeBypassedCycle(Minecraft client, SecurityConfigurationRegistry cfg, BehavioralEntropyEngine entropy, LatencyCompensator latency, PacketRateLimiter rateLimiter, BypassedRotationManager rotator, BypassedInventoryAuditor auditor) {
-            if (mouseButtonReleaseTimer > 0) {
-                mouseButtonReleaseTimer--;
-                if (mouseButtonReleaseTimer == 0 && mc.options != null) {
+        public void updatePhysics(Player player) {
+            if (player == null) return;
+            if (player.onGround()) {
+                peakY = player.getY();
+                airTicks = 0;
+            } else {
+                peakY = Math.max(peakY, player.getY());
+                airTicks++;
+            }
+        }
+
+        public double getFall(Player player) {
+            if (player == null) return 0.0D;
+            return Math.max(0.0D, peakY - player.getY());
+        }
+
+        public boolean isDiving(Player player) {
+            return player != null && player.getDeltaMovement().y < -0.3D;
+        }
+
+        public boolean isStunned(Player target) {
+            return target != null && (target.hurtTime > 0 || airTicks > 2);
+        }
+    }
+
+    public static class AggressivePipeline {
+        private enum State { INACTIVE, AXE_PREP, AXE_HIT, MACE_PREP, MACE_HIT, COMPLETE }
+        private State currentStage = State.INACTIVE;
+        private int ticksLeft = 0;
+        private int startingSlotIndex = -1;
+        private long watchdogTimer = 0L;
+        private int attackReleaseTimer = 0;
+
+        public void processFrame(Minecraft client, HT1Config cfg, EliteTargetAuditor auditor, HyperRotationEngine rotator, InventoryOptimizer inv, MomentumStunEngine momentum) {
+            if (attackReleaseTimer > 0) {
+                attackReleaseTimer--;
+                if (attackReleaseTimer == 0 && mc.options != null) {
                     mc.options.keyAttack.setDown(false);
                 }
             }
 
-            if (tickBudgetTimer > 0) {
-                tickBudgetTimer--;
+            if (ticksLeft > 0) {
+                ticksLeft--;
                 return;
             }
 
-            if (System.currentTimeMillis() > watchdogExpiry && currentStage != PipelineState.STANDBY) {
+            if (System.currentTimeMillis() > watchdogTimer && currentStage != State.INACTIVE) {
                 abortPipeline();
                 return;
             }
 
-            TargetPredictor globalPredictor = new TargetPredictor();
-            Player activeTarget = globalPredictor.acquireStrictCrosshairTarget(client, cfg.getStrictAimRadius());
-            if (activeTarget == null) {
-                if (currentStage != PipelineState.STANDBY) abortPipeline();
+            momentum.updatePhysics(client.player);
+            double fall = momentum.getFall(client.player);
+            boolean diving = momentum.isDiving(client.player);
+
+            Player target = auditor.selectPrimaryTarget(client, cfg.getMaxAimRange());
+            if (target == null) {
+                if (currentStage != State.INACTIVE) abortPipeline();
                 return;
             }
 
-            Vec3 predictedChest = activeTarget.getBoundingBox().getCenter();
-            rotator.executeBypassedSnap(predictedChest, cfg.getBaseInterpolationFactor());
-
-            double playerFall = client.player.fallDistance;
-            boolean fallingCondition = playerFall >= cfg.getMinimumDropAltitude() && client.player.getDeltaMovement().y < -0.1D;
-            boolean weaponReady = client.player.getAttackStrengthScale(0.0F) >= 0.9F;
-
-            auditor.playerInventory = client.player.getInventory(); // reference sync
-            auditor.auditPlayerInventory(client.player, playerFall);
-            boolean opponentShielding = activeTarget.isUsingItem() && activeTarget.getUseItem().getItem() instanceof ShieldItem;
-            double distanceToEntity = client.player.distanceTo(activeTarget);
-
-            int spearSlotIdx = auditor.getSpearIndex();
-            boolean utilizeSpear = spearSlotIdx != -1 && distanceToEntity > cfg.getMaxEngagementDistance() && distanceToEntity <= 4.5D;
+            inv.scanHotbar(client.player, fall);
+            boolean shield = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
 
             switch (currentStage) {
-                case STANDBY:
+                case INACTIVE:
                     startingSlotIndex = client.player.getInventory().getSelectedSlot();
-                    if (utilizeSpear && weaponReady) {
-                        targetedSlotIndex = spearSlotIdx;
-                        currentStage = PipelineState.PREPARE_SLOT_CHANGE;
-                        watchdogTimeoutSetup();
-                    } else if (opponentShielding && weaponReady) {
-                        targetedSlotIndex = auditor.getAxeIndex();
-                        if (targetedSlotIndex != -1) {
-                            currentStage = PipelineState.PREPARE_SLOT_CHANGE;
-                            watchdogTimeoutSetup();
-                        }
-                    } else if (fallingCondition && weaponReady) {
-                        targetedSlotIndex = auditor.getMaceIndex();
-                        if (targetedSlotIndex != -1) {
-                            currentStage = PipelineState.PREPARE_SLOT_CHANGE;
-                            watchdogTimeoutSetup();
-                        }
-                    }
+                    currentStage = shield ? State.AXE_PREP : State.MACE_PREP;
+                    watchdogTimer = System.currentTimeMillis() + 1000L;
                     break;
 
-                case PREPARE_SLOT_CHANGE:
-                    if (targetedSlotIndex != -1) {
-                        auditor.simulateLegitimateSlotChange(targetedSlotIndex, rateLimiter);
-                        tickBudgetTimer = entropy.getVariableDelay(cfg.getAntiCheatBucketLimit(), 1);
-                        currentStage = PipelineState.AWAIT_SERVER_SYNC;
+                case AXE_PREP:
+                    int axe = inv.getAxeSlot();
+                    if (axe != -1) {
+                        inv.swapSlot(axe);
+                        ticksLeft = cfg.getZeroLatencyDelay();
+                        currentStage = State.AXE_HIT;
                     } else {
-                        currentStage = PipelineState.CLEANUP_FLUSH;
+                        currentStage = State.MACE_PREP;
                     }
                     break;
 
-                case AWAIT_SERVER_SYNC:
-                    currentStage = PipelineState.DISPATCH_SWING;
+                case AXE_HIT:
+                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
+                        rotator.snapToCoordinates(auditor.extrapolatePosition(target, 0.2D), cfg.getHyperSnapSpeed(), diving);
+                        mc.options.keyAttack.setDown(true);
+                        attackReleaseTimer = 2;
+                        ticksLeft = cfg.getZeroLatencyDelay();
+                        currentStage = State.MACE_PREP;
+                    }
                     break;
 
-                case DISPATCH_SWING:
-                    double activeLimit = utilizeSpear ? 4.5D : cfg.getMaxEngagementDistance();
-                    if (distanceToEntity <= activeLimit && weaponReady) {
-                        client.player.swing(InteractionHand.MAIN_HAND);
-                        tickBudgetTimer = 1;
-                        currentStage = PipelineState.AWAIT_ATTACK_TICK;
+                case MACE_PREP:
+                    int mace = inv.getMaceSlot();
+                    if (mace != -1) {
+                        inv.swapSlot(mace);
+                        ticksLeft = cfg.getZeroLatencyDelay();
+                        currentStage = State.MACE_HIT;
                     } else {
-                        currentStage = PipelineState.CLEANUP_FLUSH;
+                        currentStage = State.COMPLETE;
                     }
                     break;
 
-                case AWAIT_ATTACK_TICK:
-                    currentStage = PipelineState.EXECUTE_ATTACK;
-                    break;
-
-                case EXECUTE_ATTACK:
-                    double finalReach = utilizeSpear ? 4.5D : cfg.getMaxEngagementDistance();
-                    if (distanceToEntity <= finalReach) {
-                        Vec3 viewEye = client.player.getEyePosition(1.0F);
-                        Vec3 reachVector = viewEye.add(client.player.getViewVector(1.0F).scale(finalReach));
-                        Optional<Vec3> rayHit = activeTarget.getBoundingBox().clip(viewEye, reachVector);
-
-                        if (rayHit.isPresent() || distanceToEntity <= 3.0D) {
-                            if (mc.options != null && rateLimiter.canDispatchPacket(20)) {
-                                mc.options.keyAttack.setDown(true);
-                                mouseButtonReleaseTimer = 2;
-                            }
-                        }
-                    }
-
-                    if (utilizeSpear && fallingCondition && auditor.getMaceIndex() != -1) {
-                        targetedSlotIndex = auditor.getMaceIndex();
-                        currentStage = PipelineState.PREPARE_SLOT_CHANGE;
-                    } else {
-                        currentStage = PipelineState.CLEANUP_FLUSH;
+                case MACE_HIT:
+                    boolean ready = fall >= cfg.getMinFallDist() || diving || momentum.isStunned(target);
+                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && ready && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
+                        rotator.snapToCoordinates(auditor.extrapolatePosition(target, 0.2D), cfg.getHyperSnapSpeed(), diving);
+                        mc.options.keyAttack.setDown(true);
+                        attackReleaseTimer = 2;
+                        ticksLeft = cfg.getZeroLatencyDelay();
+                        currentStage = State.COMPLETE;
                     }
                     break;
 
-                case CLEANUP_FLUSH:
-                    if (originalSlotIndex >= 0 && originalSlotIndex < 9) {
-                        auditor.simulateLegitimateSlotChange(originalSlotIndex, rateLimiter);
+                case COMPLETE:
+                    if (startingSlotIndex >= 0 && startingSlotIndex < 9) {
+                        inv.swapSlot(startingSlotIndex);
                     }
                     abortPipeline();
                     break;
             }
         }
 
-        private void watchdogTimeoutSetup() {
-            watchdogExpiry = System.currentTimeMillis() + 1500L;
-        }
-
         public void abortPipeline() {
-            currentStage = PipelineState.STANDBY;
-            tickBudgetTimer = 0;
-            if (originalSlotIndex >= 0 && originalSelectedSlot < 9 && mc.player != null) {
-                mc.player.getInventory().setSelectedSlot(originalSlotIndex);
-                mc.options.keyHotbarSlots[originalSlotIndex].setDown(true);
-                mc.options.keyHotbarSlots[originalSlotIndex].setDown(false);
+            currentStage = State.INACTIVE;
+            ticksLeft = 0;
+            if (startingSlotIndex >= 0 && startingSlotIndex < 9 && mc.player != null) {
+                mc.player.getInventory().setSelectedSlot(startingSlotIndex);
+                mc.options.keyHotbarSlots[startingSlotIndex].setDown(true);
+                mc.options.keyHotbarSlots[startingSlotIndex].setDown(false);
             }
-            originalSlotIndex = -1;
-            watchdogExpiry = 0L;
+            startingSlotIndex = -1;
+            watchdogTimer = 0L;
         }
     }
-        }
+                                       }
