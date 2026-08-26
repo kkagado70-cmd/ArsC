@@ -16,9 +16,11 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
+import net.minecraft.world.phys.AABB;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.Optional;
 import java.util.Random;
 
 public class XbowCart implements ClientModInitializer {
@@ -76,7 +78,7 @@ public class XbowCart implements ClientModInitializer {
         private final CartConfiguration configuration = new CartConfiguration();
         private final HotbarSlotAuditor auditor = new HotbarSlotAuditor();
         private final TowerGeometryCalculator geometry = new TowerGeometryCalculator();
-        private final AimedLegitimateInteractionSimulator simulator = new AimedLegitimateInteractionSimulator();
+        private final GrimBypassedInteractionSimulator simulator = new GrimBypassedInteractionSimulator();
         private final CartExecutionStateMachine pipeline = new CartExecutionStateMachine();
 
         public static HT1CartDirector getInstance() {
@@ -101,8 +103,9 @@ public class XbowCart implements ClientModInitializer {
 
         public void refresh() {}
 
+        // GrimAC compliant speed: 2 to 3 ticks randomized delay
         public int getActionDelayTicks() { 
-            return 1 + speedRandom.nextInt(2); 
+            return 2 + speedRandom.nextInt(2); 
         }
 
         public double getMaxPlacementDistance() { return maxPlacementDistance; }
@@ -196,11 +199,12 @@ public class XbowCart implements ClientModInitializer {
         }
     }
 
-    public static class AimedLegitimateInteractionSimulator {
-        private boolean hasFired = false;
+    public static class GrimBypassedInteractionSimulator {
         private boolean railPlaced = false;
         private boolean cartPlaced = false;
         private boolean firePlaced = false;
+        private boolean hasSwung = false;
+        private boolean hasAttacked = false;
 
         public void placeRailAimed(Minecraft client, BlockPos pos, Direction face) {
             if (railPlaced) return;
@@ -220,12 +224,37 @@ public class XbowCart implements ClientModInitializer {
             firePlaced = true;
         }
 
-        public void fireCrossbowOnce(Minecraft client) {
-            if (hasFired) return;
+        public void swingCrossbow(Minecraft client) {
+            if (hasSwung) return;
             ItemStack activeStack = client.player.getMainHandItem();
             if (activeStack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(activeStack)) {
-                client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
-                hasFired = true;
+                // Check attack strength cooldown (>= 0.9F)
+                if (client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
+                    client.player.swing(InteractionHand.MAIN_HAND);
+                    hasSwung = true;
+                }
+            }
+        }
+
+        public void attackCrossbow(Minecraft client, net.minecraft.world.entity.LivingEntity target) {
+            if (hasAttacked || !hasSwung) return;
+            if (target != null && client.player.distanceTo(target) <= 3.0D) {
+                // Line of sight, box clipping, and FOV verification
+                if (client.player.hasLineOfSight(target)) {
+                    Vec3 eye = client.player.getEyePosition(1.0F);
+                    Vec3 look = client.player.getViewVector(1.0F);
+                    Vec3 reach = eye.add(look.x * 3.0, look.y * 3.0, look.z * 3.0);
+                    AABB box = target.getBoundingBox();
+                    Optional<Vec3> hit = box.clip(eye, reach);
+
+                    Vec3 toTarget = target.position().subtract(client.player.position()).normalize();
+                    double dot = look.dot(toTarget);
+
+                    if ((hit.isPresent() || client.player.distanceTo(target) <= 3.0D) && dot >= 0.2D) {
+                        client.gameMode.attack(client.player, target);
+                        hasAttacked = true;
+                    }
+                }
             }
         }
 
@@ -240,6 +269,11 @@ public class XbowCart implements ClientModInitializer {
                 float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
                 float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
                 
+                // Add stochastic jitter for human-like placement aim
+                Random rand = new Random();
+                targetYaw += (rand.nextFloat() - 0.5f) * 0.5f;
+                targetPitch += (rand.nextFloat() - 0.5f) * 0.3f;
+
                 client.player.setYRot(targetYaw);
                 client.player.setXRot(Mth.clamp(targetPitch, -90.0F, 90.0F));
 
@@ -248,29 +282,34 @@ public class XbowCart implements ClientModInitializer {
             }
         }
 
-        public boolean hasFired() {
-            return hasFired;
-        }
-
         public boolean hasCompleted() {
-            return railPlaced && cartPlaced && firePlaced && hasFired;
+            return railPlaced && cartPlaced && firePlaced && hasAttacked;
         }
 
         public void reset() {
             railPlaced = false;
             cartPlaced = false;
             firePlaced = false;
-            hasFired = false;
+            hasSwung = false;
+            hasAttacked = false;
         }
     }
 
     public static class CartExecutionStateMachine {
-        private enum CartPhase { INACTIVE, STAGE_RAIL_DEPLOY, STAGE_CART_DEPLOY, STAGE_FIRE_IGNITE, STAGE_CROSSBOW_BURST, COMPLETE_LOCK }
+        private enum CartPhase { 
+            INACTIVE, 
+            STAGE_RAIL_DEPLOY, 
+            STAGE_CART_DEPLOY, 
+            STAGE_FIRE_IGNITE, 
+            STAGE_CROSSBOW_SWING, 
+            STAGE_CROSSBOW_ATTACK, 
+            COMPLETE_LOCK 
+        }
         private CartPhase activePhase = CartPhase.INACTIVE;
         private int sequenceDelay = 0;
         private long safetyWatchdogEpoch = 0L;
 
-        public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarSlotAuditor auditor, TowerGeometryCalculator geometry, AimedLegitimateInteractionSimulator simulator) {
+        public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarSlotAuditor auditor, TowerGeometryCalculator geometry, GrimBypassedInteractionSimulator simulator) {
             if (activePhase == CartPhase.COMPLETE_LOCK) {
                 return;
             }
@@ -314,18 +353,40 @@ public class XbowCart implements ClientModInitializer {
                     if (auditor.selectAndSyncSlot(client, Items.FLINT_AND_STEEL) || auditor.selectAndSyncSlot(client, Items.FIRE_CHARGE)) {
                         simulator.placeFireAimed(client, tower.getFirePosition(), tower.getHitFace());
                         sequenceDelay = cfg.getActionDelayTicks();
-                        activePhase = CartPhase.STAGE_CROSSBOW_BURST;
+                        activePhase = CartPhase.STAGE_CROSSBOW_SWING;
                     }
                     break;
 
-                case STAGE_CROSSBOW_BURST:
+                case STAGE_CROSSBOW_SWING:
                     if (auditor.selectChargedOrAnyCrossbow(client)) {
-                        simulator.fireCrossbowOnce(client);
-                        if (simulator.hasFired()) {
-                            activePhase = CartPhase.COMPLETE_LOCK;
-                            XbowCart.enabled = false;
+                        float strength = client.player.getAttackStrengthScale(0.0F);
+                        if (strength < 0.9F) {
+                            sequenceDelay = 1;
+                            return;
                         }
+                        simulator.swingCrossbow(client);
+                        sequenceDelay = 1;
+                        activePhase = CartPhase.STAGE_CROSSBOW_ATTACK;
+                    }
+                    break;
+
+                case STAGE_CROSSBOW_ATTACK:
+                    net.minecraft.world.entity.LivingEntity nearestTarget = null;
+                    double closest = Double.MAX_VALUE;
+                    for (Player p : client.level.players()) {
+                        if (p != client.player && p.isAlive() && client.player.distanceTo(p) <= 3.0D) {
+                            double d = client.player.distanceToSqr(p);
+                            if (d < closest) { closest = d; nearestTarget = p; }
+                        }
+                    }
+                    if (nearestTarget != null && client.player.hasLineOfSight(nearestTarget)) {
+                        simulator.attackCrossbow(client, nearestTarget);
                         sequenceDelay = cfg.getActionDelayTicks();
+                        activePhase = CartPhase.COMPLETE_LOCK;
+                        XbowCart.enabled = false;
+                        // Global cooldown pause before allowing next cart (5-10 ticks)
+                    } else {
+                        abortSequence();
                     }
                     break;
 
@@ -340,4 +401,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-                            }
+                }
