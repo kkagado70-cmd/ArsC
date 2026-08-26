@@ -15,6 +15,8 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.enchantment.ItemEnchantments;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
@@ -29,12 +31,13 @@ public class AutoMace implements ClientModInitializer {
     private static final double MAX_AIM_RANGE = 7.0D;
     private static final double SPEAR_RANGE = 4.5D;
     private static final double SWING_RANGE = 3.0D;
-    private static final double MIN_FALL_DIST = 1.3D;
+    private static final double MIN_FALL_DIST = 2.0D;
 
     private static int state = 0;
     private static int delayTimer = 0;
-    private static int originalSlot = -1;
     private static int keyReleaseTimer = 0;
+    private static Vec3 cachedRandomHitboxTarget = null;
+    private static int targetRandomizationTimer = 0;
 
     @Override
     public void onInitializeClient() {
@@ -54,20 +57,16 @@ public class AutoMace implements ClientModInitializer {
             }
 
             if (enabled) {
-                onTick(client);
+                onTick();
             }
         });
-    }
-
-    public static void toggle() {
-        enabled = !enabled;
-        resetState();
     }
 
     public static void resetState() {
         state = 0;
         delayTimer = 0;
-        originalSlot = -1;
+        cachedRandomHitboxTarget = null;
+        targetRandomizationTimer = 0;
         releaseAttackKey();
     }
 
@@ -78,11 +77,7 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static void onTick() {
-        onTick(Minecraft.getInstance());
-    }
-
-    public static void onTick(Minecraft client) {
-        if (client.player == null || client.level == null) return;
+        if (mc.player == null || mc.level == null) return;
 
         if (keyReleaseTimer > 0) {
             keyReleaseTimer--;
@@ -102,15 +97,17 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
-        double dist = client.player.distanceTo(target);
-        boolean isFalling = client.player.fallDistance >= MIN_FALL_DIST && client.player.getDeltaMovement().y < -0.1D;
+        double dist = mc.player.distanceTo(target);
+        boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST && mc.player.getDeltaMovement().y < -0.1D;
         boolean useSpear = dist > SWING_RANGE && dist <= SPEAR_RANGE && hasSpear();
 
-        applyHumanizedAim(target);
+        // Only aim when actively falling or using spear (leaves camera free when standing on ground)
+        if (isFalling || useSpear) {
+            applyHumanizedRandomizedAim(target);
+        }
 
         switch (state) {
             case 0:
-                originalSlot = client.player.getInventory().getSelectedSlot();
                 if (useSpear) {
                     state = 1;
                 } else if (isFalling && hasMace()) {
@@ -126,9 +123,9 @@ public class AutoMace implements ClientModInitializer {
                 }
                 break;
             case 2:
-                if (dist <= SPEAR_RANGE && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
+                if (dist <= SPEAR_RANGE && mc.player.getAttackStrengthScale(0.0F) >= 0.9F) {
                     if (hasLineOfSight(target) && validateFOV(target)) {
-                        client.options.keyAttack.setDown(true);
+                        mc.options.keyAttack.setDown(true);
                         keyReleaseTimer = 2;
                         delayTimer = 2 + new Random().nextInt(2);
                         if (isFalling && hasMace()) {
@@ -148,9 +145,9 @@ public class AutoMace implements ClientModInitializer {
                 }
                 break;
             case 5:
-                if (dist <= SWING_RANGE && isFalling && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
+                if (dist <= SWING_RANGE && isFalling && mc.player.getAttackStrengthScale(0.0F) >= 0.9F) {
                     if (hasLineOfSight(target) && validateFOV(target)) {
-                        client.options.keyAttack.setDown(true);
+                        mc.options.keyAttack.setDown(true);
                         keyReleaseTimer = 2;
                         delayTimer = 2 + new Random().nextInt(2);
                         state = 7;
@@ -158,25 +155,29 @@ public class AutoMace implements ClientModInitializer {
                 }
                 break;
             case 7:
-                if (originalSlot >= 0 && originalSlot < 9) {
-                    client.player.getInventory().setSelectedSlot(originalSlot);
-                    simulateNumberKey(originalSlot + 1);
-                }
                 resetState();
                 break;
         }
     }
 
-    private static void applyHumanizedAim(Player target) {
-        Vec3 center = target.getBoundingBox().getCenter();
+    private static void applyHumanizedRandomizedAim(Player target) {
+        AABB box = target.getBoundingBox();
         Random rand = new Random();
-        double jitterX = center.x + (rand.nextDouble() - 0.5) * 0.12;
-        double jitterY = center.y + (rand.nextDouble() - 0.5) * 0.12;
-        double jitterZ = center.z + (rand.nextDouble() - 0.5) * 0.12;
 
-        double dx = jitterX - mc.player.getX();
-        double dy = jitterY - mc.player.getEyeY();
-        double dz = jitterZ - mc.player.getZ();
+        // Pick a randomized point inside the 3D bounding box (not rigidly glued to center)
+        if (cachedRandomHitboxTarget == null || targetRandomizationTimer <= 0) {
+            double rx = box.minX + rand.nextDouble() * (box.maxX - box.minX);
+            double ry = box.minY + rand.nextDouble() * (box.maxY - box.minY) * 0.85D; // Keep below top edge
+            double rz = box.minZ + rand.nextDouble() * (box.maxZ - box.minZ);
+            cachedRandomHitboxTarget = new Vec3(rx, ry, rz);
+            targetRandomizationTimer = 6 + rand.nextInt(6); // Re-target every 6-12 ticks organically
+        } else {
+            targetRandomizationTimer--;
+        }
+
+        double dx = cachedRandomHitboxTarget.x - mc.player.getX();
+        double dy = cachedRandomHitboxTarget.y - mc.player.getEyeY();
+        double dz = cachedRandomHitboxTarget.z - mc.player.getZ();
         double hDist = Math.sqrt(dx * dx + dz * dz);
 
         float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
@@ -185,7 +186,8 @@ public class AutoMace implements ClientModInitializer {
         float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
         float pitchDelta = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
 
-        float smoothness = 0.35F + rand.nextFloat() * 0.1F;
+        // Butter-smooth interpolation factor
+        float smoothness = 0.28F + rand.nextFloat() * 0.08F;
         float finalYaw = mc.player.getYRot() + yawDelta * smoothness;
         float finalPitch = mc.player.getXRot() + pitchDelta * smoothness;
 
@@ -273,4 +275,4 @@ public class AutoMace implements ClientModInitializer {
             mc.options.keyHotbarSlots[slotNum - 1].setDown(false);
         }
     }
-    }
+                                 }
