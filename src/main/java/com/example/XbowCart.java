@@ -205,37 +205,40 @@ public class XbowCart implements ClientModInitializer {
         private boolean cartPlaced = false;
         private boolean firePlaced = false;
 
-        public void placeRailAimed(Minecraft client, BlockPos pos, Direction face) {
+        public void placeRailOnce(Minecraft client, BlockPos pos, Direction face) {
             if (railPlaced) return;
             aimAndInteract(client, pos, face);
             railPlaced = true;
         }
 
-        public void placeCartAimed(Minecraft client, BlockPos pos, Direction face) {
+        public void placeCartOnce(Minecraft client, BlockPos pos, Direction face) {
             if (cartPlaced) return;
             aimAndInteract(client, pos, face);
             cartPlaced = true;
         }
 
-        public void placeFireAimed(Minecraft client, BlockPos pos, Direction face) {
+        public void placeFireOnce(Minecraft client, BlockPos pos, Direction face) {
             if (firePlaced) return;
             aimAndInteract(client, pos, face);
             firePlaced = true;
         }
 
+        // Aliases to match alternative naming conventions
+        public void placeRailAimed(Minecraft client, BlockPos pos, Direction face) { placeRailOnce(client, pos, face); }
+        public void placeCartAimed(Minecraft client, BlockPos pos, Direction face) { placeCartOnce(client, pos, face); }
+        public void placeFireAimed(Minecraft client, BlockPos pos, Direction face) { placeFireOnce(client, pos, face); }
+
         public void swingCrossbow(Minecraft client) {
-            if (hasSwung) return;
             ItemStack activeStack = client.player.getMainHandItem();
             if (activeStack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(activeStack)) {
                 if (client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
                     client.player.swing(InteractionHand.MAIN_HAND);
-                    hasSwung = true;
                 }
             }
         }
 
         public void attackCrossbow(Minecraft client, Player target) {
-            if (hasAttacked || !hasSwung) return;
+            if (hasFired) return;
             if (target != null && client.player.distanceTo(target) <= 3.0D) {
                 if (client.player.hasLineOfSight(target)) {
                     Vec3 eye = client.player.getEyePosition(1.0F);
@@ -249,7 +252,7 @@ public class XbowCart implements ClientModInitializer {
 
                     if ((hit.isPresent() || client.player.distanceTo(target) <= 3.0D) && dot >= 0.2D) {
                         client.gameMode.attack(client.player, target);
-                        hasAttacked = true;
+                        hasFired = true;
                     }
                 }
             }
@@ -281,12 +284,21 @@ public class XbowCart implements ClientModInitializer {
         private boolean hasSwung = false;
         private boolean hasAttacked = false;
 
+        public void fireCrossbowOnce(Minecraft client) {
+            if (hasFired) return;
+            ItemStack activeStack = client.player.getMainHandItem();
+            if (activeStack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(activeStack)) {
+                client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
+                hasFired = true;
+            }
+        }
+
         public boolean hasFired() {
-            return hasAttacked;
+            return hasFired;
         }
 
         public boolean hasCompleted() {
-            return railPlaced && cartPlaced && firePlaced && hasAttacked;
+            return railPlaced && cartPlaced && firePlaced && hasFired;
         }
 
         public void reset() {
@@ -403,4 +415,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-                                                }
+    }
