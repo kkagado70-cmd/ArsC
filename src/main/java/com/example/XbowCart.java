@@ -14,6 +14,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.util.Mth;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
@@ -23,6 +24,11 @@ public class XbowCart implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
+
+    private static int state = 0;
+    private static int delay = 0;
+    private static int globalCooldown = 0;
+    private static int keyReleaseTimer = 0;
 
     @Override
     public void onInitializeClient() {
@@ -312,4 +318,4 @@ public class XbowCart implements ClientModInitializer {
             safetyEpoch = 0L;
         }
     }
-                    }
+}
