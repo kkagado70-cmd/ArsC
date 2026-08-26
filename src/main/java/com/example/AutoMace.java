@@ -74,14 +74,18 @@ public class AutoMace implements ClientModInitializer {
 
     public static class ConfigurationRegistry {
         private final double maxSwingRange = 3.0D;
-        private final double maxAimRange = 6.0D;
-        private final float baseSmoothness = 0.45F;
+        private final double spearRange = 4.5D;
+        private final double maxAimRange = 7.0D;
+        private final double minFallDistance = 2.0D;
+        private final float baseSmoothness = 0.30F; // Butter-smooth organic human curve (zero stiffness)
         private final int tickInterval = 1;
 
         public void refreshParameters() {}
 
         public double getMaxSwingRange() { return maxSwingRange; }
+        public double getSpearRange() { return spearRange; }
         public double getMaxAimRange() { return maxAimRange; }
+        public double getMinFallDist() { return minFallDistance; }
         public float getBaseSmoothness() { return baseSmoothness; }
         public int getTickInterval() { return tickInterval; }
     }
@@ -91,21 +95,36 @@ public class AutoMace implements ClientModInitializer {
         private final ConcurrentHashMap<UUID, Vec3> velocityBuffer = new ConcurrentHashMap<>();
         private final ConcurrentHashMap<UUID, Long> timestampBuffer = new ConcurrentHashMap<>();
 
-        public Player acquireMobileTarget(Minecraft client, double searchRadius) {
+        public Player acquireStrictCrosshairTarget(Minecraft client, double searchRadius) {
             if (client.level == null || client.player == null) return null;
             Player selectedTarget = null;
-            double lowestDistance = Double.MAX_VALUE;
+            double lowestAngle = Double.MAX_VALUE;
+
+            if (client.hitResult != null && client.hitResult.getType() == HitResult.Type.ENTITY) {
+                EntityHitResult entityHit = (EntityHitResult) client.hitResult;
+                if (entityHit.getEntity() instanceof Player playerEntity) {
+                    if (playerEntity.isAlive() && !playerEntity.isSpectator() && client.player.distanceTo(playerEntity) <= searchRadius) {
+                        return playerEntity;
+                    }
+                }
+            }
+
+            Vec3 eyePosition = client.player.getEyePosition(1.0F);
+            Vec3 lookVector = client.player.getViewVector(1.0F);
 
             for (Player candidate : client.level.players()) {
                 if (candidate == client.player || !candidate.isAlive() || candidate.isSpectator()) continue;
-                double dist = client.player.distanceTo(candidate);
-                if (dist > searchRadius) continue;
+                if (client.player.distanceTo(candidate) > searchRadius) continue;
 
                 calculateTargetDynamics(candidate);
 
-                if (dist < lowestDistance) {
-                    lowestDistance = dist;
-                    selectedTarget = candidate;
+                Optional<Vec3> rayBoxIntersection = candidate.getBoundingBox().clip(eyePosition, eyePosition.add(lookVector.scale(searchRadius)));
+                if (rayBoxIntersection.isPresent() || client.player.distanceTo(candidate) <= 3.0D) {
+                    double score = client.player.distanceToSqr(candidate);
+                    if (score < lowestAngle) {
+                        lowestAngle = score;
+                        selectedTarget = candidate;
+                    }
                 }
             }
             return selectedTarget;
@@ -153,8 +172,9 @@ public class AutoMace implements ClientModInitializer {
             float yawError = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
             float pitchError = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
 
-            float stepYaw = yawError * (velocityModifier + (stochasticRandom.nextFloat() * 0.02F));
-            float stepPitch = pitchError * (velocityModifier + (stochasticRandom.nextFloat() * 0.02F));
+            // Butter-smooth human easing curve with microscopic stochastic jitter
+            float stepYaw = yawError * (velocityModifier + (stochasticRandom.nextFloat() * 0.015F));
+            float stepPitch = pitchError * (velocityModifier + (stochasticRandom.nextFloat() * 0.015F));
 
             float rawYaw = mc.player.getYRot() + stepYaw;
             float rawPitch = mc.player.getXRot() + stepPitch;
@@ -174,27 +194,59 @@ public class AutoMace implements ClientModInitializer {
     public static class InventoryManager {
         private int cachedAxeSlot = -1;
         private int cachedMaceSlot = -1;
+        private int cachedSpearSlot = -1;
 
-        public void scanHotbarSlots(Player userPlayer) {
+        public void scanHotbarSlots(Player userPlayer, double fallAltitude) {
             cachedAxeSlot = -1;
             cachedMaceSlot = -1;
+            cachedSpearSlot = -1;
+            int maxDensityScore = -1;
+            int maxBreachScore = -1;
 
             for (int slotIndex = 0; slotIndex < 9; slotIndex++) {
                 ItemStack slotStack = userPlayer.getInventory().getItem(slotIndex);
                 if (slotStack.isEmpty()) continue;
 
-                if (slotStack.getItem() instanceof AxeItem && cachedAxeSlot == -1) {
+                String itemName = slotStack.getItem().getDescriptionId().toLowerCase();
+                if ((itemName.contains("spear") || slotStack.getHoverName().getString().toLowerCase().contains("spear")) && cachedSpearSlot == -1) {
+                    cachedSpearSlot = slotIndex;
+                } else if (slotStack.getItem() instanceof AxeItem && cachedAxeSlot == -1) {
                     if (slotStack.getDamageValue() < slotStack.getMaxDamage() - 3) {
                         cachedAxeSlot = slotIndex;
                     }
-                } else if (slotStack.getItem() instanceof MaceItem && cachedMaceSlot == -1) {
-                    cachedMaceSlot = slotIndex;
+                } else if (slotStack.getItem() instanceof MaceItem) {
+                    int densityVal = parseEnchantmentScore(slotStack, "density");
+                    int breachVal = parseEnchantmentScore(slotStack, "breach");
+
+                    if (fallAltitude >= 5.0D) {
+                        if (densityVal > maxDensityScore) {
+                            maxDensityScore = densityVal;
+                            cachedMaceSlot = slotIndex;
+                        }
+                    } else {
+                        if (breachVal > maxBreachScore) {
+                            maxBreachScore = breachVal;
+                            cachedMaceSlot = slotIndex;
+                        }
+                    }
+                    if (cachedMaceSlot == -1) cachedMaceSlot = slotIndex;
                 }
             }
         }
 
+        private int parseEnchantmentScore(ItemStack itemStack, String queryKey) {
+            if (itemStack.isEmpty()) return 0;
+            ItemEnchantments registryMap = itemStack.get(DataComponents.ENCHANTMENTS);
+            if (registryMap == null) return 0;
+            for (var entry : registryMap.entrySet()) {
+                if (entry.getKey().toString().contains(queryKey)) return entry.getIntValue();
+            }
+            return 0;
+        }
+
         public int getAxeSlot() { return cachedAxeSlot; }
         public int getMaceSlot() { return cachedMaceSlot; }
+        public int getSpearSlot() { return cachedSpearSlot; }
 
         public void sendSlotPacket(int slotNumber) {
             if (mc.player == null) return;
@@ -208,15 +260,24 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static class CombatStateMachine {
-        private enum PipelineState { DORMANT, PREPARE_AXE_PHASE, EXECUTE_AXE_PHASE, PREPARE_MACE_PHASE, EXECUTE_MACE_PHASE, FLUSH_RESET }
+        private enum PipelineState { 
+            DORMANT, 
+            PREPARE_SLOT, 
+            WAIT_SLOT_DELAY, 
+            EXECUTE_SWING, 
+            WAIT_ATTACK_DELAY, 
+            EXECUTE_ATTACK, 
+            FLUSH_RESET 
+        }
         private PipelineState stage = PipelineState.DORMANT;
-        private int internalTickClock = 0;
+        private int tickCounter = 0;
+        private int targetExecutionSlot = -1;
         private int originalSelectedSlot = -1;
         private long watchdogTimeout = 0L;
 
         public void processTick(Minecraft client, ConfigurationRegistry cfg, TargetPredictor pred, RotationManager rot, InventoryManager inv) {
-            if (internalTickClock > 0) {
-                internalTickClock--;
+            if (tickCounter > 0) {
+                tickCounter--;
                 return;
             }
 
@@ -225,63 +286,93 @@ public class AutoMace implements ClientModInitializer {
                 return;
             }
 
-            Player target = pred.acquireMobileTarget(client, cfg.getMaxAimRange());
+            Player target = pred.acquireStrictCrosshairTarget(client, cfg.getMaxAimRange());
             if (target == null) {
                 if (stage != PipelineState.DORMANT) abortPipeline();
                 return;
             }
 
-            Vec3 chestTarget = target.getBoundingBox().getCenter();
-            rot.executeSmoothSnap(chestTarget, cfg.getBaseSmoothness());
+            double currentFall = client.player.fallDistance;
+            boolean isActuallyFalling = currentFall >= cfg.getMinFallDist() && client.player.getDeltaMovement().y < -0.1D;
+            boolean isFullCooldown = client.player.getAttackStrengthScale(0.0F) >= 0.9F;
 
-            inv.scanHotbarSlots(client.player);
+            inv.scanHotbarSlots(client.player, currentFall);
             boolean shieldUp = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
+            double distanceToTarget = client.player.distanceTo(target);
+
+            int spearSlot = inv.getSpearSlot();
+            boolean useSpear = spearSlot != -1 && distanceToTarget > cfg.getMaxSwingRange() && distanceToTarget <= cfg.getSpearRange();
 
             switch (stage) {
                 case DORMANT:
                     originalSelectedSlot = client.player.getInventory().getSelectedSlot();
-                    stage = shieldUp ? PipelineState.PREPARE_AXE_PHASE : PipelineState.PREPARE_MACE_PHASE;
-                    watchdogTimeout = System.currentTimeMillis() + 1500L;
-                    break;
-
-                case PREPARE_AXE_PHASE:
-                    int axeSol = inv.getAxeSlot();
-                    if (axeSol != -1) {
-                        inv.sendSlotPacket(axeSol);
-                        internalTickClock = cfg.getTickInterval();
-                        stage = PipelineState.EXECUTE_AXE_PHASE;
-                    } else {
-                        stage = PipelineState.PREPARE_MACE_PHASE;
+                    if (useSpear && isFullCooldown) {
+                        targetExecutionSlot = spearSlot;
+                        stage = PipelineState.PREPARE_SLOT;
+                        watchdogTimeout = System.currentTimeMillis() + 1500L;
+                    } else if (shieldUp && isFullCooldown) {
+                        targetExecutionSlot = inv.getAxeSlot();
+                        if (targetExecutionSlot != -1) {
+                            stage = PipelineState.PREPARE_SLOT;
+                            watchdogTimeout = System.currentTimeMillis() + 1500L;
+                        }
+                    } else if (isActuallyFalling && isFullCooldown) {
+                        targetExecutionSlot = inv.getMaceSlot();
+                        if (targetExecutionSlot != -1) {
+                            stage = PipelineState.PREPARE_SLOT;
+                            watchdogTimeout = System.currentTimeMillis() + 1500L;
+                        }
                     }
                     break;
 
-                case EXECUTE_AXE_PHASE:
-                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange()) {
-                        client.player.swing(InteractionHand.MAIN_HAND);
-                        client.gameMode.attack(client.player, target);
-                        internalTickClock = cfg.getTickInterval();
-                        stage = PipelineState.FLUSH_RESET;
-                    }
-                    break;
-
-                case PREPARE_MACE_PHASE:
-                    int maceSol = inv.getMaceSlot();
-                    if (maceSol != -1) {
-                        inv.sendSlotPacket(maceSol);
-                        internalTickClock = cfg.getTickInterval();
-                        stage = PipelineState.EXECUTE_MACE_PHASE;
+                case PREPARE_SLOT:
+                    if (targetExecutionSlot != -1) {
+                        inv.sendSlotPacket(targetExecutionSlot);
+                        tickCounter = cfg.getTickInterval();
+                        stage = PipelineState.WAIT_SLOT_DELAY;
                     } else {
                         stage = PipelineState.FLUSH_RESET;
                     }
                     break;
 
-                case EXECUTE_MACE_PHASE:
-                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange()) {
+                case WAIT_SLOT_DELAY:
+                    stage = PipelineState.EXECUTE_SWING;
+                    break;
+
+                case EXECUTE_SWING:
+                    double maxRange = useSpear ? cfg.getSpearRange() : cfg.getMaxSwingRange();
+                    if (distanceToTarget <= maxRange && isFullCooldown) {
+                        // Smoothly aim ONLY during active combat swing/attack execution
+                        Vec3 chestTarget = target.getBoundingBox().getCenter();
+                        rot.executeSmoothSnap(chestTarget, cfg.getBaseSmoothness());
+
                         client.player.swing(InteractionHand.MAIN_HAND);
-                        client.gameMode.attack(client.player, target);
-                        internalTickClock = cfg.getTickInterval();
+                        tickCounter = 1;
+                        stage = PipelineState.WAIT_ATTACK_DELAY;
+                    } else {
                         stage = PipelineState.FLUSH_RESET;
                     }
+                    break;
+
+                case WAIT_ATTACK_DELAY:
+                    stage = PipelineState.EXECUTE_ATTACK;
+                    break;
+
+                case EXECUTE_ATTACK:
+                    double attackRange = useSpear ? cfg.getSpearRange() : cfg.getMaxSwingRange();
+                    if (distanceToTarget <= attackRange) {
+                        Vec3 chestTarget = target.getBoundingBox().getCenter();
+                        rot.executeSmoothSnap(chestTarget, cfg.getBaseSmoothness());
+
+                        Vec3 eyePos = client.player.getEyePosition(1.0F);
+                        Vec3 reachVec = eyePos.add(client.player.getViewVector(1.0F).scale(attackRange));
+                        Optional<Vec3> hit = target.getBoundingBox().clip(eyePos, reachVec);
+
+                        if (hit.isPresent() || distanceToTarget <= 3.0D) {
+                            client.gameMode.attack(client.player, target);
+                        }
+                    }
+                    stage = PipelineState.FLUSH_RESET;
                     break;
 
                 case FLUSH_RESET:
@@ -295,7 +386,7 @@ public class AutoMace implements ClientModInitializer {
 
         public void abortPipeline() {
             stage = PipelineState.DORMANT;
-            internalTickClock = 0;
+            tickCounter = 0;
             if (originalSelectedSlot >= 0 && originalSelectedSlot < 9 && mc.player != null) {
                 mc.player.getInventory().setSelectedSlot(originalSelectedSlot);
             }
@@ -303,4 +394,4 @@ public class AutoMace implements ClientModInitializer {
             watchdogTimeout = 0L;
         }
     }
-        }
+                }
