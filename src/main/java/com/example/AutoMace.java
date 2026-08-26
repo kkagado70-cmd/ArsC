@@ -5,37 +5,43 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.AxeItem;
+import net.minecraft.world.item.ShieldItem;
+import net.minecraft.world.item.MaceItem;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.item.CrossbowItem;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.InteractionHand;
 import net.minecraft.util.Mth;
-import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.HitResult;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.Optional;
 import java.util.Random;
 
-public class XbowCart implements ClientModInitializer {
+public class AutoMace implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
+    private static final double MAX_AIM_RANGE = 7.0D;
+    private static final double SPEAR_RANGE = 4.5D;
+    private static final double SWING_RANGE = 3.0D;
+    private static final double MIN_FALL_DIST = 1.3D;
+
     private static int state = 0;
-    private static int delay = 0;
-    private static int globalCooldown = 0;
+    private static int delayTimer = 0;
+    private static int originalSlot = -1;
     private static int keyReleaseTimer = 0;
 
     @Override
     public void onInitializeClient() {
         toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.xbowcart.toggle",
+                "key.automace.toggle",
                 InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_X,
+                GLFW.GLFW_KEY_M,
                 KeyMapping.Category.MISC
         ));
 
@@ -55,14 +61,14 @@ public class XbowCart implements ClientModInitializer {
 
     public static void resetState() {
         state = 0;
-        delay = 0;
-        globalCooldown = 0;
-        releaseInputs();
+        delayTimer = 0;
+        originalSlot = -1;
+        releaseAttackKey();
     }
 
-    private static void releaseInputs() {
+    private static void releaseAttackKey() {
         if (mc.options != null) {
-            mc.options.keyUse.setDown(false);
+            mc.options.keyAttack.setDown(false);
         }
     }
 
@@ -76,104 +82,184 @@ public class XbowCart implements ClientModInitializer {
         if (keyReleaseTimer > 0) {
             keyReleaseTimer--;
             if (keyReleaseTimer == 0) {
-                releaseInputs();
+                releaseAttackKey();
             }
         }
 
-        if (globalCooldown > 0) {
-            globalCooldown--;
+        if (delayTimer > 0) {
+            delayTimer--;
             return;
         }
 
-        boolean lookingAtGround = client.hitResult instanceof BlockHitResult blockHit && blockHit.getDirection() == Direction.UP;
-        boolean holdingRail = isAnyRail(client.player.getMainHandItem().getItem());
-
-        if (!lookingAtGround || !holdingRail) {
-            if (state != 0) {
-                resetState();
-            }
+        Player target = acquireTarget(MAX_AIM_RANGE);
+        if (target == null) {
+            if (state != 0) resetState();
             return;
         }
 
-        if (delay > 0) {
-            delay--;
-            return;
-        }
+        double dist = client.player.distanceTo(target);
+        boolean isFalling = client.player.fallDistance >= MIN_FALL_DIST && client.player.getDeltaMovement().y < -0.1D;
+        boolean useSpear = dist > SWING_RANGE && dist <= SPEAR_RANGE && hasSpear();
+
+        applyHumanizedAim(target);
 
         switch (state) {
             case 0:
-                if (selectHotbarItem(Items.RAIL)) {
-                    delay = 2 + new Random().nextInt(2);
+                originalSlot = client.player.getInventory().getSelectedSlot();
+                if (useSpear) {
                     state = 1;
-                }
-                break;
-            case 1:
-                simulateRightClick();
-                if (selectHotbarItem(Items.TNT_MINECART)) {
-                    delay = 2 + new Random().nextInt(2);
-                    state = 2;
-                }
-                break;
-            case 2:
-                simulateRightClick();
-                if (selectItemSlot(Items.FLINT_AND_STEEL) || selectItemSlot(Items.FIRE_CHARGE)) {
-                    delay = 2 + new Random().nextInt(2);
-                    state = 3;
-                }
-                break;
-            case 3:
-                simulateRightClick();
-                if (selectCrossbowSlot()) {
-                    delay = 2;
+                } else if (isFalling && hasMace()) {
                     state = 4;
                 }
                 break;
-            case 4:
-                ItemStack stack = client.player.getMainHandItem();
-                if (stack.getItem() instanceof CrossbowItem) {
-                    client.options.keyUse.setDown(true);
-                    keyReleaseTimer = 4 + new Random().nextInt(3);
+            case 1:
+                if (selectSpearSlot()) {
+                    delayTimer = 2 + new Random().nextInt(2);
+                    state = 2;
+                } else {
+                    state = 0;
                 }
-                globalCooldown = 6 + new Random().nextInt(5);
-                state = 0;
+                break;
+            case 2:
+                if (dist <= SPEAR_RANGE && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
+                    if (hasLineOfSight(target) && validateFOV(target)) {
+                        client.options.keyAttack.setDown(true);
+                        keyReleaseTimer = 2;
+                        delayTimer = 2 + new Random().nextInt(2);
+                        if (isFalling && hasMace()) {
+                            state = 4;
+                        } else {
+                            state = 7;
+                        }
+                    }
+                }
+                break;
+            case 4:
+                if (selectMaceSlot()) {
+                    delayTimer = 2 + new Random().nextInt(2);
+                    state = 5;
+                } else {
+                    state = 7;
+                }
+                break;
+            case 5:
+                if (dist <= SWING_RANGE && isFalling && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
+                    if (hasLineOfSight(target) && validateFOV(target)) {
+                        client.options.keyAttack.setDown(true);
+                        keyReleaseTimer = 2;
+                        delayTimer = 2 + new Random().nextInt(2);
+                        state = 7;
+                    }
+                }
+                break;
+            case 7:
+                if (originalSlot >= 0 && originalSlot < 9) {
+                    client.player.getInventory().setSelectedSlot(originalSlot);
+                    simulateNumberKey(originalSlot + 1);
+                }
+                resetState();
                 break;
         }
     }
 
-    private static void simulateRightClick() {
-        mc.options.keyUse.setDown(true);
-        keyReleaseTimer = 2;
+    private static void applyHumanizedAim(Player target) {
+        Vec3 center = target.getBoundingBox().getCenter();
+        Random rand = new Random();
+        double jitterX = center.x + (rand.nextDouble() - 0.5) * 0.12;
+        double jitterY = center.y + (rand.nextDouble() - 0.5) * 0.12;
+        double jitterZ = center.z + (rand.nextDouble() - 0.5) * 0.12;
+
+        double dx = jitterX - mc.player.getX();
+        double dy = jitterY - mc.player.getEyeY();
+        double dz = jitterZ - mc.player.getZ();
+        double hDist = Math.sqrt(dx * dx + dz * dz);
+
+        float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
+        float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
+
+        float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
+        float pitchDelta = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
+
+        float smoothness = 0.35F + rand.nextFloat() * 0.1F;
+        float finalYaw = mc.player.getYRot() + yawDelta * smoothness;
+        float finalPitch = mc.player.getXRot() + pitchDelta * smoothness;
+
+        mc.player.setYRot(finalYaw);
+        mc.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
     }
 
-    private static boolean isAnyRail(Item item) {
-        return item == Items.RAIL || item == Items.POWERED_RAIL || item == Items.DETECTOR_RAIL || item == Items.ACTIVATOR_RAIL;
-    }
-
-    private static boolean selectHotbarItem(Item target) {
-        for (int i = 0; i < 9; i++) {
-            if (mc.player.getInventory().getItem(i).getItem() == target) {
-                mc.player.getInventory().setSelectedSlot(i);
-                simulateNumberKey(i + 1);
-                return true;
+    private static Player acquireTarget(double range) {
+        if (mc.level == null || mc.player == null) return null;
+        Player best = null;
+        double minDist = Double.MAX_VALUE;
+        for (Player p : mc.level.players()) {
+            if (p != mc.player && p.isAlive() && !p.isSpectator()) {
+                double dist = mc.player.distanceToSqr(p);
+                if (dist <= range * range && dist < minDist) {
+                    minDist = dist;
+                    best = p;
+                }
             }
+        }
+        return best;
+    }
+
+    private static boolean hasLineOfSight(Player target) {
+        return mc.player != null && target != null && mc.player.hasLineOfSight(target);
+    }
+
+    private static boolean validateFOV(Player target) {
+        Vec3 toTarget = target.position().subtract(mc.player.position()).normalize();
+        Vec3 look = mc.player.getViewVector(1.0F);
+        return look.dot(toTarget) >= 0.2D;
+    }
+
+    private static boolean hasSpear() {
+        return findItemSlotByName("spear") != -1;
+    }
+
+    private static boolean hasMace() {
+        return findItemSlotByClass(MaceItem.class) != -1;
+    }
+
+    private static boolean selectSpearSlot() {
+        int slot = findItemSlotByName("spear");
+        if (slot != -1) {
+            mc.player.getInventory().setSelectedSlot(slot);
+            simulateNumberKey(slot + 1);
+            return true;
         }
         return false;
     }
 
-    private static boolean selectItemSlot(Item target) {
-        return selectHotbarItem(target);
+    private static boolean selectMaceSlot() {
+        int slot = findItemSlotByClass(MaceItem.class);
+        if (slot != -1) {
+            mc.player.getInventory().setSelectedSlot(slot);
+            simulateNumberKey(slot + 1);
+            return true;
+        }
+        return false;
     }
 
-    private static boolean selectCrossbowSlot() {
+    private static int findItemSlotByName(String name) {
         for (int i = 0; i < 9; i++) {
             ItemStack stack = mc.player.getInventory().getItem(i);
-            if (stack.getItem() instanceof CrossbowItem) {
-                mc.player.getInventory().setSelectedSlot(i);
-                simulateNumberKey(i + 1);
-                return true;
+            String id = stack.getItem().getDescriptionId().toLowerCase();
+            if (id.contains(name) || stack.getHoverName().getString().toLowerCase().contains(name)) {
+                return i;
             }
         }
-        return false;
+        return -1;
+    }
+
+    private static int findItemSlotByClass(Class<?> clazz) {
+        for (int i = 0; i < 9; i++) {
+            if (clazz.isInstance(mc.player.getInventory().getItem(i).getItem())) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private static void simulateNumberKey(int slotNum) {
@@ -182,4 +268,4 @@ public class XbowCart implements ClientModInitializer {
             mc.options.keyHotbarSlots[slotNum - 1].setDown(false);
         }
     }
-             }
+            }
