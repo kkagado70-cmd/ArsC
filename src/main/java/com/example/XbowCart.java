@@ -40,8 +40,6 @@ public class XbowCart implements ClientModInitializer {
 
             if (enabled) {
                 onTick(client);
-            } else {
-                HT1CartDirector.getInstance().hardResetSequence();
             }
         });
     }
@@ -122,6 +120,10 @@ public class XbowCart implements ClientModInitializer {
         }
 
         public boolean pressNumberKeyForAnyRail(Minecraft client) {
+            return simulateNumberKeyRail(client);
+        }
+
+        public boolean selectNumberKeyForAnyRail(Minecraft client) {
             return simulateNumberKeyRail(client);
         }
 
@@ -353,4 +355,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-        }
+            }
