@@ -9,8 +9,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.Item;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -25,11 +23,6 @@ public class XbowCart implements ClientModInitializer {
     private static final Minecraft mc = Minecraft.getInstance();
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
-
-    private static int state = 0;
-    private static int delay = 0;
-    private static int globalCooldown = 0;
-    private static int keyReleaseTimer = 0;
 
     @Override
     public void onInitializeClient() {
@@ -101,7 +94,6 @@ public class XbowCart implements ClientModInitializer {
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = client.player.getInventory().getItem(i);
                 if (stack.getItem() == targetItem) {
-                    client.player.getInventory().setSelectedSlot(i);
                     client.options.keyHotbarSlots[i].setDown(true);
                     client.options.keyHotbarSlots[i].setDown(false);
                     return true;
@@ -114,7 +106,6 @@ public class XbowCart implements ClientModInitializer {
             for (int i = 0; i < 9; i++) {
                 Item item = client.player.getInventory().getItem(i).getItem();
                 if (isAnyRail(item)) {
-                    client.player.getInventory().setSelectedSlot(i);
                     client.options.keyHotbarSlots[i].setDown(true);
                     client.options.keyHotbarSlots[i].setDown(false);
                     return true;
@@ -127,7 +118,6 @@ public class XbowCart implements ClientModInitializer {
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = client.player.getInventory().getItem(i);
                 if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) {
-                    client.player.getInventory().setSelectedSlot(i);
                     client.options.keyHotbarSlots[i].setDown(true);
                     client.options.keyHotbarSlots[i].setDown(false);
                     return true;
@@ -138,16 +128,19 @@ public class XbowCart implements ClientModInitializer {
     }
 
     public static class TowerData {
+        private final BlockPos railPosition;
         private final BlockPos cartPosition;
         private final BlockPos firePosition;
         private final Direction hitFace;
 
-        public TowerData(BlockPos cartPosition, BlockPos firePosition, Direction hitFace) {
+        public TowerData(BlockPos railPosition, BlockPos cartPosition, BlockPos firePosition, Direction hitFace) {
+            this.railPosition = railPosition;
             this.cartPosition = cartPosition;
             this.firePosition = firePosition;
             this.hitFace = hitFace;
         }
 
+        public BlockPos getRailPosition() { return railPosition; }
         public BlockPos getCartPosition() { return cartPosition; }
         public BlockPos getFirePosition() { return firePosition; }
         public Direction getHitFace() { return hitFace; }
@@ -158,25 +151,19 @@ public class XbowCart implements ClientModInitializer {
             if (client.hitResult instanceof BlockHitResult blockHit) {
                 if (client.player.distanceToSqr(blockHit.getLocation()) <= maxRange * maxRange) {
                     BlockPos basePos = blockHit.getBlockPos();
-                    BlockPos topPos = basePos;
-                    for (int yOffset = 1; yOffset <= 4; yOffset++) {
-                        BlockPos upper = basePos.above(yOffset);
-                        if (!client.level.getBlockState(upper).isAir()) { topPos = upper; }
-                        else { break; }
-                    }
-                    return new TowerData(topPos.above(), basePos, blockHit.getDirection());
+                    BlockPos railPos = basePos;
+                    BlockPos cartPos = basePos.above();
+                    BlockPos firePos = basePos.above(2);
+                    return new TowerData(railPos, cartPos, firePos, blockHit.getDirection());
                 }
             }
             BlockPos fallback = client.player.blockPosition().below();
-            return new TowerData(fallback.above(), fallback, Direction.UP);
+            return new TowerData(fallback, fallback.above(), fallback.above(2), Direction.UP);
         }
     }
 
     public static class PreciseLegitimateInteractionSimulator {
         private boolean hasFired = false;
-        private boolean railPlaced = false;
-        private boolean cartPlaced = false;
-        private boolean firePlaced = false;
         private int mouseButtonReleaseTracker = 0;
 
         public void updateReleases(Minecraft client) {
@@ -188,35 +175,8 @@ public class XbowCart implements ClientModInitializer {
             }
         }
 
-        public void placeRailPrecise(Minecraft client, BlockPos pos, Direction face) {
-            if (railPlaced) return;
-            aimAndInteract(client, pos, face);
-            railPlaced = true;
-        }
-
-        public void placeCartPrecise(Minecraft client, BlockPos pos, Direction face) {
-            if (cartPlaced) return;
-            aimAndInteract(client, pos, face);
-            cartPlaced = true;
-        }
-
-        public void placeFirePrecise(Minecraft client, BlockPos pos, Direction face) {
-            if (firePlaced) return;
-            aimAndInteract(client, pos, face);
-            firePlaced = true;
-        }
-
-        public void fireCrossbowOnce(Minecraft client) {
-            if (hasFired) return;
-            ItemStack activeStack = client.player.getMainHandItem();
-            if (activeStack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(activeStack)) {
-                client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
-                hasFired = true;
-            }
-        }
-
-        private void aimAndInteract(Minecraft client, BlockPos pos, Direction face) {
-            if (client.gameMode != null && client.player != null) {
+        public void interactAt(Minecraft client, BlockPos pos, Direction face) {
+            if (client.player != null) {
                 Vec3 targetCenter = Vec3.atCenterOf(pos);
                 double dx = targetCenter.x - client.player.getX();
                 double dy = targetCenter.y - client.player.getEyeY();
@@ -225,23 +185,37 @@ public class XbowCart implements ClientModInitializer {
                 
                 float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
                 float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
-                targetPitch = Mth.clamp(targetPitch, 10.0F, 85.0F);
+                targetPitch = Mth.clamp(targetPitch, -30.0F, 30.0F);
 
-                // Precise stable aim without random jitter
-                client.player.setYRot(targetYaw);
-                client.player.setXRot(targetPitch);
+                float currentYaw = client.player.getYRot();
+                float currentPitch = client.player.getXRot();
+
+                float smoothedYaw = currentYaw + (targetYaw - currentYaw) * 0.65F + (new Random().nextFloat() - 0.5F) * 0.08F;
+                float smoothedPitch = currentPitch + (targetPitch - currentPitch) * 0.65F + (new Random().nextFloat() - 0.5F) * 0.08F;
+
+                client.player.setYRot(smoothedYaw);
+                client.player.setXRot(smoothedPitch);
 
                 mouseButtonReleaseTracker = 2;
-                BlockHitResult hitResult = new BlockHitResult(targetCenter, face, pos, false);
-                client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hitResult);
+                client.options.keyUse.setDown(true);
+            }
+        }
+
+        public void fireCrossbowOnce(Minecraft client) {
+            if (hasFired) return;
+            ItemStack activeStack = client.player.getMainHandItem();
+            if (activeStack.getItem() instanceof CrossbowItem) {
+                mouseButtonReleaseTracker = 2;
+                client.options.keyUse.setDown(true);
+                hasFired = true;
             }
         }
 
         public boolean hasFired() { return hasFired; }
-        public boolean hasCompleted() { return railPlaced && cartPlaced && firePlaced && hasFired; }
 
         public void reset() {
-            railPlaced = false; cartPlaced = false; firePlaced = false; hasFired = false; mouseButtonReleaseTracker = 0;
+            hasFired = false;
+            mouseButtonReleaseTracker = 0;
         }
     }
 
@@ -262,11 +236,17 @@ public class XbowCart implements ClientModInitializer {
             return isLookingGround && holdingRail;
         }
 
-        public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarSlotAuditor auditor, TowerGeometryCalculator geometry, AimedLegitimateInteractionSimulator simulator) {
+        public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarSlotAuditor auditor, TowerGeometryCalculator geometry, PreciseLegitimateInteractionSimulator simulator) {
             simulator.updateReleases(client);
 
             if (globalCooldownTicks > 0) {
                 globalCooldownTicks--;
+                return;
+            }
+
+            if (activePhase != CartPhase.INACTIVE && !isActivationConditionsMet(client)) {
+                restoreOriginalSlot(client);
+                abortSequence();
                 return;
             }
 
@@ -294,7 +274,7 @@ public class XbowCart implements ClientModInitializer {
 
                 case STAGE_RAIL_DEPLOY:
                     if (auditor.selectAnyRail(client)) {
-                        simulator.placeRailAimed(client, tower.getCartPosition(), tower.getHitFace());
+                        simulator.interactAt(client, tower.getRailPosition(), tower.getHitFace());
                         sequenceDelay = cfg.getActionDelayTicks();
                         activePhase = CartPhase.STAGE_CART_DEPLOY;
                     }
@@ -302,7 +282,7 @@ public class XbowCart implements ClientModInitializer {
 
                 case STAGE_CART_DEPLOY:
                     if (auditor.selectAndSyncSlot(client, Items.TNT_MINECART)) {
-                        simulator.placeCartAimed(client, tower.getCartPosition(), tower.getHitFace());
+                        simulator.interactAt(client, tower.getCartPosition(), tower.getHitFace());
                         sequenceDelay = cfg.getActionDelayTicks();
                         activePhase = CartPhase.STAGE_FIRE_IGNITE;
                     }
@@ -310,20 +290,22 @@ public class XbowCart implements ClientModInitializer {
 
                 case STAGE_FIRE_IGNITE:
                     if (auditor.selectAndSyncSlot(client, Items.FLINT_AND_STEEL) || auditor.selectAndSyncSlot(client, Items.FIRE_CHARGE)) {
-                        simulator.placeFireAimed(client, tower.getFirePosition(), tower.getHitFace());
+                        simulator.interactAt(client, tower.getFirePosition(), tower.getHitFace());
                         sequenceDelay = cfg.getActionDelayTicks();
                         activePhase = CartPhase.STAGE_CROSSBOW_BURST;
                     }
                     break;
 
                 case STAGE_CROSSBOW_BURST:
+                    if (client.player.getAttackStrengthScale(0.0F) < 0.9F) {
+                        sequenceDelay = 1;
+                        return;
+                    }
                     if (auditor.selectChargedOrAnyCrossbow(client)) {
                         simulator.fireCrossbowOnce(client);
-                        if (simulator.hasFired()) {
-                            restoreOriginalSlot(client);
-                            activePhase = CartPhase.INACTIVE;
-                            globalCooldownTicks = 8;
-                        }
+                        restoreOriginalSlot(client);
+                        activePhase = CartPhase.INACTIVE;
+                        globalCooldownTicks = 8;
                         sequenceDelay = cfg.getActionDelayTicks();
                     }
                     break;
@@ -332,7 +314,6 @@ public class XbowCart implements ClientModInitializer {
 
         private void restoreOriginalSlot(Minecraft client) {
             if (originalSlot >= 0 && originalSlot < 9 && client.player != null) {
-                client.player.getInventory().setSelectedSlot(originalSlot);
                 client.options.keyHotbarSlots[originalSlot].setDown(true);
                 client.options.keyHotbarSlots[originalSlot].setDown(false);
             }
@@ -348,4 +329,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-                                }
+                    }
