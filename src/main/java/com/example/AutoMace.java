@@ -74,20 +74,16 @@ public class AutoMace implements ClientModInitializer {
 
     public static class ConfigurationRegistry {
         private final double maxSwingRange = 3.0D;
-        private final double maxAimRange = 7.0D; // Exactly 7 blocks aim range for divebombs
-        private final double minFallDistance = 2.0D;
-        private final float baseSmoothness = 0.50F;
+        private final double maxAimRange = 6.0D;
+        private final float baseSmoothness = 0.45F;
         private final int tickInterval = 1;
-        private final boolean strictCrosshairLock = true;
 
         public void refreshParameters() {}
 
         public double getMaxSwingRange() { return maxSwingRange; }
         public double getMaxAimRange() { return maxAimRange; }
-        public double getMinFallDist() { return minFallDistance; }
         public float getBaseSmoothness() { return baseSmoothness; }
         public int getTickInterval() { return tickInterval; }
-        public boolean isStrictCrosshairLock() { return strictCrosshairLock; }
     }
 
     public static class TargetPredictor {
@@ -95,36 +91,21 @@ public class AutoMace implements ClientModInitializer {
         private final ConcurrentHashMap<UUID, Vec3> velocityBuffer = new ConcurrentHashMap<>();
         private final ConcurrentHashMap<UUID, Long> timestampBuffer = new ConcurrentHashMap<>();
 
-        public Player acquireStrictCrosshairTarget(Minecraft client, double searchRadius) {
+        public Player acquireMobileTarget(Minecraft client, double searchRadius) {
             if (client.level == null || client.player == null) return null;
             Player selectedTarget = null;
-            double lowestAngle = Double.MAX_VALUE;
-
-            if (client.hitResult != null && client.hitResult.getType() == HitResult.Type.ENTITY) {
-                EntityHitResult entityHit = (EntityHitResult) client.hitResult;
-                if (entityHit.getEntity() instanceof Player playerEntity) {
-                    if (playerEntity.isAlive() && !playerEntity.isSpectator() && client.player.distanceTo(playerEntity) <= searchRadius) {
-                        return playerEntity;
-                    }
-                }
-            }
-
-            Vec3 eyePosition = client.player.getEyePosition(1.0F);
-            Vec3 lookVector = client.player.getViewVector(1.0F);
+            double lowestDistance = Double.MAX_VALUE;
 
             for (Player candidate : client.level.players()) {
                 if (candidate == client.player || !candidate.isAlive() || candidate.isSpectator()) continue;
-                if (client.player.distanceTo(candidate) > searchRadius) continue;
+                double dist = client.player.distanceTo(candidate);
+                if (dist > searchRadius) continue;
 
                 calculateTargetDynamics(candidate);
 
-                Optional<Vec3> rayBoxIntersection = candidate.getBoundingBox().clip(eyePosition, eyePosition.add(lookVector.scale(searchRadius)));
-                if (rayBoxIntersection.isPresent() || client.player.distanceTo(candidate) <= 3.0D) {
-                    double score = client.player.distanceToSqr(candidate);
-                    if (score < lowestAngle) {
-                        lowestAngle = score;
-                        selectedTarget = candidate;
-                    }
+                if (dist < lowestDistance) {
+                    lowestDistance = dist;
+                    selectedTarget = candidate;
                 }
             }
             return selectedTarget;
@@ -194,11 +175,9 @@ public class AutoMace implements ClientModInitializer {
         private int cachedAxeSlot = -1;
         private int cachedMaceSlot = -1;
 
-        public void scanHotbarSlots(Player userPlayer, double fallAltitude) {
+        public void scanHotbarSlots(Player userPlayer) {
             cachedAxeSlot = -1;
             cachedMaceSlot = -1;
-            int maxDensityScore = -1;
-            int maxBreachScore = -1;
 
             for (int slotIndex = 0; slotIndex < 9; slotIndex++) {
                 ItemStack slotStack = userPlayer.getInventory().getItem(slotIndex);
@@ -208,34 +187,10 @@ public class AutoMace implements ClientModInitializer {
                     if (slotStack.getDamageValue() < slotStack.getMaxDamage() - 3) {
                         cachedAxeSlot = slotIndex;
                     }
-                } else if (slotStack.getItem() instanceof MaceItem) {
-                    int densityVal = parseEnchantmentScore(slotStack, "density");
-                    int breachVal = parseEnchantmentScore(slotStack, "breach");
-
-                    if (fallAltitude >= 5.0D) {
-                        if (densityVal > maxDensityScore) {
-                            maxDensityScore = densityVal;
-                            cachedMaceSlot = slotIndex;
-                        }
-                    } else {
-                        if (breachVal > maxBreachScore) {
-                            maxBreachScore = breachVal;
-                            cachedMaceSlot = slotIndex;
-                        }
-                    }
-                    if (cachedMaceSlot == -1) cachedMaceSlot = slotIndex;
+                } else if (slotStack.getItem() instanceof MaceItem && cachedMaceSlot == -1) {
+                    cachedMaceSlot = slotIndex;
                 }
             }
-        }
-
-        private int parseEnchantmentScore(ItemStack itemStack, String queryKey) {
-            if (itemStack.isEmpty()) return 0;
-            ItemEnchantments registryMap = itemStack.get(DataComponents.ENCHANTMENTS);
-            if (registryMap == null) return 0;
-            for (var entry : registryMap.entrySet()) {
-                if (entry.getKey().toString().contains(queryKey)) return entry.getIntValue();
-            }
-            return 0;
         }
 
         public int getAxeSlot() { return cachedAxeSlot; }
@@ -270,7 +225,7 @@ public class AutoMace implements ClientModInitializer {
                 return;
             }
 
-            Player target = pred.acquireStrictCrosshairTarget(client, cfg.getMaxAimRange());
+            Player target = pred.acquireMobileTarget(client, cfg.getMaxAimRange());
             if (target == null) {
                 if (stage != PipelineState.DORMANT) abortPipeline();
                 return;
@@ -279,22 +234,14 @@ public class AutoMace implements ClientModInitializer {
             Vec3 chestTarget = target.getBoundingBox().getCenter();
             rot.executeSmoothSnap(chestTarget, cfg.getBaseSmoothness());
 
-            double currentFall = client.player.fallDistance;
-            boolean isActuallyFalling = currentFall >= cfg.getMinFallDist() && client.player.getDeltaMovement().y < -0.1D;
-
-            inv.scanHotbarSlots(client.player, currentFall);
+            inv.scanHotbarSlots(client.player);
             boolean shieldUp = target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
 
             switch (stage) {
                 case DORMANT:
                     originalSelectedSlot = client.player.getInventory().getSelectedSlot();
-                    if (shieldUp) {
-                        stage = PipelineState.PREPARE_AXE_PHASE;
-                        watchdogTimeout = System.currentTimeMillis() + 1500L;
-                    } else if (isActuallyFalling) {
-                        stage = PipelineState.PREPARE_MACE_PHASE;
-                        watchdogTimeout = System.currentTimeMillis() + 1500L;
-                    }
+                    stage = shieldUp ? PipelineState.PREPARE_AXE_PHASE : PipelineState.PREPARE_MACE_PHASE;
+                    watchdogTimeout = System.currentTimeMillis() + 1500L;
                     break;
 
                 case PREPARE_AXE_PHASE:
@@ -319,7 +266,7 @@ public class AutoMace implements ClientModInitializer {
 
                 case PREPARE_MACE_PHASE:
                     int maceSol = inv.getMaceSlot();
-                    if (maceSol != -1 && isActuallyFalling) {
+                    if (maceSol != -1) {
                         inv.sendSlotPacket(maceSol);
                         internalTickClock = cfg.getTickInterval();
                         stage = PipelineState.EXECUTE_MACE_PHASE;
@@ -329,7 +276,7 @@ public class AutoMace implements ClientModInitializer {
                     break;
 
                 case EXECUTE_MACE_PHASE:
-                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && isActuallyFalling) {
+                    if (client.player.distanceTo(target) <= cfg.getMaxSwingRange()) {
                         client.player.swing(InteractionHand.MAIN_HAND);
                         client.gameMode.attack(client.player, target);
                         internalTickClock = cfg.getTickInterval();
@@ -356,4 +303,4 @@ public class AutoMace implements ClientModInitializer {
             watchdogTimeout = 0L;
         }
     }
-            }
+        }
