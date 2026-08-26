@@ -55,6 +55,7 @@ public class AutoMace implements ClientModInitializer {
         private final TargetPredictor predictor = new TargetPredictor();
         private final RotationManager rotator = new RotationManager();
         private final InventoryManager inventory = new InventoryManager();
+        private final AttributeSwapEngine attSwap = new AttributeSwapEngine();
         private final CombatStateMachine pipeline = new CombatStateMachine();
 
         public static EnterpriseCombatCore getInstance() {
@@ -64,7 +65,7 @@ public class AutoMace implements ClientModInitializer {
         public void onTick(Minecraft client) {
             if (client.player == null || client.level == null) return;
             config.refreshParameters();
-            pipeline.processTick(client, config, predictor, rotator, inventory);
+            pipeline.processTick(client, config, predictor, rotator, inventory, attSwap);
         }
 
         public void hardReset() {
@@ -78,7 +79,7 @@ public class AutoMace implements ClientModInitializer {
         private final double maxAimRange = 7.0D;
         private final double minFallDistance = 2.0D;
         private final float baseSmoothness = 0.35F;
-        private final int tickInterval = 2; // 2 ticks spacing for GrimAC bypass
+        private final int tickInterval = 1;
 
         public void refreshParameters() {}
 
@@ -88,7 +89,6 @@ public class AutoMace implements ClientModInitializer {
         public double getMinFallDist() { return minFallDistance; }
         public float getBaseSmoothness() { return baseSmoothness; }
         public int getTickInterval() { return tickInterval; }
-        public int getSlotChangeDelay() { return tickInterval; } // Added alias to prevent symbol errors
     }
 
     public static class TargetPredictor {
@@ -259,25 +259,31 @@ public class AutoMace implements ClientModInitializer {
         }
     }
 
-    public static class CombatStateMachine {
-        private enum PipelineState { 
-            DORMANT, 
-            PREPARE_SLOT, 
-            WAIT_SLOT_DELAY, 
-            EXECUTE_SWING, 
-            WAIT_ATTACK_DELAY, 
-            EXECUTE_ATTACK, 
-            FLUSH_RESET 
+    public static class AttributeSwapEngine {
+        private long lastSwapTimestamp = 0L;
+
+        public void performAttributeSwap(InventoryManager inv, int sourceSlot, int targetSlot) {
+            if (sourceSlot == -1 || targetSlot == -1) return;
+            inv.sendSlotPacket(sourceSlot);
+            inv.sendSlotPacket(targetSlot);
+            lastSwapTimestamp = System.currentTimeMillis();
         }
+
+        public boolean canSwap() {
+            return System.currentTimeMillis() - lastSwapTimestamp > 40L;
+        }
+    }
+
+    public static class CombatStateMachine {
+        private enum PipelineState { DORMANT, PREPARE_SPEAR_PHASE, EXECUTE_SPEAR_PHASE, PREPARE_AXE_PHASE, EXECUTE_AXE_PHASE, PREPARE_MACE_PHASE, EXECUTE_MACE_PHASE, FLUSH_RESET }
         private PipelineState stage = PipelineState.DORMANT;
-        private int tickCounter = 0;
-        private int targetExecutionSlot = -1;
+        private int internalTickClock = 0;
         private int originalSelectedSlot = -1;
         private long watchdogTimeout = 0L;
 
-        public void processTick(Minecraft client, ConfigurationRegistry cfg, TargetPredictor pred, RotationManager rot, InventoryManager inv) {
-            if (tickCounter > 0) {
-                tickCounter--;
+        public void processTick(Minecraft client, ConfigurationRegistry cfg, TargetPredictor pred, RotationManager rot, InventoryManager inv, AttributeSwapEngine attSwap) {
+            if (internalTickClock > 0) {
+                internalTickClock--;
                 return;
             }
 
@@ -310,69 +316,77 @@ public class AutoMace implements ClientModInitializer {
                 case DORMANT:
                     originalSelectedSlot = client.player.getInventory().getSelectedSlot();
                     if (useSpear && isFullCooldown) {
-                        targetExecutionSlot = spearSlot;
-                        stage = PipelineState.PREPARE_SLOT;
+                        stage = PipelineState.PREPARE_SPEAR_PHASE;
                         watchdogTimeout = System.currentTimeMillis() + 1500L;
                     } else if (shieldUp && isFullCooldown) {
-                        targetExecutionSlot = inv.getAxeSlot();
-                        if (targetExecutionSlot != -1) {
-                            stage = PipelineState.PREPARE_SLOT;
-                            watchdogTimeout = System.currentTimeMillis() + 1500L;
-                        }
+                        stage = PipelineState.PREPARE_AXE_PHASE;
+                        watchdogTimeout = System.currentTimeMillis() + 1500L;
                     } else if (isActuallyFalling && isFullCooldown) {
-                        targetExecutionSlot = inv.getMaceSlot();
-                        if (targetExecutionSlot != -1) {
-                            stage = PipelineState.PREPARE_SLOT;
-                            watchdogTimeout = System.currentTimeMillis() + 1500L;
-                        }
+                        stage = PipelineState.PREPARE_MACE_PHASE;
+                        watchdogTimeout = System.currentTimeMillis() + 1500L;
                     }
                     break;
 
-                case PREPARE_SLOT:
-                    if (targetExecutionSlot != -1) {
-                        inv.sendSlotPacket(targetExecutionSlot);
-                        tickCounter = cfg.getSlotChangeDelay();
-                        stage = PipelineState.WAIT_SLOT_DELAY;
+                case PREPARE_SPEAR_PHASE:
+                    if (spearSlot != -1) {
+                        inv.sendSlotPacket(spearSlot);
+                        internalTickClock = cfg.getTickInterval();
+                        stage = PipelineState.EXECUTE_SPEAR_PHASE;
                     } else {
-                        stage = PipelineState.FLUSH_RESET;
+                        stage = shieldUp ? PipelineState.PREPARE_AXE_PHASE : PipelineState.PREPARE_MACE_PHASE;
                     }
                     break;
 
-                case WAIT_SLOT_DELAY:
-                    stage = PipelineState.EXECUTE_SWING;
-                    break;
-
-                case EXECUTE_SWING:
-                    double maxRange = useSpear ? cfg.getSpearRange() : cfg.getMaxSwingRange();
-                    if (distanceToTarget <= maxRange && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
+                case EXECUTE_SPEAR_PHASE:
+                    if (distanceToTarget <= cfg.getSpearRange() && isFullCooldown) {
                         client.player.swing(InteractionHand.MAIN_HAND);
-                        tickCounter = 1;
-                        stage = PipelineState.WAIT_ATTACK_DELAY;
+                        client.gameMode.attack(client.player, target);
+                        internalTickClock = cfg.getTickInterval();
+                        stage = PipelineState.FLUSH_RESET;
+                    }
+                    break;
+
+                case PREPARE_AXE_PHASE:
+                    int axeSol = inv.getAxeSlot();
+                    if (axeSol != -1) {
+                        inv.sendSlotPacket(axeSol);
+                        internalTickClock = cfg.getTickInterval();
+                        stage = PipelineState.EXECUTE_AXE_PHASE;
+                    } else {
+                        stage = PipelineState.PREPARE_MACE_PHASE;
+                    }
+                    break;
+
+                case EXECUTE_AXE_PHASE:
+                    if (distanceToTarget <= cfg.getMaxSwingRange() && isFullCooldown) {
+                        client.player.swing(InteractionHand.MAIN_HAND);
+                        client.gameMode.attack(client.player, target);
+                        internalTickClock = cfg.getTickInterval();
+                        stage = PipelineState.FLUSH_RESET;
+                    }
+                    break;
+
+                case PREPARE_MACE_PHASE:
+                    int maceSol = inv.getMaceSlot();
+                    int axeForSwap = inv.getAxeSlot();
+                    if (maceSol != -1 && isActuallyFalling && isFullCooldown) {
+                        if (axeForSwap != -1 && attSwap.canSwap()) {
+                            attSwap.performAttributeSwap(inv, axeForSwap, maceSol);
+                        } else {
+                            inv.sendSlotPacket(maceSol);
+                        }
+                        internalTickClock = cfg.getTickInterval();
+                        stage = PipelineState.EXECUTE_MACE_PHASE;
                     } else {
                         stage = PipelineState.FLUSH_RESET;
                     }
                     break;
 
-                case WAIT_ATTACK_DELAY:
-                    stage = PipelineState.EXECUTE_ATTACK;
-                    break;
-
-                case EXECUTE_ATTACK:
-                    double attackRange = useSpear ? cfg.getSpearRange() : cfg.getMaxSwingRange();
-                    if (distanceToTarget <= attackRange) {
-                        Vec3 eyePos = client.player.getEyePosition(1.0F);
-                        Vec3 reachVec = eyePos.add(client.player.getViewVector(1.0F).scale(attackRange));
-                        Optional<Vec3> hit = target.getBoundingBox().clip(eyePos, reachVec);
-
-                        if (hit.isPresent() || distanceToTarget <= 3.0D) {
-                            client.gameMode.attack(client.player, target);
-                        }
-                    }
-                    
-                    if (useSpear && isActuallyFalling && inv.getMaceSlot() != -1) {
-                        targetExecutionSlot = inv.getMaceSlot();
-                        stage = PipelineState.PREPARE_SLOT;
-                    } else {
+                case EXECUTE_MACE_PHASE:
+                    if (distanceToTarget <= cfg.getMaxSwingRange() && isActuallyFalling && isFullCooldown) {
+                        client.player.swing(InteractionHand.MAIN_HAND);
+                        client.gameMode.attack(client.player, target);
+                        internalTickClock = cfg.getTickInterval();
                         stage = PipelineState.FLUSH_RESET;
                     }
                     break;
@@ -388,7 +402,7 @@ public class AutoMace implements ClientModInitializer {
 
         public void abortPipeline() {
             stage = PipelineState.DORMANT;
-            tickCounter = 0;
+            internalTickClock = 0;
             if (originalSelectedSlot >= 0 && originalSelectedSlot < 9 && mc.player != null) {
                 mc.player.getInventory().setSelectedSlot(originalSelectedSlot);
             }
@@ -396,4 +410,4 @@ public class AutoMace implements ClientModInitializer {
             watchdogTimeout = 0L;
         }
     }
-}
+        }
