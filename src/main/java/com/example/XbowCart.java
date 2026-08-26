@@ -48,7 +48,7 @@ public class XbowCart implements ClientModInitializer {
             }
 
             if (enabled) {
-                onTick();
+                onTick(client);
             }
         });
     }
@@ -67,7 +67,11 @@ public class XbowCart implements ClientModInitializer {
     }
 
     public static void onTick() {
-        if (mc.player == null || mc.level == null) return;
+        onTick(Minecraft.getInstance());
+    }
+
+    public static void onTick(Minecraft client) {
+        if (client.player == null || client.level == null) return;
 
         if (keyReleaseTimer > 0) {
             keyReleaseTimer--;
@@ -81,8 +85,10 @@ public class XbowCart implements ClientModInitializer {
             return;
         }
 
-        boolean holdingRail = isAnyRail(mc.player.getMainHandItem().getItem());
-        if (!holdingRail) {
+        boolean lookingAtGround = client.hitResult instanceof BlockHitResult blockHit && blockHit.getDirection() == Direction.UP;
+        boolean holdingRail = isAnyRail(client.player.getMainHandItem().getItem());
+
+        if (!lookingAtGround || !holdingRail) {
             if (state != 0) {
                 resetState();
             }
@@ -123,9 +129,9 @@ public class XbowCart implements ClientModInitializer {
                 }
                 break;
             case 4:
-                ItemStack stack = mc.player.getMainHandItem();
+                ItemStack stack = client.player.getMainHandItem();
                 if (stack.getItem() instanceof CrossbowItem) {
-                    mc.options.keyUse.setDown(true);
+                    client.options.keyUse.setDown(true);
                     keyReleaseTimer = 4 + new Random().nextInt(3);
                 }
                 globalCooldown = 6 + new Random().nextInt(5);
