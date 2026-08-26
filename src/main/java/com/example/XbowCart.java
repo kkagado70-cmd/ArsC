@@ -10,7 +10,6 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.util.Mth;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -25,161 +24,137 @@ public class XbowCart implements ClientModInitializer {
     private static KeyMapping toggleKey;
     public static boolean enabled = false;
 
-    private static int state = 0;
-    private static int delay = 0;
-    private static int globalCooldown = 0;
-    private static int keyReleaseTimer = 0;
-
     @Override
     public void onInitializeClient() {
         toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.xbowcart.toggle",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_X,
-                KeyMapping.Category.MISC
+                "key.xbowcart.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_X, KeyMapping.Category.MISC
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (mc.player == null || mc.level == null) return;
-
-            while (toggleKey.consumeClick()) {
-                enabled = !enabled;
-                resetState();
-            }
-
-            if (enabled) {
-                onTick(client);
-            }
+            while (toggleKey.consumeClick()) { enabled = !enabled; CartPipeline.getInstance().reset(); }
+            boolean looking = mc.hitResult instanceof BlockHitResult;
+            boolean rail = isRail(mc.player.getMainHandItem().getItem());
+            if (enabled && looking && rail) onTick(client);
+            else CartPipeline.getInstance().reset();
         });
     }
 
-    public static void resetState() {
-        state = 0;
-        delay = 0;
-        globalCooldown = 0;
-        releaseInputs();
-    }
-
-    private static void releaseInputs() {
-        if (mc.options != null) {
-            mc.options.keyUse.setDown(false);
-        }
-    }
-
-    public static void onTick() {
-        onTick(Minecraft.getInstance());
-    }
-
+    public static void toggle() { enabled = !enabled; CartPipeline.getInstance().reset(); }
+    public static void onTick() { onTick(Minecraft.getInstance()); }
     public static void onTick(Minecraft client) {
         if (client.player == null || client.level == null) return;
+        CartPipeline.getInstance().process(client);
+    }
 
-        if (keyReleaseTimer > 0) {
-            keyReleaseTimer--;
-            if (keyReleaseTimer == 0) {
-                releaseInputs();
+    private static boolean isRail(Item i) {
+        return i == Items.RAIL || i == Items.POWERED_RAIL || i == Items.DETECTOR_RAIL || i == Items.ACTIVATOR_RAIL;
+    }
+
+    public static class CartConfiguration {
+        private final Random rnd = new Random();
+        public int getDelay() { return 2 + rnd.nextInt(2); }
+    }
+
+    public static class CartInventoryAuditor {
+        public boolean select(Minecraft client, Item target) {
+            for (int i = 0; i < 9; i++) {
+                if (client.player.getInventory().getItem(i).getItem() == target) {
+                    client.player.getInventory().setSelectedSlot(i);
+                    client.options.keyHotbarSlots[i].setDown(true);
+                    client.options.keyHotbarSlots[i].setDown(false);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public boolean selectRail(Minecraft client) {
+            for (int i = 0; i < 9; i++) {
+                if (isRail(client.player.getInventory().getItem(i).getItem())) {
+                    client.player.getInventory().setSelectedSlot(i);
+                    client.options.keyHotbarSlots[i].setDown(true);
+                    client.options.keyHotbarSlots[i].setDown(false);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public boolean selectCrossbow(Minecraft client) {
+            for (int i = 0; i < 9; i++) {
+                ItemStack s = client.player.getInventory().getItem(i);
+                if (s.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(s)) {
+                    client.player.getInventory().setSelectedSlot(i);
+                    client.options.keyHotbarSlots[i].setDown(true);
+                    client.options.keyHotbarSlots[i].setDown(false);
+                    return true;
+                }
+            }
+            return select(client, Items.CROSSBOW);
+        }
+    }
+
+    public static class CartPipeline {
+        private static final CartPipeline INSTANCE = new CartPipeline();
+        private final CartConfiguration cfg = new CartConfiguration();
+        private final CartInventoryAuditor auditor = new CartInventoryAuditor();
+        private int stage = 0, delay = 0, releaseTimer = 0, globalCd = 0;
+
+        public static CartPipeline getInstance() { return INSTANCE; }
+
+        public void reset() {
+            stage = 0; delay = 0; globalCd = 0; releaseTimer = 0;
+            if (mc.options != null) mc.options.keyUse.setDown(false);
+        }
+
+        public void process(Minecraft client) {
+            if (releaseTimer > 0) {
+                releaseTimer--;
+                if (releaseTimer == 0 && mc.options != null) mc.options.keyUse.setDown(false);
+            }
+            if (globalCd > 0) { globalCd--; return; }
+            if (delay > 0) { delay--; return; }
+
+            BlockHitResult hit = (BlockHitResult) client.hitResult;
+            BlockPos pos = hit.getBlockPos();
+            Direction face = hit.getDirection();
+
+            switch (stage) {
+                case 0:
+                    if (auditor.selectRail(client)) {
+                        interact(client, pos, face); delay = cfg.getDelay(); stage = 1;
+                    }
+                    break;
+                case 1:
+                    if (auditor.select(client, Items.TNT_MINECART)) {
+                        interact(client, pos, face); delay = cfg.getDelay(); stage = 2;
+                    }
+                    break;
+                case 2:
+                    if (auditor.select(client, Items.FLINT_AND_STEEL) || auditor.select(client, Items.FIRE_CHARGE)) {
+                        interact(client, pos, face); delay = cfg.getDelay(); stage = 3;
+                    }
+                    break;
+                case 3:
+                    if (auditor.selectCrossbow(client)) {
+                        ItemStack stack = client.player.getMainHandItem();
+                        if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) {
+                            client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
+                        } else {
+                            client.options.keyUse.setDown(true); releaseTimer = 4;
+                        }
+                        globalCd = 10; stage = 0; XbowCart.enabled = false;
+                    }
+                    break;
             }
         }
 
-        if (globalCooldown > 0) {
-            globalCooldown--;
-            return;
-        }
-
-        boolean lookingAtGround = client.hitResult instanceof BlockHitResult blockHit && blockHit.getDirection() == Direction.UP;
-        boolean holdingRail = isAnyRail(client.player.getMainHandItem().getItem());
-
-        if (!lookingAtGround || !holdingRail) {
-            if (state != 0) {
-                resetState();
-            }
-            return;
-        }
-
-        if (delay > 0) {
-            delay--;
-            return;
-        }
-
-        switch (state) {
-            case 0:
-                if (selectHotbarItem(Items.RAIL)) {
-                    delay = 2 + new Random().nextInt(2);
-                    state = 1;
-                }
-                break;
-            case 1:
-                simulateRightClick();
-                if (selectHotbarItem(Items.TNT_MINECART)) {
-                    delay = 2 + new Random().nextInt(2);
-                    state = 2;
-                }
-                break;
-            case 2:
-                simulateRightClick();
-                if (selectItemSlot(Items.FLINT_AND_STEEL) || selectItemSlot(Items.FIRE_CHARGE)) {
-                    delay = 2 + new Random().nextInt(2);
-                    state = 3;
-                }
-                break;
-            case 3:
-                simulateRightClick();
-                if (selectCrossbowSlot()) {
-                    delay = 2;
-                    state = 4;
-                }
-                break;
-            case 4:
-                ItemStack stack = client.player.getMainHandItem();
-                if (stack.getItem() instanceof CrossbowItem) {
-                    client.options.keyUse.setDown(true);
-                    keyReleaseTimer = 4 + new Random().nextInt(3);
-                }
-                globalCooldown = 6 + new Random().nextInt(5);
-                state = 0;
-                break;
-        }
-    }
-
-    private static void simulateRightClick() {
-        mc.options.keyUse.setDown(true);
-        keyReleaseTimer = 2;
-    }
-
-    private static boolean isAnyRail(Item item) {
-        return item == Items.RAIL || item == Items.POWERED_RAIL || item == Items.DETECTOR_RAIL || item == Items.ACTIVATOR_RAIL;
-    }
-
-    private static boolean selectHotbarItem(Item target) {
-        for (int i = 0; i < 9; i++) {
-            if (mc.player.getInventory().getItem(i).getItem() == target) {
-                mc.player.getInventory().setSelectedSlot(i);
-                simulateNumberKey(i + 1);
-                return true;
+        private void interact(Minecraft client, BlockPos pos, Direction face) {
+            if (client.gameMode != null && client.player != null) {
+                BlockHitResult hr = new BlockHitResult(Vec3.atCenterOf(pos), face, pos, false);
+                client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hr);
             }
         }
-        return false;
     }
-
-    private static boolean selectItemSlot(Item target) {
-        return selectHotbarItem(target);
-    }
-
-    private static boolean selectCrossbowSlot() {
-        for (int i = 0; i < 9; i++) {
-            ItemStack stack = mc.player.getInventory().getItem(i);
-            if (stack.getItem() instanceof CrossbowItem) {
-                mc.player.getInventory().setSelectedSlot(i);
-                simulateNumberKey(i + 1);
-                return true;
-            }
         }
-        return false;
-    }
-
-    private static void simulateNumberKey(int slotNum) {
-        if (slotNum >= 1 && slotNum <= 9) {
-            mc.options.keyHotbarSlots[slotNum - 1].setDown(true);
-            mc.options.keyHotbarSlots[slotNum - 1].setDown(false);
-        }
-    }
-}
