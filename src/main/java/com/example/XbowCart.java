@@ -129,20 +129,20 @@ public class XbowCart implements ClientModInitializer {
 
     public static class TowerData {
         private final BlockPos railPosition;
-        private final BlockPos cartPosition;
         private final BlockPos firePosition;
+        private final BlockPos cartPosition;
         private final Direction hitFace;
 
-        public TowerData(BlockPos railPosition, BlockPos cartPosition, BlockPos firePosition, Direction hitFace) {
+        public TowerData(BlockPos railPosition, BlockPos firePosition, BlockPos cartPosition, Direction hitFace) {
             this.railPosition = railPosition;
-            this.cartPosition = cartPosition;
             this.firePosition = firePosition;
+            this.cartPosition = cartPosition;
             this.hitFace = hitFace;
         }
 
         public BlockPos getRailPosition() { return railPosition; }
-        public BlockPos getCartPosition() { return cartPosition; }
         public BlockPos getFirePosition() { return firePosition; }
+        public BlockPos getCartPosition() { return cartPosition; }
         public Direction getHitFace() { return hitFace; }
     }
 
@@ -152,9 +152,9 @@ public class XbowCart implements ClientModInitializer {
                 if (client.player.distanceToSqr(blockHit.getLocation()) <= maxRange * maxRange) {
                     BlockPos basePos = blockHit.getBlockPos();
                     BlockPos railPos = basePos;
-                    BlockPos cartPos = basePos.above();
-                    BlockPos firePos = basePos.above(2);
-                    return new TowerData(railPos, cartPos, firePos, blockHit.getDirection());
+                    BlockPos firePos = basePos.above();
+                    BlockPos cartPos = basePos.above(2);
+                    return new TowerData(railPos, firePos, cartPos, blockHit.getDirection());
                 }
             }
             BlockPos fallback = client.player.blockPosition().below();
@@ -220,7 +220,14 @@ public class XbowCart implements ClientModInitializer {
     }
 
     public static class CartExecutionStateMachine {
-        private enum CartPhase { INACTIVE, STAGE_RAIL_DEPLOY, STAGE_CART_DEPLOY, STAGE_FIRE_IGNITE, STAGE_CROSSBOW_BURST }
+        private enum CartPhase { 
+            INACTIVE, 
+            STAGE_RAIL_SELECT, STAGE_RAIL_DEPLOY, 
+            STAGE_FIRE_SELECT, STAGE_FIRE_DEPLOY, 
+            STAGE_CART_SELECT, STAGE_CART_DEPLOY, 
+            STAGE_CROSSBOW_SELECT, STAGE_CROSSBOW_FIRE 
+        }
+        
         private CartPhase activePhase = CartPhase.INACTIVE;
         private int sequenceDelay = 0;
         private int globalCooldownTicks = 0;
@@ -266,48 +273,76 @@ public class XbowCart implements ClientModInitializer {
             switch (activePhase) {
                 case INACTIVE:
                     if (!isActivationConditionsMet(client)) return;
-                    originalSlot = client.player.getInventory().getSelectedSlot();
+                    originalSlot = client.player.getInventory().selected;
                     simulator.reset();
-                    activePhase = CartPhase.STAGE_RAIL_DEPLOY;
-                    safetyWatchdogEpoch = System.currentTimeMillis() + 1500L;
+                    activePhase = CartPhase.STAGE_RAIL_SELECT;
+                    safetyWatchdogEpoch = System.currentTimeMillis() + 2000L;
+                    break;
+
+                case STAGE_RAIL_SELECT:
+                    if (auditor.selectAnyRail(client)) {
+                        sequenceDelay = 1; // Wait 1 tick for slot switch confirmation
+                        activePhase = CartPhase.STAGE_RAIL_DEPLOY;
+                    } else {
+                        abortSequence();
+                    }
                     break;
 
                 case STAGE_RAIL_DEPLOY:
-                    if (auditor.selectAnyRail(client)) {
-                        simulator.interactAt(client, tower.getRailPosition(), tower.getHitFace());
-                        sequenceDelay = cfg.getActionDelayTicks();
+                    simulator.interactAt(client, tower.getRailPosition(), tower.getHitFace());
+                    sequenceDelay = cfg.getActionDelayTicks();
+                    activePhase = CartPhase.STAGE_FIRE_SELECT;
+                    break;
+
+                case STAGE_FIRE_SELECT:
+                    if (auditor.selectAndSyncSlot(client, Items.FLINT_AND_STEEL) || auditor.selectAndSyncSlot(client, Items.FIRE_CHARGE)) {
+                        sequenceDelay = 1; // Wait 1 tick for slot switch confirmation
+                        activePhase = CartPhase.STAGE_FIRE_DEPLOY;
+                    } else {
+                        abortSequence();
+                    }
+                    break;
+
+                case STAGE_FIRE_DEPLOY:
+                    simulator.interactAt(client, tower.getFirePosition(), tower.getHitFace());
+                    sequenceDelay = cfg.getActionDelayTicks();
+                    activePhase = CartPhase.STAGE_CART_SELECT;
+                    break;
+
+                case STAGE_CART_SELECT:
+                    if (auditor.selectAndSyncSlot(client, Items.TNT_MINECART)) {
+                        sequenceDelay = 1; // Wait 1 tick for slot switch confirmation
                         activePhase = CartPhase.STAGE_CART_DEPLOY;
+                    } else {
+                        abortSequence();
                     }
                     break;
 
                 case STAGE_CART_DEPLOY:
-                    if (auditor.selectAndSyncSlot(client, Items.TNT_MINECART)) {
-                        simulator.interactAt(client, tower.getCartPosition(), tower.getHitFace());
-                        sequenceDelay = cfg.getActionDelayTicks();
-                        activePhase = CartPhase.STAGE_FIRE_IGNITE;
-                    }
+                    simulator.interactAt(client, tower.getCartPosition(), tower.getHitFace());
+                    sequenceDelay = cfg.getActionDelayTicks();
+                    activePhase = CartPhase.STAGE_CROSSBOW_SELECT;
                     break;
 
-                case STAGE_FIRE_IGNITE:
-                    if (auditor.selectAndSyncSlot(client, Items.FLINT_AND_STEEL) || auditor.selectAndSyncSlot(client, Items.FIRE_CHARGE)) {
-                        simulator.interactAt(client, tower.getFirePosition(), tower.getHitFace());
-                        sequenceDelay = cfg.getActionDelayTicks();
-                        activePhase = CartPhase.STAGE_CROSSBOW_BURST;
-                    }
-                    break;
-
-                case STAGE_CROSSBOW_BURST:
+                case STAGE_CROSSBOW_SELECT:
                     if (client.player.getAttackStrengthScale(0.0F) < 0.9F) {
                         sequenceDelay = 1;
                         return;
                     }
                     if (auditor.selectChargedOrAnyCrossbow(client)) {
-                        simulator.fireCrossbowOnce(client);
-                        restoreOriginalSlot(client);
-                        activePhase = CartPhase.INACTIVE;
-                        globalCooldownTicks = 8;
-                        sequenceDelay = cfg.getActionDelayTicks();
+                        sequenceDelay = 1; // Wait 1 tick for slot switch confirmation
+                        activePhase = CartPhase.STAGE_CROSSBOW_FIRE;
+                    } else {
+                        abortSequence();
                     }
+                    break;
+
+                case STAGE_CROSSBOW_FIRE:
+                    simulator.fireCrossbowOnce(client);
+                    restoreOriginalSlot(client);
+                    activePhase = CartPhase.INACTIVE;
+                    globalCooldownTicks = 8;
+                    sequenceDelay = cfg.getActionDelayTicks();
                     break;
             }
         }
@@ -329,4 +364,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-                    }
+                                                  }
