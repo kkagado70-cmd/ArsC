@@ -65,7 +65,7 @@ public class XbowCart implements ClientModInitializer {
         private final CartConfiguration configuration = new CartConfiguration();
         private final HotbarSlotAuditor auditor = new HotbarSlotAuditor();
         private final TowerGeometryCalculator geometry = new TowerGeometryCalculator();
-        private final PreciseLegitimateInteractionSimulator simulator = new PreciseLegitimateInteractionSimulator();
+        private final InteractionSimulator simulator = new InteractionSimulator();
         private final CartExecutionStateMachine pipeline = new CartExecutionStateMachine();
 
         public static HT1CartDirector getInstance() { return INSTANCE; }
@@ -82,15 +82,17 @@ public class XbowCart implements ClientModInitializer {
     public static class CartConfiguration {
         private final Random speedRandom = new Random();
         private final double maxPlacementDistance = 6.0D;
+        private final int maxRetries = 3;
 
         public void refresh() {}
 
         public int getActionDelayTicks() { return 2 + speedRandom.nextInt(2); }
         public double getMaxPlacementDistance() { return maxPlacementDistance; }
+        public int getMaxRetries() { return maxRetries; }
     }
 
     public static class HotbarSlotAuditor {
-        public boolean selectAndSyncSlot(Minecraft client, Item targetItem) {
+        public boolean selectSlotWithDelay(Minecraft client, Item targetItem) {
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = client.player.getInventory().getItem(i);
                 if (stack.getItem() == targetItem) {
@@ -114,7 +116,7 @@ public class XbowCart implements ClientModInitializer {
             return false;
         }
 
-        public boolean selectChargedOrAnyCrossbow(Minecraft client) {
+        public boolean selectChargedCrossbow(Minecraft client) {
             for (int i = 0; i < 9; i++) {
                 ItemStack stack = client.player.getInventory().getItem(i);
                 if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) {
@@ -123,7 +125,16 @@ public class XbowCart implements ClientModInitializer {
                     return true;
                 }
             }
-            return selectAndSyncSlot(client, Items.CROSSBOW);
+            return selectSlotWithDelay(client, Items.CROSSBOW);
+        }
+
+        public boolean isItemInHotbar(Minecraft client, Item targetItem) {
+            for (int i = 0; i < 9; i++) {
+                if (client.player.getInventory().getItem(i).getItem() == targetItem) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 
@@ -162,7 +173,7 @@ public class XbowCart implements ClientModInitializer {
         }
     }
 
-    public static class PreciseLegitimateInteractionSimulator {
+    public static class InteractionSimulator {
         private boolean hasFired = false;
         private int mouseButtonReleaseTracker = 0;
 
@@ -190,8 +201,8 @@ public class XbowCart implements ClientModInitializer {
                 float currentYaw = client.player.getYRot();
                 float currentPitch = client.player.getXRot();
 
-                float smoothedYaw = currentYaw + (targetYaw - currentYaw) * 0.65F + (new Random().nextFloat() - 0.5F) * 0.08F;
-                float smoothedPitch = currentPitch + (targetPitch - currentPitch) * 0.65F + (new Random().nextFloat() - 0.5F) * 0.08F;
+                float smoothedYaw = currentYaw + (targetYaw - currentYaw) * 0.65F + (new Random().nextFloat() - 0.5F) * 0.05F;
+                float smoothedPitch = currentPitch + (targetPitch - currentPitch) * 0.65F + (new Random().nextFloat() - 0.5F) * 0.05F;
 
                 client.player.setYRot(smoothedYaw);
                 client.player.setXRot(smoothedPitch);
@@ -220,19 +231,21 @@ public class XbowCart implements ClientModInitializer {
     }
 
     public static class CartExecutionStateMachine {
-        private enum CartPhase { 
+        public enum CartPhase { 
             INACTIVE, 
-            STAGE_RAIL_SELECT, STAGE_RAIL_DEPLOY, 
-            STAGE_FIRE_SELECT, STAGE_FIRE_DEPLOY, 
-            STAGE_CART_SELECT, STAGE_CART_DEPLOY, 
-            STAGE_CROSSBOW_SELECT, STAGE_CROSSBOW_FIRE 
+            RAIL_SELECT, RAIL_WAIT, RAIL_DEPLOY, 
+            FIRE_SELECT, FIRE_WAIT, FIRE_DEPLOY, 
+            CART_SELECT, CART_WAIT, CART_DEPLOY, 
+            CROSSBOW_SELECT, CROSSBOW_WAIT, CROSSBOW_FIRE, 
+            COOLDOWN, ABORTED 
         }
         
         private CartPhase activePhase = CartPhase.INACTIVE;
         private int sequenceDelay = 0;
-        private int globalCooldownTicks = 0;
+        private int globalCooldown = 0;
         private int originalSlot = -1;
-        private long safetyWatchdogEpoch = 0L;
+        private int retryCount = 0;
+        private long safetyWatchdog = 0L;
 
         private boolean isActivationConditionsMet(Minecraft client) {
             if (!enabled || client.player == null || client.level == null) return false;
@@ -243,11 +256,11 @@ public class XbowCart implements ClientModInitializer {
             return isLookingGround && holdingRail;
         }
 
-        public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarSlotAuditor auditor, TowerGeometryCalculator geometry, PreciseLegitimateInteractionSimulator simulator) {
+        public void executeSequence(Minecraft client, CartConfiguration cfg, HotbarSlotAuditor auditor, TowerGeometryCalculator geometry, InteractionSimulator simulator) {
             simulator.updateReleases(client);
 
-            if (globalCooldownTicks > 0) {
-                globalCooldownTicks--;
+            if (globalCooldown > 0) {
+                globalCooldown--;
                 return;
             }
 
@@ -262,7 +275,7 @@ public class XbowCart implements ClientModInitializer {
                 return;
             }
 
-            if (System.currentTimeMillis() > safetyWatchdogEpoch && activePhase != CartPhase.INACTIVE) {
+            if (System.currentTimeMillis() > safetyWatchdog && activePhase != CartPhase.INACTIVE) {
                 restoreOriginalSlot(client);
                 abortSequence();
                 return;
@@ -275,75 +288,114 @@ public class XbowCart implements ClientModInitializer {
                     if (!isActivationConditionsMet(client)) return;
                     originalSlot = client.player.getInventory().getSelectedSlot();
                     simulator.reset();
-                    activePhase = CartPhase.STAGE_RAIL_SELECT;
-                    safetyWatchdogEpoch = System.currentTimeMillis() + 2000L;
+                    retryCount = 0;
+                    activePhase = CartPhase.RAIL_SELECT;
+                    safetyWatchdog = System.currentTimeMillis() + 3000L;
                     break;
 
-                case STAGE_RAIL_SELECT:
+                case RAIL_SELECT:
                     if (auditor.selectAnyRail(client)) {
-                        sequenceDelay = 1;
-                        activePhase = CartPhase.STAGE_RAIL_DEPLOY;
+                        sequenceDelay = 2;
+                        activePhase = CartPhase.RAIL_WAIT;
                     } else {
-                        abortSequence();
+                        handleRetry(client);
                     }
                     break;
 
-                case STAGE_RAIL_DEPLOY:
+                case RAIL_WAIT:
+                    sequenceDelay = cfg.getActionDelayTicks();
+                    activePhase = CartPhase.RAIL_DEPLOY;
+                    break;
+
+                case RAIL_DEPLOY:
                     simulator.interactAt(client, tower.getRailPosition(), tower.getHitFace());
                     sequenceDelay = cfg.getActionDelayTicks();
-                    activePhase = CartPhase.STAGE_FIRE_SELECT;
+                    activePhase = CartPhase.FIRE_SELECT;
                     break;
 
-                case STAGE_FIRE_SELECT:
-                    if (auditor.selectAndSyncSlot(client, Items.FLINT_AND_STEEL) || auditor.selectAndSyncSlot(client, Items.FIRE_CHARGE)) {
-                        sequenceDelay = 1;
-                        activePhase = CartPhase.STAGE_FIRE_DEPLOY;
+                case FIRE_SELECT:
+                    if (auditor.selectSlotWithDelay(client, Items.FLINT_AND_STEEL) || auditor.selectSlotWithDelay(client, Items.FIRE_CHARGE)) {
+                        sequenceDelay = 2;
+                        activePhase = CartPhase.FIRE_WAIT;
                     } else {
-                        abortSequence();
+                        handleRetry(client);
                     }
                     break;
 
-                case STAGE_FIRE_DEPLOY:
+                case FIRE_WAIT:
+                    sequenceDelay = cfg.getActionDelayTicks();
+                    activePhase = CartPhase.FIRE_DEPLOY;
+                    break;
+
+                case FIRE_DEPLOY:
                     simulator.interactAt(client, tower.getFirePosition(), tower.getHitFace());
                     sequenceDelay = cfg.getActionDelayTicks();
-                    activePhase = CartPhase.STAGE_CART_SELECT;
+                    activePhase = CartPhase.CART_SELECT;
                     break;
 
-                case STAGE_CART_SELECT:
-                    if (auditor.selectAndSyncSlot(client, Items.TNT_MINECART)) {
-                        sequenceDelay = 1;
-                        activePhase = CartPhase.STAGE_CART_DEPLOY;
+                case CART_SELECT:
+                    if (auditor.selectSlotWithDelay(client, Items.TNT_MINECART)) {
+                        sequenceDelay = 2;
+                        activePhase = CartPhase.CART_WAIT;
                     } else {
-                        abortSequence();
+                        handleRetry(client);
                     }
                     break;
 
-                case STAGE_CART_DEPLOY:
-                    simulator.interactAt(client, tower.getCartPosition(), tower.getHitFace());
+                case CART_WAIT:
                     sequenceDelay = cfg.getActionDelayTicks();
-                    activePhase = CartPhase.STAGE_CROSSBOW_SELECT;
+                    activePhase = CartPhase.CART_DEPLOY;
                     break;
 
-                case STAGE_CROSSBOW_SELECT:
+                case CART_DEPLOY:
+                    simulator.interactAt(client, tower.getCartPosition(), tower.getHitFace());
+                    sequenceDelay = cfg.getActionDelayTicks();
+                    activePhase = CartPhase.CROSSBOW_SELECT;
+                    break;
+
+                case CROSSBOW_SELECT:
                     if (client.player.getAttackStrengthScale(0.0F) < 0.9F) {
                         sequenceDelay = 1;
                         return;
                     }
-                    if (auditor.selectChargedOrAnyCrossbow(client)) {
-                        sequenceDelay = 1;
-                        activePhase = CartPhase.STAGE_CROSSBOW_FIRE;
+                    if (auditor.selectChargedCrossbow(client)) {
+                        sequenceDelay = 2;
+                        activePhase = CartPhase.CROSSBOW_WAIT;
                     } else {
-                        abortSequence();
+                        handleRetry(client);
                     }
                     break;
 
-                case STAGE_CROSSBOW_FIRE:
+                case CROSSBOW_WAIT:
+                    sequenceDelay = cfg.getActionDelayTicks();
+                    activePhase = CartPhase.CROSSBOW_FIRE;
+                    break;
+
+                case CROSSBOW_FIRE:
                     simulator.fireCrossbowOnce(client);
                     restoreOriginalSlot(client);
-                    activePhase = CartPhase.INACTIVE;
-                    globalCooldownTicks = 8;
+                    activePhase = CartPhase.COOLDOWN;
+                    globalCooldown = 8;
                     sequenceDelay = cfg.getActionDelayTicks();
                     break;
+
+                case COOLDOWN:
+                    activePhase = CartPhase.INACTIVE;
+                    break;
+
+                case ABORTED:
+                    abortSequence();
+                    break;
+            }
+        }
+
+        private void handleRetry(Minecraft client) {
+            retryCount++;
+            if (retryCount > 3) {
+                restoreOriginalSlot(client);
+                abortSequence();
+            } else {
+                sequenceDelay = 5;
             }
         }
 
@@ -361,7 +413,8 @@ public class XbowCart implements ClientModInitializer {
             }
             activePhase = CartPhase.INACTIVE;
             sequenceDelay = 0;
-            safetyWatchdogEpoch = 0L;
+            retryCount = 0;
+            safetyWatchdog = 0L;
         }
     }
-            }
+                        }
