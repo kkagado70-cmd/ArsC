@@ -48,7 +48,7 @@ public class XbowCart implements ClientModInitializer {
             }
 
             if (enabled) {
-                onTick();
+                onTick(client);
             }
         });
     }
@@ -67,7 +67,11 @@ public class XbowCart implements ClientModInitializer {
     }
 
     public static void onTick() {
-        if (mc.player == null || mc.level == null) return;
+        onTick(Minecraft.getInstance());
+    }
+
+    public static void onTick(Minecraft client) {
+        if (client.player == null || client.level == null) return;
 
         if (keyReleaseTimer > 0) {
             keyReleaseTimer--;
@@ -81,8 +85,8 @@ public class XbowCart implements ClientModInitializer {
             return;
         }
 
-        boolean lookingAtGround = mc.hitResult instanceof BlockHitResult blockHit && blockHit.getDirection() == Direction.UP;
-        boolean holdingRail = isAnyRail(mc.player.getMainHandItem().getItem());
+        boolean lookingAtGround = client.hitResult instanceof BlockHitResult blockHit && blockHit.getDirection() == Direction.UP;
+        boolean holdingRail = isAnyRail(client.player.getMainHandItem().getItem());
 
         if (!lookingAtGround || !holdingRail) {
             if (state != 0) {
@@ -98,14 +102,14 @@ public class XbowCart implements ClientModInitializer {
 
         switch (state) {
             case 0:
-                if (selectItemSlot(Items.RAIL)) {
+                if (selectHotbarItem(Items.RAIL)) {
                     delay = 2 + new Random().nextInt(2);
                     state = 1;
                 }
                 break;
             case 1:
                 simulateRightClick();
-                if (selectItemSlot(Items.TNT_MINECART)) {
+                if (selectHotbarItem(Items.TNT_MINECART)) {
                     delay = 2 + new Random().nextInt(2);
                     state = 2;
                 }
@@ -125,9 +129,9 @@ public class XbowCart implements ClientModInitializer {
                 }
                 break;
             case 4:
-                ItemStack stack = mc.player.getMainHandItem();
+                ItemStack stack = client.player.getMainHandItem();
                 if (stack.getItem() instanceof CrossbowItem) {
-                    mc.options.keyUse.setDown(true);
+                    client.options.keyUse.setDown(true);
                     keyReleaseTimer = 4 + new Random().nextInt(3);
                 }
                 globalCooldown = 6 + new Random().nextInt(5);
@@ -145,7 +149,7 @@ public class XbowCart implements ClientModInitializer {
         return item == Items.RAIL || item == Items.POWERED_RAIL || item == Items.DETECTOR_RAIL || item == Items.ACTIVATOR_RAIL;
     }
 
-    private static boolean selectItemSlot(Item target) {
+    private static boolean selectHotbarItem(Item target) {
         for (int i = 0; i < 9; i++) {
             if (mc.player.getInventory().getItem(i).getItem() == target) {
                 mc.player.getInventory().setSelectedSlot(i);
@@ -154,6 +158,10 @@ public class XbowCart implements ClientModInitializer {
             }
         }
         return false;
+    }
+
+    private static boolean selectItemSlot(Item target) {
+        return selectHotbarItem(target);
     }
 
     private static boolean selectCrossbowSlot() {
