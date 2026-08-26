@@ -15,6 +15,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.util.Mth;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
@@ -100,11 +101,10 @@ public class XbowCart implements ClientModInitializer {
 
         public void refresh() {}
 
-        // Eyezingz style speed: 1 or 2 ticks randomized (or return 0 for Insane Mode)
         public int getActionDelayTicks() { 
             return 1 + speedRandom.nextInt(2); 
         }
-        
+
         public double getMaxPlacementDistance() { return maxPlacementDistance; }
         public boolean isTowerMode() { return towerMode; }
     }
@@ -340,4 +340,4 @@ public class XbowCart implements ClientModInitializer {
             safetyWatchdogEpoch = 0L;
         }
     }
-                }
+                            }
