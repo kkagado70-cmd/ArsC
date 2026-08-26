@@ -33,7 +33,6 @@ public class AutoMace implements ClientModInitializer {
 
     private static int state = 0;
     private static int delayTimer = 0;
-    private static int originalSlot = -1;
     private static int keyReleaseTimer = 0;
 
     @Override
@@ -54,7 +53,7 @@ public class AutoMace implements ClientModInitializer {
             }
 
             if (enabled) {
-                onTick(client);
+                onTick();
             }
         });
     }
@@ -62,7 +61,6 @@ public class AutoMace implements ClientModInitializer {
     public static void resetState() {
         state = 0;
         delayTimer = 0;
-        originalSlot = -1;
         releaseAttackKey();
     }
 
@@ -73,11 +71,7 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static void onTick() {
-        onTick(Minecraft.getInstance());
-    }
-
-    public static void onTick(Minecraft client) {
-        if (client.player == null || client.level == null) return;
+        if (mc.player == null || mc.level == null) return;
 
         if (keyReleaseTimer > 0) {
             keyReleaseTimer--;
@@ -97,15 +91,17 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
-        double dist = client.player.distanceTo(target);
-        boolean isFalling = client.player.fallDistance >= MIN_FALL_DIST && client.player.getDeltaMovement().y < -0.1D;
+        double dist = mc.player.distanceTo(target);
+        boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST && mc.player.getDeltaMovement().y < -0.1D;
         boolean useSpear = dist > SWING_RANGE && dist <= SPEAR_RANGE && hasSpear();
 
-        applyHumanizedAim(target);
+        // STRICT GATE: Only aim when actually falling or using spear. Zero camera movement on flat ground!
+        if (isFalling || useSpear) {
+            applyButterSmoothAim(target);
+        }
 
         switch (state) {
             case 0:
-                originalSlot = client.player.getInventory().getSelectedSlot();
                 if (useSpear) {
                     state = 1;
                 } else if (isFalling && hasMace()) {
@@ -121,9 +117,9 @@ public class AutoMace implements ClientModInitializer {
                 }
                 break;
             case 2:
-                if (dist <= SPEAR_RANGE && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
+                if (dist <= SPEAR_RANGE && mc.player.getAttackStrengthScale(0.0F) >= 0.9F) {
                     if (hasLineOfSight(target) && validateFOV(target)) {
-                        client.options.keyAttack.setDown(true);
+                        mc.options.keyAttack.setDown(true);
                         keyReleaseTimer = 2;
                         delayTimer = 2 + new Random().nextInt(2);
                         if (isFalling && hasMace()) {
@@ -143,9 +139,9 @@ public class AutoMace implements ClientModInitializer {
                 }
                 break;
             case 5:
-                if (dist <= SWING_RANGE && isFalling && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
+                if (dist <= SWING_RANGE && isFalling && mc.player.getAttackStrengthScale(0.0F) >= 0.9F) {
                     if (hasLineOfSight(target) && validateFOV(target)) {
-                        client.options.keyAttack.setDown(true);
+                        mc.options.keyAttack.setDown(true);
                         keyReleaseTimer = 2;
                         delayTimer = 2 + new Random().nextInt(2);
                         state = 7;
@@ -153,25 +149,16 @@ public class AutoMace implements ClientModInitializer {
                 }
                 break;
             case 7:
-                if (originalSlot >= 0 && originalSlot < 9) {
-                    client.player.getInventory().setSelectedSlot(originalSlot);
-                    simulateNumberKey(originalSlot + 1);
-                }
                 resetState();
                 break;
         }
     }
 
-    private static void applyHumanizedAim(Player target) {
+    private static void applyButterSmoothAim(Player target) {
         Vec3 center = target.getBoundingBox().getCenter();
-        Random rand = new Random();
-        double jitterX = center.x + (rand.nextDouble() - 0.5) * 0.12;
-        double jitterY = center.y + (rand.nextDouble() - 0.5) * 0.12;
-        double jitterZ = center.z + (rand.nextDouble() - 0.5) * 0.12;
-
-        double dx = jitterX - mc.player.getX();
-        double dy = jitterY - mc.player.getEyeY();
-        double dz = jitterZ - mc.player.getZ();
+        double dx = center.x - mc.player.getX();
+        double dy = center.y - mc.player.getEyeY();
+        double dz = center.z - mc.player.getZ();
         double hDist = Math.sqrt(dx * dx + dz * dz);
 
         float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
@@ -180,7 +167,8 @@ public class AutoMace implements ClientModInitializer {
         float yawDelta = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
         float pitchDelta = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
 
-        float smoothness = 0.35F + rand.nextFloat() * 0.1F;
+        // Butter-smooth interpolation factor with zero violent shaking
+        float smoothness = 0.40F;
         float finalYaw = mc.player.getYRot() + yawDelta * smoothness;
         float finalPitch = mc.player.getXRot() + pitchDelta * smoothness;
 
