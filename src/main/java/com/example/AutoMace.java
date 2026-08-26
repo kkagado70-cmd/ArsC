@@ -15,8 +15,6 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
-import net.minecraft.core.component.DataComponents;
-import net.minecraft.world.item.enchantment.ItemEnchantments;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
@@ -56,9 +54,14 @@ public class AutoMace implements ClientModInitializer {
             }
 
             if (enabled) {
-                onTick();
+                onTick(client);
             }
         });
+    }
+
+    public static void toggle() {
+        enabled = !enabled;
+        resetState();
     }
 
     public static void resetState() {
@@ -75,7 +78,11 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static void onTick() {
-        if (mc.player == null || mc.level == null) return;
+        onTick(Minecraft.getInstance());
+    }
+
+    public static void onTick(Minecraft client) {
+        if (client.player == null || client.level == null) return;
 
         if (keyReleaseTimer > 0) {
             keyReleaseTimer--;
@@ -95,15 +102,15 @@ public class AutoMace implements ClientModInitializer {
             return;
         }
 
-        double dist = mc.player.distanceTo(target);
-        boolean isFalling = mc.player.fallDistance >= MIN_FALL_DIST && mc.player.getDeltaMovement().y < -0.1D;
+        double dist = client.player.distanceTo(target);
+        boolean isFalling = client.player.fallDistance >= MIN_FALL_DIST && client.player.getDeltaMovement().y < -0.1D;
         boolean useSpear = dist > SWING_RANGE && dist <= SPEAR_RANGE && hasSpear();
 
         applyHumanizedAim(target);
 
         switch (state) {
             case 0:
-                originalSlot = mc.player.getInventory().getSelectedSlot();
+                originalSlot = client.player.getInventory().getSelectedSlot();
                 if (useSpear) {
                     state = 1;
                 } else if (isFalling && hasMace()) {
@@ -119,9 +126,9 @@ public class AutoMace implements ClientModInitializer {
                 }
                 break;
             case 2:
-                if (dist <= SPEAR_RANGE && mc.player.getAttackStrengthScale(0.0F) >= 0.9F) {
+                if (dist <= SPEAR_RANGE && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
                     if (hasLineOfSight(target) && validateFOV(target)) {
-                        mc.options.keyAttack.setDown(true);
+                        client.options.keyAttack.setDown(true);
                         keyReleaseTimer = 2;
                         delayTimer = 2 + new Random().nextInt(2);
                         if (isFalling && hasMace()) {
@@ -141,9 +148,9 @@ public class AutoMace implements ClientModInitializer {
                 }
                 break;
             case 5:
-                if (dist <= SWING_RANGE && isFalling && mc.player.getAttackStrengthScale(0.0F) >= 0.9F) {
+                if (dist <= SWING_RANGE && isFalling && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
                     if (hasLineOfSight(target) && validateFOV(target)) {
-                        mc.options.keyAttack.setDown(true);
+                        client.options.keyAttack.setDown(true);
                         keyReleaseTimer = 2;
                         delayTimer = 2 + new Random().nextInt(2);
                         state = 7;
@@ -152,7 +159,7 @@ public class AutoMace implements ClientModInitializer {
                 break;
             case 7:
                 if (originalSlot >= 0 && originalSlot < 9) {
-                    mc.player.getInventory().setSelectedSlot(originalSlot);
+                    client.player.getInventory().setSelectedSlot(originalSlot);
                     simulateNumberKey(originalSlot + 1);
                 }
                 resetState();
@@ -266,4 +273,4 @@ public class AutoMace implements ClientModInitializer {
             mc.options.keyHotbarSlots[slotNum - 1].setDown(false);
         }
     }
-}
+    }
