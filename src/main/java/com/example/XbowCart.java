@@ -11,24 +11,22 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
 
-import java.util.Random;
-
 public class XbowCart {
     public static boolean enabled = false;
 
     private enum CartPhase {
         INACTIVE, 
-        RAIL_SELECT, RAIL_DEPLOY,
-        FIRE_SELECT, FIRE_DEPLOY,
-        CART_SELECT, CART_DEPLOY,
-        CROSSBOW_SELECT, CROSSBOW_FIRE
+        RAIL_SELECT, RAIL_WAIT, RAIL_DEPLOY,
+        FIRE_SELECT, FIRE_WAIT, FIRE_DEPLOY,
+        CART_SELECT, CART_WAIT, CART_DEPLOY,
+        CROSSBOW_SELECT, CROSSBOW_WAIT, CROSSBOW_FIRE
     }
 
     private static CartPhase phase = CartPhase.INACTIVE;
     private static int delayTicks = 0;
     private static int globalCooldownTicks = 0;
     private static int originalSlot = -1;
-    private static int mouseButtonReleaseTracker = 0;
+    private static int targetSlot = -1;
     private static BlockPos basePos = null;
 
     public static void toggle() {
@@ -47,13 +45,6 @@ public class XbowCart {
 
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null) return;
-
-        if (mouseButtonReleaseTracker > 0) {
-            mouseButtonReleaseTracker--;
-            if (mouseButtonReleaseTracker == 0 && client.options != null) {
-                client.options.keyUse.setDown(false);
-            }
-        }
 
         if (globalCooldownTicks > 0) {
             globalCooldownTicks--;
@@ -84,61 +75,83 @@ public class XbowCart {
                 break;
 
             case RAIL_SELECT:
-                if (selectRail(client)) {
-                    delayTicks = 2;
-                    phase = CartPhase.RAIL_DEPLOY;
+                targetSlot = findRailSlot(client);
+                if (targetSlot != -1) {
+                    client.player.getInventory().setSelectedSlot(targetSlot);
+                    delayTicks = 1;
+                    phase = CartPhase.RAIL_WAIT;
                 } else {
                     resetSequence();
                 }
+                break;
+
+            case RAIL_WAIT:
+                delayTicks = 1;
+                phase = CartPhase.RAIL_DEPLOY;
                 break;
 
             case RAIL_DEPLOY:
                 if (basePos != null) {
-                    fluidAim(client, basePos);
-                    mouseButtonReleaseTracker = 2;
+                    snapAim(client, basePos);
+                    client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2 + new Random().nextInt(2);
+                delayTicks = 2;
                 phase = CartPhase.FIRE_SELECT;
                 break;
 
             case FIRE_SELECT:
-                if (selectItem(client, Items.FLINT_AND_STEEL) || selectItem(client, Items.FIRE_CHARGE)) {
-                    delayTicks = 2;
-                    phase = CartPhase.FIRE_DEPLOY;
+                targetSlot = findItemSlot(client, Items.FLINT_AND_STEEL);
+                if (targetSlot == -1) {
+                    targetSlot = findItemSlot(client, Items.FIRE_CHARGE);
+                }
+                if (targetSlot != -1) {
+                    client.player.getInventory().setSelectedSlot(targetSlot);
+                    delayTicks = 1;
+                    phase = CartPhase.FIRE_WAIT;
                 } else {
                     resetSequence();
                 }
+                break;
+
+            case FIRE_WAIT:
+                delayTicks = 1;
+                phase = CartPhase.FIRE_DEPLOY;
                 break;
 
             case FIRE_DEPLOY:
                 if (basePos != null) {
-                    BlockPos firePos = basePos.above();
-                    fluidAim(client, firePos);
-                    mouseButtonReleaseTracker = 2;
+                    snapAim(client, basePos.above());
+                    client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2 + new Random().nextInt(2);
+                delayTicks = 2;
                 phase = CartPhase.CART_SELECT;
                 break;
 
             case CART_SELECT:
-                if (selectItem(client, Items.TNT_MINECART)) {
-                    delayTicks = 2;
-                    phase = CartPhase.CART_DEPLOY;
+                targetSlot = findItemSlot(client, Items.TNT_MINECART);
+                if (targetSlot != -1) {
+                    client.player.getInventory().setSelectedSlot(targetSlot);
+                    delayTicks = 1;
+                    phase = CartPhase.CART_WAIT;
                 } else {
                     resetSequence();
                 }
                 break;
 
+            case CART_WAIT:
+                delayTicks = 1;
+                phase = CartPhase.CART_DEPLOY;
+                break;
+
             case CART_DEPLOY:
                 if (basePos != null) {
-                    BlockPos cartPos = basePos.above(2);
-                    fluidAim(client, cartPos);
-                    mouseButtonReleaseTracker = 2;
+                    snapAim(client, basePos.above(2));
+                    client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2 + new Random().nextInt(2);
+                delayTicks = 2;
                 phase = CartPhase.CROSSBOW_SELECT;
                 break;
 
@@ -147,16 +160,23 @@ public class XbowCart {
                     delayTicks = 1;
                     return;
                 }
-                if (selectCrossbow(client)) {
-                    delayTicks = 2;
-                    phase = CartPhase.CROSSBOW_FIRE;
+                targetSlot = findChargedCrossbowSlot(client);
+                if (targetSlot != -1) {
+                    client.player.getInventory().setSelectedSlot(targetSlot);
+                    delayTicks = 1;
+                    phase = CartPhase.CROSSBOW_WAIT;
                 } else {
                     resetSequence();
                 }
                 break;
 
+            case CROSSBOW_WAIT:
+                delayTicks = 1;
+                phase = CartPhase.CROSSBOW_FIRE;
+                break;
+
             case CROSSBOW_FIRE:
-                mouseButtonReleaseTracker = 2;
+                client.options.keyUse.setDown(false);
                 client.options.keyUse.setDown(true);
                 restoreSlot(client, originalSlot);
                 globalCooldownTicks = 8;
@@ -189,10 +209,11 @@ public class XbowCart {
         phase = CartPhase.INACTIVE;
         delayTicks = 0;
         originalSlot = -1;
+        targetSlot = -1;
         basePos = null;
     }
 
-    private static void fluidAim(Minecraft client, BlockPos pos) {
+    private static void snapAim(Minecraft client, BlockPos pos) {
         if (client.player == null) return;
         Vec3 target = Vec3.atCenterOf(pos);
         double dx = target.x - client.player.getX();
@@ -204,14 +225,8 @@ public class XbowCart {
         float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
         targetPitch = Mth.clamp(targetPitch, -30.0F, 30.0F);
 
-        float currentYaw = client.player.getYRot();
-        float currentPitch = client.player.getXRot();
-
-        float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
-        float pitchDiff = targetPitch - currentPitch;
-
-        client.player.setYRot(currentYaw + yawDiff * 0.85F);
-        client.player.setXRot(currentPitch + pitchDiff * 0.85F);
+        client.player.setYRot(targetYaw);
+        client.player.setXRot(targetPitch);
     }
 
     private static void selectSlot(Minecraft client, int slot) {
@@ -225,35 +240,32 @@ public class XbowCart {
         }
     }
 
-    private static boolean selectRail(Minecraft client) {
+    private static int findRailSlot(Minecraft client) {
         for (int i = 0; i < 9; i++) {
             Item item = client.player.getInventory().getItem(i).getItem();
             if (isAnyRail(item)) {
-                selectSlot(client, i);
-                return true;
+                return i;
             }
         }
-        return false;
+        return -1;
     }
 
-    private static boolean selectItem(Minecraft client, Item targetItem) {
+    private static int findItemSlot(Minecraft client, Item targetItem) {
         for (int i = 0; i < 9; i++) {
             if (client.player.getInventory().getItem(i).getItem() == targetItem) {
-                selectSlot(client, i);
-                return true;
+                return i;
             }
         }
-        return false;
+        return -1;
     }
 
-    private static boolean selectCrossbow(Minecraft client) {
+    private static int findChargedCrossbowSlot(Minecraft client) {
         for (int i = 0; i < 9; i++) {
             ItemStack stack = client.player.getInventory().getItem(i);
             if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) {
-                selectSlot(client, i);
-                return true;
+                return i;
             }
         }
-        return selectItem(client, Items.CROSSBOW);
+        return findItemSlot(client, Items.CROSSBOW);
     }
-                        }
+}
