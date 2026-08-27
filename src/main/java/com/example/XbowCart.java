@@ -18,18 +18,21 @@ public class XbowCart {
 
     private enum CartPhase {
         INACTIVE, 
-        RAIL_SELECT, RAIL_DEPLOY,
-        FIRE_SELECT, FIRE_DEPLOY,
-        CART_SELECT, CART_DEPLOY,
-        CROSSBOW_SELECT, CROSSBOW_FIRE
+        RAIL_SELECT, RAIL_WAIT, RAIL_DEPLOY, RAIL_CHECK,
+        FIRE_SELECT, FIRE_WAIT, FIRE_DEPLOY, FIRE_CHECK,
+        CART_SELECT, CART_WAIT, CART_DEPLOY, CART_CHECK,
+        CROSSBOW_SELECT, CROSSBOW_WAIT, CROSSBOW_FIRE
     }
 
     private static CartPhase phase = CartPhase.INACTIVE;
     private static int delayTicks = 0;
     private static int globalCooldownTicks = 0;
     private static int originalSlot = -1;
+    private static int targetSlot = -1;
+    private static int retryCount = 0;
     private static int mouseButtonReleaseTracker = 0;
     private static BlockPos basePos = null;
+    private static final Random random = new Random();
 
     public static void toggle() {
         enabled = !enabled;
@@ -80,66 +83,130 @@ public class XbowCart {
                 } else {
                     basePos = client.player.blockPosition().below();
                 }
+                retryCount = 0;
                 phase = CartPhase.RAIL_SELECT;
                 break;
 
             case RAIL_SELECT:
-                if (selectRail(client)) {
+                targetSlot = findRailSlot(client);
+                if (targetSlot != -1) {
+                    client.options.keyHotbarSlots[targetSlot].setDown(true);
+                    smoothAimHuman(client, basePos);
                     delayTicks = 2;
-                    phase = CartPhase.RAIL_DEPLOY;
+                    phase = CartPhase.RAIL_WAIT;
                 } else {
-                    resetSequence();
+                    handleRetry(client, CartPhase.RAIL_SELECT);
                 }
+                break;
+
+            case RAIL_WAIT:
+                if (targetSlot != -1) {
+                    client.options.keyHotbarSlots[targetSlot].setDown(false);
+                }
+                delayTicks = 2;
+                phase = CartPhase.RAIL_DEPLOY;
                 break;
 
             case RAIL_DEPLOY:
                 if (basePos != null) {
-                    aimBlock(client, basePos);
+                    smoothAimHuman(client, basePos);
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2 + new Random().nextInt(2);
-                phase = CartPhase.FIRE_SELECT;
+                delayTicks = 3;
+                phase = CartPhase.RAIL_CHECK;
+                break;
+
+            case RAIL_CHECK:
+                if (wasBlockPlaced(client, basePos)) {
+                    retryCount = 0;
+                    phase = CartPhase.FIRE_SELECT;
+                } else {
+                    handleRetry(client, CartPhase.RAIL_SELECT);
+                }
                 break;
 
             case FIRE_SELECT:
-                if (selectItem(client, Items.FLINT_AND_STEEL) || selectItem(client, Items.FIRE_CHARGE)) {
-                    delayTicks = 2;
-                    phase = CartPhase.FIRE_DEPLOY;
-                } else {
-                    resetSequence();
+                targetSlot = findItemSlot(client, Items.FLINT_AND_STEEL);
+                if (targetSlot == -1) {
+                    targetSlot = findItemSlot(client, Items.FIRE_CHARGE);
                 }
+                if (targetSlot != -1 && basePos != null) {
+                    client.options.keyHotbarSlots[targetSlot].setDown(true);
+                    smoothAimHuman(client, basePos.above());
+                    delayTicks = 2;
+                    phase = CartPhase.FIRE_WAIT;
+                } else {
+                    handleRetry(client, CartPhase.FIRE_SELECT);
+                }
+                break;
+
+            case FIRE_WAIT:
+                if (targetSlot != -1) {
+                    client.options.keyHotbarSlots[targetSlot].setDown(false);
+                }
+                delayTicks = 2;
+                phase = CartPhase.FIRE_DEPLOY;
                 break;
 
             case FIRE_DEPLOY:
                 if (basePos != null) {
                     BlockPos firePos = basePos.above();
-                    aimBlock(client, firePos);
+                    smoothAimHuman(client, firePos);
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2 + new Random().nextInt(2);
-                phase = CartPhase.CART_SELECT;
+                delayTicks = 3;
+                phase = CartPhase.FIRE_CHECK;
+                break;
+
+            case FIRE_CHECK:
+                if (basePos != null && wasBlockPlaced(client, basePos.above())) {
+                    retryCount = 0;
+                    phase = CartPhase.CART_SELECT;
+                } else {
+                    handleRetry(client, CartPhase.FIRE_SELECT);
+                }
                 break;
 
             case CART_SELECT:
-                if (selectItem(client, Items.TNT_MINECART)) {
+                targetSlot = findItemSlot(client, Items.TNT_MINECART);
+                if (targetSlot != -1 && basePos != null) {
+                    client.options.keyHotbarSlots[targetSlot].setDown(true);
+                    smoothAimHuman(client, basePos.above(2));
                     delayTicks = 2;
-                    phase = CartPhase.CART_DEPLOY;
+                    phase = CartPhase.CART_WAIT;
                 } else {
-                    resetSequence();
+                    handleRetry(client, CartPhase.CART_SELECT);
                 }
+                break;
+
+            case CART_WAIT:
+                if (targetSlot != -1) {
+                    client.options.keyHotbarSlots[targetSlot].setDown(false);
+                }
+                delayTicks = 2;
+                phase = CartPhase.CART_DEPLOY;
                 break;
 
             case CART_DEPLOY:
                 if (basePos != null) {
                     BlockPos cartPos = basePos.above(2);
-                    aimBlock(client, cartPos);
+                    smoothAimHuman(client, cartPos);
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2 + new Random().nextInt(2);
-                phase = CartPhase.CROSSBOW_SELECT;
+                delayTicks = 3;
+                phase = CartPhase.CART_CHECK;
+                break;
+
+            case CART_CHECK:
+                if (basePos != null && wasBlockPlaced(client, basePos.above(2))) {
+                    retryCount = 0;
+                    phase = CartPhase.CROSSBOW_SELECT;
+                } else {
+                    handleRetry(client, CartPhase.CART_SELECT);
+                }
                 break;
 
             case CROSSBOW_SELECT:
@@ -147,12 +214,22 @@ public class XbowCart {
                     delayTicks = 1;
                     return;
                 }
-                if (selectCrossbow(client)) {
+                targetSlot = findChargedCrossbowSlot(client);
+                if (targetSlot != -1) {
+                    client.options.keyHotbarSlots[targetSlot].setDown(true);
                     delayTicks = 2;
-                    phase = CartPhase.CROSSBOW_FIRE;
+                    phase = CartPhase.CROSSBOW_WAIT;
                 } else {
-                    resetSequence();
+                    handleRetry(client, CartPhase.CROSSBOW_SELECT);
                 }
+                break;
+
+            case CROSSBOW_WAIT:
+                if (targetSlot != -1) {
+                    client.options.keyHotbarSlots[targetSlot].setDown(false);
+                }
+                delayTicks = 2;
+                phase = CartPhase.CROSSBOW_FIRE;
                 break;
 
             case CROSSBOW_FIRE:
@@ -185,14 +262,31 @@ public class XbowCart {
         return isAnyRail(client.player.getMainHandItem().getItem());
     }
 
+    private static boolean wasBlockPlaced(Minecraft client, BlockPos pos) {
+        return client.level != null && !client.level.getBlockState(pos).isAir();
+    }
+
+    private static void handleRetry(Minecraft client, CartPhase fallbackPhase) {
+        retryCount++;
+        if (retryCount > 3) {
+            restoreSlot(client, originalSlot);
+            resetSequence();
+        } else {
+            phase = fallbackPhase;
+            delayTicks = 4;
+        }
+    }
+
     private static void resetSequence() {
         phase = CartPhase.INACTIVE;
         delayTicks = 0;
         originalSlot = -1;
+        targetSlot = -1;
+        retryCount = 0;
         basePos = null;
     }
 
-    private static void aimBlock(Minecraft client, BlockPos pos) {
+    private static void smoothAimHuman(Minecraft client, BlockPos pos) {
         if (client.player == null) return;
         Vec3 target = Vec3.atCenterOf(pos);
         double dx = target.x - client.player.getX();
@@ -207,11 +301,21 @@ public class XbowCart {
         float currentYaw = client.player.getYRot();
         float currentPitch = client.player.getXRot();
 
-        float smoothedYaw = currentYaw + (targetYaw - currentYaw) * 0.65F + (new Random().nextFloat() - 0.5F) * 0.08F;
-        float smoothedPitch = currentPitch + (targetPitch - currentPitch) * 0.65F + (new Random().nextFloat() - 0.5F) * 0.08F;
+        float yawError = Mth.wrapDegrees(targetYaw - currentYaw);
+        float pitchError = targetPitch - currentPitch;
 
-        client.player.setYRot(smoothedYaw);
-        client.player.setXRot(smoothedPitch);
+        float jitterYaw = (float)(random.nextGaussian() * 0.08);
+        float jitterPitch = (float)(random.nextGaussian() * 0.06);
+
+        float overshootYaw = yawError * 0.08f;
+        float overshootPitch = pitchError * 0.08f;
+
+        float speed = 5.0f + random.nextFloat() * 2.0f;
+        float stepYaw = Math.max(-speed, Math.min(speed, yawError * 0.65f + overshootYaw)) + jitterYaw;
+        float stepPitch = Math.max(-speed * 0.6f, Math.min(speed * 0.6f, pitchError * 0.65f + overshootPitch)) + jitterPitch;
+
+        client.player.setYRot(currentYaw + stepYaw);
+        client.player.setXRot(currentPitch + stepPitch);
     }
 
     private static void selectSlot(Minecraft client, int slot) {
@@ -226,35 +330,32 @@ public class XbowCart {
         }
     }
 
-    private static boolean selectRail(Minecraft client) {
+    private static int findRailSlot(Minecraft client) {
         for (int i = 0; i < 9; i++) {
             Item item = client.player.getInventory().getItem(i).getItem();
             if (isAnyRail(item)) {
-                selectSlot(client, i);
-                return true;
+                return i;
             }
         }
-        return false;
+        return -1;
     }
 
-    private static boolean selectItem(Minecraft client, Item targetItem) {
+    private static int findItemSlot(Minecraft client, Item targetItem) {
         for (int i = 0; i < 9; i++) {
             if (client.player.getInventory().getItem(i).getItem() == targetItem) {
-                selectSlot(client, i);
-                return true;
+                return i;
             }
         }
-        return false;
+        return -1;
     }
 
-    private static boolean selectCrossbow(Minecraft client) {
+    private static int findChargedCrossbowSlot(Minecraft client) {
         for (int i = 0; i < 9; i++) {
             ItemStack stack = client.player.getInventory().getItem(i);
             if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) {
-                selectSlot(client, i);
-                return true;
+                return i;
             }
         }
-        return selectItem(client, Items.CROSSBOW);
+        return findItemSlot(client, Items.CROSSBOW);
     }
-}
+                        }
