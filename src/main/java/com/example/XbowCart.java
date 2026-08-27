@@ -107,7 +107,7 @@ public class XbowCart {
                 if (railSlot != -1 && targetBlockPos != null) {
                     client.player.getInventory().setSelectedSlot(railSlot);
                     BlockPos railTarget = getRailPos(targetBlockPos, targetFace);
-                    humanAim(client, Vec3.atCenterOf(railTarget));
+                    lightningAim(client, Vec3.atCenterOf(railTarget));
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                     delayTicks = 1;
@@ -122,7 +122,7 @@ public class XbowCart {
                 if (cartSlot != -1 && targetBlockPos != null) {
                     client.player.getInventory().setSelectedSlot(cartSlot);
                     BlockPos cartTarget = getRailPos(targetBlockPos, targetFace);
-                    humanAim(client, Vec3.atCenterOf(cartTarget));
+                    lightningAim(client, Vec3.atCenterOf(cartTarget));
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                     delayTicks = 1;
@@ -140,7 +140,7 @@ public class XbowCart {
                 if (fireSlot != -1 && targetBlockPos != null) {
                     client.player.getInventory().setSelectedSlot(fireSlot);
                     BlockPos fireTarget = getFirePos(client, targetBlockPos, targetFace);
-                    humanAim(client, Vec3.atCenterOf(fireTarget));
+                    lightningAim(client, Vec3.atCenterOf(fireTarget));
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                     delayTicks = 1;
@@ -155,7 +155,7 @@ public class XbowCart {
                 if (crossbowSlot != -1 && targetBlockPos != null) {
                     ClientBase.InventoryManager.selectSlot(client, crossbowSlot);
                     BlockPos shootTarget = getRailPos(targetBlockPos, targetFace);
-                    humanAim(client, Vec3.atCenterOf(shootTarget).add(0.0D, 0.25D, 0.0D));
+                    lightningAim(client, Vec3.atCenterOf(shootTarget).add(0.0D, 0.25D, 0.0D));
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                 }
@@ -185,7 +185,7 @@ public class XbowCart {
         return isAnyRail(client.player.getMainHandItem().getItem());
     }
 
-    private static void humanAim(Minecraft client, Vec3 target) {
+    private static void lightningAim(Minecraft client, Vec3 target) {
         if (client.player == null) return;
         double dx = target.x - client.player.getX();
         double dy = target.y - client.player.getEyeY();
@@ -202,8 +202,8 @@ public class XbowCart {
         float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
         float pitchDiff = targetPitch - currentPitch;
 
-        client.player.setYRot(currentYaw + yawDiff * 0.78F);
-        client.player.setXRot(currentPitch + pitchDiff * 0.78F);
+        client.player.setYRot(currentYaw + yawDiff * 0.95F);
+        client.player.setXRot(currentPitch + pitchDiff * 0.95F);
     }
 
     public static void resetSequence() {
