@@ -526,7 +526,7 @@ public class XbowCart implements ClientModInitializer {
 
         public void abortSequence() {
             if (activePhase != CartPhase.INACTIVE) {
-                restoreOriginalSlot(mc);
+                restoreOriginalSlot(Minecraft.getInstance());
             }
             activePhase = CartPhase.INACTIVE;
             sequenceDelay = 0;
