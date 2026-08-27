@@ -27,7 +27,6 @@ public class XbowCart {
     private static int globalCooldownTicks = 0;
     private static int originalSlot = -1;
     private static int targetSlot = -1;
-    private static int mouseButtonReleaseTracker = 0;
     private static BlockPos basePos = null;
     private static BlockPos firePos = null;
 
@@ -47,13 +46,6 @@ public class XbowCart {
 
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null) return;
-
-        if (mouseButtonReleaseTracker > 0) {
-            mouseButtonReleaseTracker--;
-            if (mouseButtonReleaseTracker == 0 && client.options != null) {
-                client.options.keyUse.setDown(false);
-            }
-        }
 
         if (globalCooldownTicks > 0) {
             globalCooldownTicks--;
@@ -80,8 +72,7 @@ public class XbowCart {
                     Direction facing = client.player.getDirection();
                     firePos = basePos.relative(facing.getOpposite());
                 } else {
-                    basePos = client.player.blockPosition().below();
-                    firePos = basePos.relative(client.player.getDirection().getOpposite());
+                    return;
                 }
                 phase = CartPhase.RAIL_SELECT;
                 break;
@@ -89,7 +80,7 @@ public class XbowCart {
             case RAIL_SELECT:
                 targetSlot = findRailSlot(client);
                 if (targetSlot != -1) {
-                    client.options.keyHotbarSlots[targetSlot].setDown(true);
+                    client.player.getInventory().setSelectedSlot(targetSlot);
                     delayTicks = 1;
                     phase = CartPhase.RAIL_WAIT;
                 } else {
@@ -98,17 +89,13 @@ public class XbowCart {
                 break;
 
             case RAIL_WAIT:
-                if (targetSlot != -1) {
-                    client.options.keyHotbarSlots[targetSlot].setDown(false);
-                }
                 delayTicks = 1;
                 phase = CartPhase.RAIL_DEPLOY;
                 break;
 
             case RAIL_DEPLOY:
                 if (basePos != null) {
-                    eyezingzAim(client, basePos);
-                    mouseButtonReleaseTracker = 1;
+                    eyezingzSnapAim(client, basePos);
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
@@ -122,7 +109,7 @@ public class XbowCart {
                     targetSlot = findItemSlot(client, Items.FIRE_CHARGE);
                 }
                 if (targetSlot != -1) {
-                    client.options.keyHotbarSlots[targetSlot].setDown(true);
+                    client.player.getInventory().setSelectedSlot(targetSlot);
                     delayTicks = 1;
                     phase = CartPhase.FIRE_WAIT;
                 } else {
@@ -131,17 +118,13 @@ public class XbowCart {
                 break;
 
             case FIRE_WAIT:
-                if (targetSlot != -1) {
-                    client.options.keyHotbarSlots[targetSlot].setDown(false);
-                }
                 delayTicks = 1;
                 phase = CartPhase.FIRE_DEPLOY;
                 break;
 
             case FIRE_DEPLOY:
                 if (firePos != null) {
-                    eyezingzAim(client, firePos);
-                    mouseButtonReleaseTracker = 1;
+                    eyezingzSnapAim(client, firePos);
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
@@ -152,7 +135,7 @@ public class XbowCart {
             case CART_SELECT:
                 targetSlot = findItemSlot(client, Items.TNT_MINECART);
                 if (targetSlot != -1) {
-                    client.options.keyHotbarSlots[targetSlot].setDown(true);
+                    client.player.getInventory().setSelectedSlot(targetSlot);
                     delayTicks = 1;
                     phase = CartPhase.CART_WAIT;
                 } else {
@@ -161,17 +144,13 @@ public class XbowCart {
                 break;
 
             case CART_WAIT:
-                if (targetSlot != -1) {
-                    client.options.keyHotbarSlots[targetSlot].setDown(false);
-                }
                 delayTicks = 1;
                 phase = CartPhase.CART_DEPLOY;
                 break;
 
             case CART_DEPLOY:
                 if (basePos != null) {
-                    eyezingzAim(client, basePos);
-                    mouseButtonReleaseTracker = 1;
+                    eyezingzSnapAim(client, basePos);
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
@@ -186,7 +165,7 @@ public class XbowCart {
                 }
                 targetSlot = findChargedCrossbowSlot(client);
                 if (targetSlot != -1) {
-                    client.options.keyHotbarSlots[targetSlot].setDown(true);
+                    client.player.getInventory().setSelectedSlot(targetSlot);
                     delayTicks = 1;
                     phase = CartPhase.CROSSBOW_WAIT;
                 } else {
@@ -195,22 +174,18 @@ public class XbowCart {
                 break;
 
             case CROSSBOW_WAIT:
-                if (targetSlot != -1) {
-                    client.options.keyHotbarSlots[targetSlot].setDown(false);
-                }
                 delayTicks = 1;
                 phase = CartPhase.CROSSBOW_FIRE;
                 break;
 
             case CROSSBOW_FIRE:
                 if (basePos != null) {
-                    eyezingzAim(client, basePos);
+                    eyezingzSnapAim(client, basePos);
                 }
-                mouseButtonReleaseTracker = 1;
                 client.options.keyUse.setDown(false);
                 client.options.keyUse.setDown(true);
                 restoreSlot(client, originalSlot);
-                globalCooldownTicks = 4;
+                globalCooldownTicks = 3;
                 resetSequence();
                 break;
 
@@ -245,7 +220,7 @@ public class XbowCart {
         firePos = null;
     }
 
-    private static void eyezingzAim(Minecraft client, BlockPos pos) {
+    private static void eyezingzSnapAim(Minecraft client, BlockPos pos) {
         if (client.player == null) return;
         Vec3 target = Vec3.atCenterOf(pos);
         double dx = target.x - client.player.getX();
@@ -255,22 +230,15 @@ public class XbowCart {
 
         float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
         float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
-        targetPitch = Mth.clamp(targetPitch, -30.0F, 30.0F);
+        targetPitch = Mth.clamp(targetPitch, -85.0F, 85.0F);
 
-        float currentYaw = client.player.getYRot();
-        float currentPitch = client.player.getXRot();
-
-        float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
-        float pitchDiff = targetPitch - currentPitch;
-
-        client.player.setYRot(currentYaw + yawDiff * 0.95F);
-        client.player.setXRot(currentPitch + pitchDiff * 0.95F);
+        client.player.setYRot(targetYaw);
+        client.player.setXRot(targetPitch);
     }
 
     private static void restoreSlot(Minecraft client, int slot) {
         if (slot >= 0 && slot < 9) {
-            client.options.keyHotbarSlots[slot].setDown(true);
-            client.options.keyHotbarSlots[slot].setDown(false);
+            client.player.getInventory().setSelectedSlot(slot);
         }
     }
 
