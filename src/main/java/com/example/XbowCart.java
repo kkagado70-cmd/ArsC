@@ -9,19 +9,21 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.util.Mth;
 
 public class XbowCart {
     public static boolean enabled = false;
 
     private enum CartPhase {
         INACTIVE, 
-        RAIL, 
-        CART, 
-        FIRE, 
-        SHOOT
+        RAIL_SELECT, RAIL_DEPLOY,
+        CART_SELECT, CART_DEPLOY,
+        FIRE_SELECT, FIRE_DEPLOY,
+        CROSSBOW_SELECT, CROSSBOW_FIRE
     }
 
     private static CartPhase phase = CartPhase.INACTIVE;
+    private static int delayTicks = 0;
     private static int globalCooldown = 0;
     private static BlockPos targetBlockPos = null;
     private static Direction targetFace = Direction.UP;
@@ -39,17 +41,6 @@ public class XbowCart {
                item == Items.POWERED_RAIL || 
                item == Items.DETECTOR_RAIL || 
                item == Items.ACTIVATOR_RAIL;
-    }
-
-    private static int findRail(Minecraft client) {
-        if (client.player == null) return -1;
-        for (int i = 0; i < 9; i++) {
-            Item item = client.player.getInventory().getItem(i).getItem();
-            if (isAnyRail(item)) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     private static BlockPos getPlacementPos(BlockPos pos, Direction face) {
@@ -94,6 +85,11 @@ public class XbowCart {
             return;
         }
 
+        if (delayTicks > 0) {
+            delayTicks--;
+            return;
+        }
+
         if (phase != CartPhase.INACTIVE && (!enabled || client.player == null || client.level == null)) {
             resetSequence();
             return;
@@ -110,56 +106,89 @@ public class XbowCart {
                 targetFace = hit.getDirection();
 
                 watchdog.arm();
-                phase = CartPhase.RAIL;
+                phase = CartPhase.RAIL_SELECT;
                 break;
 
-            case RAIL:
-                int railSlot = findRail(client);
-                if (railSlot != -1 && targetBlockPos != null) {
+            case RAIL_SELECT:
+                int railSlot = ClientBase.InventoryManager.findRail(client);
+                if (railSlot != -1) {
                     ClientBase.InventoryManager.selectSlot(client, railSlot);
-                    ClientBase.RotationManager.smoothTo(client, getTargetVec(targetBlockPos, targetFace, 0.0D), 0.98F);
-                    ClientBase.InteractionManager.clickUse(client);
-                    phase = CartPhase.CART;
+                    delayTicks = 1;
+                    phase = CartPhase.RAIL_DEPLOY;
                 } else {
                     resetSequence();
                 }
                 break;
 
-            case CART:
+            case RAIL_DEPLOY:
+                if (targetBlockPos != null) {
+                    ClientBase.RotationManager.snapTo(client, getTargetVec(targetBlockPos, targetFace, 0.0D));
+                    ClientBase.InteractionManager.clickUse(client);
+                }
+                delayTicks = 1;
+                phase = CartPhase.CART_SELECT;
+                break;
+
+            case CART_SELECT:
                 int cartSlot = ClientBase.InventoryManager.findItem(client, Items.TNT_MINECART);
-                if (cartSlot != -1 && targetBlockPos != null) {
+                if (cartSlot != -1) {
                     ClientBase.InventoryManager.selectSlot(client, cartSlot);
-                    BlockPos cartTarget = targetFace == Direction.UP ? targetBlockPos : targetBlockPos.relative(targetFace);
-                    ClientBase.RotationManager.smoothTo(client, Vec3.atCenterOf(cartTarget), 0.98F);
-                    ClientBase.InteractionManager.clickUse(client);
-                    phase = CartPhase.FIRE;
+                    delayTicks = 1;
+                    phase = CartPhase.CART_DEPLOY;
                 } else {
                     resetSequence();
                 }
                 break;
 
-            case FIRE:
+            case CART_DEPLOY:
+                if (targetBlockPos != null) {
+                    BlockPos cartTarget = targetFace == Direction.UP ? targetBlockPos : targetBlockPos.relative(targetFace);
+                    ClientBase.RotationManager.snapTo(client, Vec3.atCenterOf(cartTarget));
+                    ClientBase.InteractionManager.clickUse(client);
+                }
+                delayTicks = 1;
+                phase = CartPhase.FIRE_SELECT;
+                break;
+
+            case FIRE_SELECT:
                 int fireSlot = ClientBase.InventoryManager.findItem(client, Items.FLINT_AND_STEEL);
                 if (fireSlot == -1) {
                     fireSlot = ClientBase.InventoryManager.findItem(client, Items.FIRE_CHARGE);
                 }
-                if (fireSlot != -1 && targetBlockPos != null) {
+                if (fireSlot != -1) {
                     ClientBase.InventoryManager.selectSlot(client, fireSlot);
-                    ClientBase.RotationManager.smoothTo(client, getFireVec(client, targetBlockPos, targetFace), 0.98F);
-                    ClientBase.InteractionManager.clickUse(client);
-                    phase = CartPhase.SHOOT;
+                    delayTicks = 1;
+                    phase = CartPhase.FIRE_DEPLOY;
                 } else {
                     resetSequence();
                 }
                 break;
 
-            case SHOOT:
-                int crossbowSlot = ClientBase.InventoryManager.findChargedCrossbow(client);
-                if (crossbowSlot != -1 && targetBlockPos != null) {
-                    ClientBase.InventoryManager.selectSlot(client, crossbowSlot);
-                    ClientBase.RotationManager.smoothTo(client, getTargetVec(targetBlockPos, targetFace, 0.35D), 0.98F);
+            case FIRE_DEPLOY:
+                if (targetBlockPos != null) {
+                    ClientBase.RotationManager.snapTo(client, getFireVec(client, targetBlockPos, targetFace));
                     ClientBase.InteractionManager.clickUse(client);
                 }
+                delayTicks = 1;
+                phase = CartPhase.CROSSBOW_SELECT;
+                break;
+
+            case CROSSBOW_SELECT:
+                int crossbowSlot = ClientBase.InventoryManager.findChargedCrossbow(client);
+                if (crossbowSlot != -1) {
+                    ClientBase.InventoryManager.selectSlot(client, crossbowSlot);
+                    delayTicks = 1;
+                    phase = CartPhase.CROSSBOW_FIRE;
+                } else {
+                    resetSequence();
+                }
+                break;
+
+            case CROSSBOW_FIRE:
+                if (targetBlockPos != null) {
+                    ClientBase.RotationManager.snapTo(client, getTargetVec(targetBlockPos, targetFace, 0.35D));
+                }
+                ClientBase.InteractionManager.clickUse(client);
                 globalCooldown = 3;
                 resetSequence();
                 break;
@@ -177,6 +206,7 @@ public class XbowCart {
 
     public static void resetSequence() {
         phase = CartPhase.INACTIVE;
+        delayTicks = 0;
         targetBlockPos = null;
         targetFace = Direction.UP;
         watchdog.disarm();
