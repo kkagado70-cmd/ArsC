@@ -14,7 +14,7 @@ import net.minecraft.core.Direction;
 
 import java.util.Random;
 
-public class XbowCartModule extends Module {
+public class XbowCart extends Module {
     private enum CartPhase {
         INACTIVE, 
         RAIL_SELECT, RAIL_DEPLOY,
@@ -30,7 +30,7 @@ public class XbowCartModule extends Module {
     private int mouseButtonReleaseTracker = 0;
     private BlockPos basePos = null;
 
-    public XbowCartModule() {
+    public XbowCart() {
         super("XbowCart");
         this.enabled = true; // Stays enabled per core instructions
     }
