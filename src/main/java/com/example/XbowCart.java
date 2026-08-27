@@ -42,6 +42,32 @@ public class XbowCart {
                item == Items.ACTIVATOR_RAIL;
     }
 
+    private static Vec3 getRailTarget(BlockPos pos, Direction face) {
+        if (face == Direction.UP) {
+            return Vec3.atCenterOf(pos);
+        }
+        return Vec3.atCenterOf(pos.relative(face));
+    }
+
+    private static Vec3 getCartTarget(BlockPos pos, Direction face) {
+        if (face == Direction.UP) {
+            return Vec3.atCenterOf(pos);
+        }
+        return Vec3.atCenterOf(pos.relative(face));
+    }
+
+    private static Vec3 getFireTarget(Minecraft client, BlockPos pos, Direction face) {
+        if (face == Direction.UP) {
+            return Vec3.atCenterOf(pos.relative(client.player.getDirection().getOpposite()));
+        }
+        return Vec3.atCenterOf(pos);
+    }
+
+    private static Vec3 getShootTarget(BlockPos pos, Direction face) {
+        BlockPos target = face == Direction.UP ? pos : pos.relative(face);
+        return Vec3.atCenterOf(target).add(0.0D, 0.2D, 0.0D);
+    }
+
     public static void onTick(Minecraft client) {
         ClientBase.InteractionManager.update(client);
 
@@ -94,7 +120,7 @@ public class XbowCart {
 
             case RAIL_DEPLOY:
                 if (targetBlockPos != null) {
-                    ClientBase.RotationManager.smoothTo(client, ClientBase.RotationManager.getRailTarget(targetBlockPos, targetFace), 0.85F);
+                    ClientBase.RotationManager.smoothTo(client, getRailTarget(targetBlockPos, targetFace), 0.85F);
                     ClientBase.InteractionManager.clickUse(client);
                 }
                 delayTicks = 1;
@@ -138,7 +164,7 @@ public class XbowCart {
 
             case FIRE_DEPLOY:
                 if (targetBlockPos != null) {
-                    ClientBase.RotationManager.smoothTo(client, ClientBase.RotationManager.getFireTarget(client, targetBlockPos, targetFace), 0.85F);
+                    ClientBase.RotationManager.smoothTo(client, getFireTarget(client, targetBlockPos, targetFace), 0.85F);
                     ClientBase.InteractionManager.clickUse(client);
                 }
                 delayTicks = 1;
@@ -158,8 +184,7 @@ public class XbowCart {
 
             case CROSSBOW_FIRE:
                 if (targetBlockPos != null) {
-                    BlockPos shootTarget = targetFace == Direction.UP ? targetBlockPos : targetBlockPos.relative(targetFace);
-                    ClientBase.RotationManager.smoothTo(client, ClientBase.RotationManager.getShootTarget(targetBlockPos, targetFace), 0.85F);
+                    ClientBase.RotationManager.smoothTo(client, getShootTarget(targetBlockPos, targetFace), 0.85F);
                 }
                 ClientBase.InteractionManager.clickUse(client);
                 globalCooldown = 4;
