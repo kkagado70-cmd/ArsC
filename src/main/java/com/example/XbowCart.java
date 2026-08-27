@@ -241,7 +241,7 @@ public class XbowCart {
             if (client.player == null) return -1;
             for (int i = 0; i < 9; i++) {
                 Item item = client.player.getInventory().getItem(i).getItem();
-                if (XbowCartModule.isAnyRail(item)) {
+                if (XbowCart.isAnyRail(item)) {
                     return i;
                 }
             }
@@ -276,4 +276,4 @@ public class XbowCart {
             watchdogStart = 0L;
         }
     }
-}
+    }
