@@ -17,15 +17,14 @@ public class XbowCart {
     private enum CartPhase {
         INACTIVE, 
         RAIL_SELECT, RAIL_WAIT, RAIL_DEPLOY,
-        FIRE_SELECT, FIRE_WAIT, FIRE_DEPLOY,
         CART_SELECT, CART_WAIT, CART_DEPLOY,
+        FIRE_SELECT, FIRE_WAIT, FIRE_DEPLOY,
         CROSSBOW_SELECT, CROSSBOW_WAIT, CROSSBOW_FIRE
     }
 
     private static CartPhase phase = CartPhase.INACTIVE;
     private static int delayTicks = 0;
     private static int globalCooldownTicks = 0;
-    private static int originalSlot = -1;
     private static int targetSlot = -1;
     private static BlockPos basePos = null;
     private static BlockPos firePos = null;
@@ -58,7 +57,6 @@ public class XbowCart {
         }
 
         if (phase != CartPhase.INACTIVE && !isSequenceIntegrityValid(client)) {
-            restoreSlot(client, originalSlot);
             resetSequence();
             return;
         }
@@ -66,7 +64,6 @@ public class XbowCart {
         switch (phase) {
             case INACTIVE:
                 if (!isInitialActivationValid(client)) return;
-                originalSlot = client.player.getInventory().getSelectedSlot();
                 if (client.hitResult instanceof BlockHitResult hit) {
                     basePos = hit.getBlockPos();
                     Direction facing = client.player.getDirection();
@@ -95,7 +92,33 @@ public class XbowCart {
 
             case RAIL_DEPLOY:
                 if (basePos != null) {
-                    eyezingzSnapAim(client, basePos);
+                    smoothLegitAim(client, basePos);
+                    client.options.keyUse.setDown(false);
+                    client.options.keyUse.setDown(true);
+                }
+                delayTicks = 1;
+                phase = CartPhase.CART_SELECT;
+                break;
+
+            case CART_SELECT:
+                targetSlot = findItemSlot(client, Items.TNT_MINECART);
+                if (targetSlot != -1) {
+                    client.player.getInventory().setSelectedSlot(targetSlot);
+                    delayTicks = 1;
+                    phase = CartPhase.CART_WAIT;
+                } else {
+                    resetSequence();
+                }
+                break;
+
+            case CART_WAIT:
+                delayTicks = 1;
+                phase = CartPhase.CART_DEPLOY;
+                break;
+
+            case CART_DEPLOY:
+                if (basePos != null) {
+                    smoothLegitAim(client, basePos);
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
@@ -124,33 +147,7 @@ public class XbowCart {
 
             case FIRE_DEPLOY:
                 if (firePos != null) {
-                    eyezingzSnapAim(client, firePos);
-                    client.options.keyUse.setDown(false);
-                    client.options.keyUse.setDown(true);
-                }
-                delayTicks = 1;
-                phase = CartPhase.CART_SELECT;
-                break;
-
-            case CART_SELECT:
-                targetSlot = findItemSlot(client, Items.TNT_MINECART);
-                if (targetSlot != -1) {
-                    client.player.getInventory().setSelectedSlot(targetSlot);
-                    delayTicks = 1;
-                    phase = CartPhase.CART_WAIT;
-                } else {
-                    resetSequence();
-                }
-                break;
-
-            case CART_WAIT:
-                delayTicks = 1;
-                phase = CartPhase.CART_DEPLOY;
-                break;
-
-            case CART_DEPLOY:
-                if (basePos != null) {
-                    eyezingzSnapAim(client, basePos);
+                    smoothLegitAim(client, firePos);
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
@@ -180,12 +177,11 @@ public class XbowCart {
 
             case CROSSBOW_FIRE:
                 if (basePos != null) {
-                    eyezingzSnapAim(client, basePos);
+                    smoothLegitAim(client, basePos);
                 }
                 client.options.keyUse.setDown(false);
                 client.options.keyUse.setDown(true);
-                restoreSlot(client, originalSlot);
-                globalCooldownTicks = 3;
+                globalCooldownTicks = 4;
                 resetSequence();
                 break;
 
@@ -214,13 +210,12 @@ public class XbowCart {
     private static void resetSequence() {
         phase = CartPhase.INACTIVE;
         delayTicks = 0;
-        originalSlot = -1;
         targetSlot = -1;
         basePos = null;
         firePos = null;
     }
 
-    private static void eyezingzSnapAim(Minecraft client, BlockPos pos) {
+    private static void smoothLegitAim(Minecraft client, BlockPos pos) {
         if (client.player == null) return;
         Vec3 target = Vec3.atCenterOf(pos);
         double dx = target.x - client.player.getX();
@@ -232,14 +227,14 @@ public class XbowCart {
         float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
         targetPitch = Mth.clamp(targetPitch, -85.0F, 85.0F);
 
-        client.player.setYRot(targetYaw);
-        client.player.setXRot(targetPitch);
-    }
+        float currentYaw = client.player.getYRot();
+        float currentPitch = client.player.getXRot();
 
-    private static void restoreSlot(Minecraft client, int slot) {
-        if (slot >= 0 && slot < 9) {
-            client.player.getInventory().setSelectedSlot(slot);
-        }
+        float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
+        float pitchDiff = targetPitch - currentPitch;
+
+        client.player.setYRot(currentYaw + yawDiff * 0.82F);
+        client.player.setXRot(currentPitch + pitchDiff * 0.82F);
     }
 
     private static int findRailSlot(Minecraft client) {
