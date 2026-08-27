@@ -13,11 +13,6 @@ import net.minecraft.util.Mth;
 
 import java.util.Random;
 
-/**
- * XbowCart - Top-level compatibility bridge and execution engine.
- * Fully satisfies ClickGUI and PreciseGuiScaleClient references while maintaining 
- * strict Mojang Mappings, ClickSim safety, and Anti-Cheat bypass execution.
- */
 public class XbowCart {
     public static boolean enabled = false;
 
@@ -53,7 +48,6 @@ public class XbowCart {
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null) return;
 
-        // Handle ClickSim mouse use key release safety
         if (mouseButtonReleaseTracker > 0) {
             mouseButtonReleaseTracker--;
             if (mouseButtonReleaseTracker == 0 && client.options != null) {
@@ -71,8 +65,7 @@ public class XbowCart {
             return;
         }
 
-        // Abort and restore if activation conditions are broken mid-sequence
-        if (phase != CartPhase.INACTIVE && !isActivationValid(client)) {
+        if (phase != CartPhase.INACTIVE && !isSequenceIntegrityValid(client)) {
             restoreSlot(client, originalSlot);
             resetSequence();
             return;
@@ -80,7 +73,7 @@ public class XbowCart {
 
         switch (phase) {
             case INACTIVE:
-                if (!isActivationValid(client)) return;
+                if (!isInitialActivationValid(client)) return;
                 originalSlot = client.player.getInventory().getSelectedSlot();
                 if (client.hitResult instanceof BlockHitResult hit) {
                     basePos = hit.getBlockPos();
@@ -92,7 +85,7 @@ public class XbowCart {
 
             case RAIL_SELECT:
                 if (selectRail(client)) {
-                    delayTicks = 2; // Slot switch sync delay
+                    delayTicks = 2;
                     phase = CartPhase.RAIL_DEPLOY;
                 } else {
                     resetSequence();
@@ -105,7 +98,7 @@ public class XbowCart {
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2 + new Random().nextInt(2); // 2-3 ticks randomized delay
+                delayTicks = 2 + new Random().nextInt(2);
                 phase = CartPhase.FIRE_SELECT;
                 break;
 
@@ -120,7 +113,7 @@ public class XbowCart {
 
             case FIRE_DEPLOY:
                 if (basePos != null) {
-                    BlockPos firePos = basePos.above(); // 1 block above rail
+                    BlockPos firePos = basePos.above();
                     aimBlock(client, firePos);
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
@@ -140,7 +133,7 @@ public class XbowCart {
 
             case CART_DEPLOY:
                 if (basePos != null) {
-                    BlockPos cartPos = basePos.above(2); // 2 blocks above rail (on top of fire)
+                    BlockPos cartPos = basePos.above(2);
                     aimBlock(client, cartPos);
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
@@ -176,11 +169,15 @@ public class XbowCart {
         }
     }
 
-    private static boolean isActivationValid(Minecraft client) {
+    private static boolean isInitialActivationValid(Minecraft client) {
         if (client.player == null || client.hitResult == null) return false;
         boolean lookingDown = client.hitResult instanceof BlockHitResult blockHit && blockHit.getDirection() == Direction.UP;
         boolean holdingRail = isHoldingRail(client);
         return lookingDown && holdingRail;
+    }
+
+    private static boolean isSequenceIntegrityValid(Minecraft client) {
+        return enabled && client.player != null && client.level != null;
     }
 
     private static boolean isHoldingRail(Minecraft client) {
