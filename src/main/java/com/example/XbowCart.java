@@ -48,7 +48,7 @@ public class XbowCart {
         if (face == Direction.UP) {
             return pos;
         }
-        return pos.relative(face);
+        return pos.above();
     }
 
     private static BlockPos getFirePos(Minecraft client, BlockPos pos, Direction face) {
@@ -107,7 +107,7 @@ public class XbowCart {
                 if (railSlot != -1 && targetBlockPos != null) {
                     client.player.getInventory().setSelectedSlot(railSlot);
                     BlockPos railTarget = getRailPos(targetBlockPos, targetFace);
-                    stableAim(client, Vec3.atCenterOf(railTarget));
+                    humanAim(client, Vec3.atCenterOf(railTarget));
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                     delayTicks = 1;
@@ -122,7 +122,7 @@ public class XbowCart {
                 if (cartSlot != -1 && targetBlockPos != null) {
                     client.player.getInventory().setSelectedSlot(cartSlot);
                     BlockPos cartTarget = getRailPos(targetBlockPos, targetFace);
-                    stableAim(client, Vec3.atCenterOf(cartTarget));
+                    humanAim(client, Vec3.atCenterOf(cartTarget));
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                     delayTicks = 1;
@@ -140,7 +140,7 @@ public class XbowCart {
                 if (fireSlot != -1 && targetBlockPos != null) {
                     client.player.getInventory().setSelectedSlot(fireSlot);
                     BlockPos fireTarget = getFirePos(client, targetBlockPos, targetFace);
-                    stableAim(client, Vec3.atCenterOf(fireTarget));
+                    humanAim(client, Vec3.atCenterOf(fireTarget));
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                     delayTicks = 1;
@@ -153,9 +153,9 @@ public class XbowCart {
             case SHOOT:
                 int crossbowSlot = ClientBase.InventoryManager.findChargedCrossbow(client);
                 if (crossbowSlot != -1 && targetBlockPos != null) {
-                    client.player.getInventory().setSelectedSlot(crossbowSlot);
+                    ClientBase.InventoryManager.selectSlot(client, crossbowSlot);
                     BlockPos shootTarget = getRailPos(targetBlockPos, targetFace);
-                    stableAim(client, Vec3.atCenterOf(shootTarget).add(0.0D, 0.25D, 0.0D));
+                    humanAim(client, Vec3.atCenterOf(shootTarget).add(0.0D, 0.25D, 0.0D));
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                 }
@@ -185,7 +185,7 @@ public class XbowCart {
         return isAnyRail(client.player.getMainHandItem().getItem());
     }
 
-    private static void stableAim(Minecraft client, Vec3 target) {
+    private static void humanAim(Minecraft client, Vec3 target) {
         if (client.player == null) return;
         double dx = target.x - client.player.getX();
         double dy = target.y - client.player.getEyeY();
@@ -196,8 +196,14 @@ public class XbowCart {
         float targetPitch = (float) (-(Mth.atan2(dy, hDist) * (180.0 / Math.PI)));
         targetPitch = Mth.clamp(targetPitch, -85.0F, 85.0F);
 
-        client.player.setYRot(targetYaw);
-        client.player.setXRot(targetPitch);
+        float currentYaw = client.player.getYRot();
+        float currentPitch = client.player.getXRot();
+
+        float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
+        float pitchDiff = targetPitch - currentPitch;
+
+        client.player.setYRot(currentYaw + yawDiff * 0.78F);
+        client.player.setXRot(currentPitch + pitchDiff * 0.78F);
     }
 
     public static void resetSequence() {
