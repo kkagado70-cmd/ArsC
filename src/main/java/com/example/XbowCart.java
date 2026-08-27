@@ -9,6 +9,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.util.Mth;
 
 public class XbowCart {
     public static boolean enabled = false;
@@ -106,7 +107,7 @@ public class XbowCart {
                 int railSlot = ClientBase.InventoryManager.findRail(client);
                 if (railSlot != -1 && targetBlockPos != null) {
                     ClientBase.InventoryManager.selectSlot(client, railSlot);
-                    ClientBase.RotationManager.smoothTo(client, getTargetVec(targetBlockPos, targetFace, 0.0D), 0.98F);
+                    ClientBase.RotationManager.smoothTo(client, getTargetVec(targetBlockPos, targetFace, 0.0D), 0.95F);
                     ClientBase.InteractionManager.clickUse(client);
                     phase = CartPhase.CART;
                 } else {
@@ -118,8 +119,7 @@ public class XbowCart {
                 int cartSlot = ClientBase.InventoryManager.findItem(client, Items.TNT_MINECART);
                 if (cartSlot != -1 && targetBlockPos != null) {
                     ClientBase.InventoryManager.selectSlot(client, cartSlot);
-                    BlockPos cartTarget = targetFace == Direction.UP ? targetBlockPos : targetBlockPos.relative(targetFace);
-                    ClientBase.RotationManager.smoothTo(client, Vec3.atCenterOf(cartTarget), 0.98F);
+                    ClientBase.RotationManager.smoothTo(client, getTargetVec(targetBlockPos, targetFace, 0.0D), 0.95F);
                     ClientBase.InteractionManager.clickUse(client);
                     phase = CartPhase.FIRE;
                 } else {
@@ -134,7 +134,7 @@ public class XbowCart {
                 }
                 if (fireSlot != -1 && targetBlockPos != null) {
                     ClientBase.InventoryManager.selectSlot(client, fireSlot);
-                    ClientBase.RotationManager.smoothTo(client, getFireVec(client, targetBlockPos, targetFace), 0.98F);
+                    ClientBase.RotationManager.smoothTo(client, getFireVec(client, targetBlockPos, targetFace), 0.95F);
                     ClientBase.InteractionManager.clickUse(client);
                     phase = CartPhase.SHOOT;
                 } else {
@@ -146,10 +146,10 @@ public class XbowCart {
                 int crossbowSlot = ClientBase.InventoryManager.findChargedCrossbow(client);
                 if (crossbowSlot != -1 && targetBlockPos != null) {
                     ClientBase.InventoryManager.selectSlot(client, crossbowSlot);
-                    ClientBase.RotationManager.smoothTo(client, getTargetVec(targetBlockPos, targetFace, 0.35D), 0.98F);
+                    ClientBase.RotationManager.smoothTo(client, getTargetVec(targetBlockPos, targetFace, 0.35D), 0.95F);
                     ClientBase.InteractionManager.clickUse(client);
                 }
-                globalCooldown = 3;
+                globalCooldown = 2;
                 resetSequence();
                 break;
 
