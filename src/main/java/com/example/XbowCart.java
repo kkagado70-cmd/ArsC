@@ -27,6 +27,7 @@ public class XbowCart {
     private static int globalCooldown = 0;
     private static BlockPos targetBlockPos = null;
     private static Direction targetFace = Direction.UP;
+    private static int mouseButtonReleaseTracker = 0;
     private static final ClientBase.SafetyWatchdog watchdog = new ClientBase.SafetyWatchdog();
 
     public static void toggle() {
@@ -41,6 +42,32 @@ public class XbowCart {
                item == Items.POWERED_RAIL || 
                item == Items.DETECTOR_RAIL || 
                item == Items.ACTIVATOR_RAIL;
+    }
+
+    private static int findRail(Minecraft client) {
+        if (client.player == null) return -1;
+        for (int i = 0; i < 9; i++) {
+            Item item = client.player.getInventory().getItem(i).getItem();
+            if (isAnyRail(item)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static void snapTo(Minecraft client, Vec3 target) {
+        if (client.player == null) return;
+        double dx = target.x - client.player.getX();
+        double dy = target.y - client.player.getEyeY();
+        double dz = target.z - client.player.getZ();
+        double hDist = Math.sqrt(dx * dx + dz * dz);
+
+        float targetYaw = (float) (Mth.atan2(dz, dx) * (180.0 / Math.PI) - 90.0D);
+        float targetPitch = (float) (-(Mth.atan2(dy, hDist) * (180.0 / Math.PI)));
+        targetPitch = Mth.clamp(targetPitch, -85.0F, 85.0F);
+
+        client.player.setYRot(targetYaw);
+        client.player.setXRot(targetPitch);
     }
 
     private static BlockPos getPlacementPos(BlockPos pos, Direction face) {
@@ -71,7 +98,12 @@ public class XbowCart {
     }
 
     public static void onTick(Minecraft client) {
-        ClientBase.InteractionManager.update(client);
+        if (mouseButtonReleaseTracker > 0) {
+            mouseButtonReleaseTracker--;
+            if (mouseButtonReleaseTracker == 0 && client.options != null) {
+                client.options.keyUse.setDown(false);
+            }
+        }
 
         if (!enabled || client.player == null || client.level == null) return;
 
@@ -110,7 +142,7 @@ public class XbowCart {
                 break;
 
             case RAIL_SELECT:
-                int railSlot = ClientBase.InventoryManager.findRail(client);
+                int railSlot = findRail(client);
                 if (railSlot != -1) {
                     ClientBase.InventoryManager.selectSlot(client, railSlot);
                     delayTicks = 1;
@@ -122,10 +154,11 @@ public class XbowCart {
 
             case RAIL_DEPLOY:
                 if (targetBlockPos != null) {
-                    ClientBase.RotationManager.snapTo(client, getTargetVec(targetBlockPos, targetFace, 0.0D));
-                    ClientBase.InteractionManager.clickUse(client);
+                    snapTo(client, getTargetVec(targetBlockPos, targetFace, 0.0D));
+                    mouseButtonReleaseTracker = 2;
+                    client.options.keyUse.setDown(true);
                 }
-                delayTicks = 1;
+                delayTicks = 2;
                 phase = CartPhase.CART_SELECT;
                 break;
 
@@ -143,10 +176,11 @@ public class XbowCart {
             case CART_DEPLOY:
                 if (targetBlockPos != null) {
                     BlockPos cartTarget = targetFace == Direction.UP ? targetBlockPos : targetBlockPos.relative(targetFace);
-                    ClientBase.RotationManager.snapTo(client, Vec3.atCenterOf(cartTarget));
-                    ClientBase.InteractionManager.clickUse(client);
+                    snapTo(client, Vec3.atCenterOf(cartTarget));
+                    mouseButtonReleaseTracker = 2;
+                    client.options.keyUse.setDown(true);
                 }
-                delayTicks = 1;
+                delayTicks = 2;
                 phase = CartPhase.FIRE_SELECT;
                 break;
 
@@ -166,10 +200,11 @@ public class XbowCart {
 
             case FIRE_DEPLOY:
                 if (targetBlockPos != null) {
-                    ClientBase.RotationManager.snapTo(client, getFireVec(client, targetBlockPos, targetFace));
-                    ClientBase.InteractionManager.clickUse(client);
+                    snapTo(client, getFireVec(client, targetBlockPos, targetFace));
+                    mouseButtonReleaseTracker = 2;
+                    client.options.keyUse.setDown(true);
                 }
-                delayTicks = 1;
+                delayTicks = 2;
                 phase = CartPhase.CROSSBOW_SELECT;
                 break;
 
@@ -186,10 +221,11 @@ public class XbowCart {
 
             case CROSSBOW_FIRE:
                 if (targetBlockPos != null) {
-                    ClientBase.RotationManager.snapTo(client, getTargetVec(targetBlockPos, targetFace, 0.35D));
+                    snapTo(client, getTargetVec(targetBlockPos, targetFace, 0.35D));
                 }
-                ClientBase.InteractionManager.clickUse(client);
-                globalCooldown = 3;
+                mouseButtonReleaseTracker = 2;
+                client.options.keyUse.setDown(true);
+                globalCooldown = 4;
                 resetSequence();
                 break;
 
@@ -209,6 +245,7 @@ public class XbowCart {
         delayTicks = 0;
         targetBlockPos = null;
         targetFace = Direction.UP;
+        mouseButtonReleaseTracker = 0;
         watchdog.disarm();
     }
 }
