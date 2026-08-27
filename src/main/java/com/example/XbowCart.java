@@ -27,7 +27,9 @@ public class XbowCart {
     private static int globalCooldownTicks = 0;
     private static int originalSlot = -1;
     private static int targetSlot = -1;
+    private static int mouseButtonReleaseTracker = 0;
     private static BlockPos basePos = null;
+    private static BlockPos firePos = null;
 
     public static void toggle() {
         enabled = !enabled;
@@ -45,6 +47,13 @@ public class XbowCart {
 
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null) return;
+
+        if (mouseButtonReleaseTracker > 0) {
+            mouseButtonReleaseTracker--;
+            if (mouseButtonReleaseTracker == 0 && client.options != null) {
+                client.options.keyUse.setDown(false);
+            }
+        }
 
         if (globalCooldownTicks > 0) {
             globalCooldownTicks--;
@@ -68,8 +77,11 @@ public class XbowCart {
                 originalSlot = client.player.getInventory().getSelectedSlot();
                 if (client.hitResult instanceof BlockHitResult hit) {
                     basePos = hit.getBlockPos();
+                    Direction facing = client.player.getDirection();
+                    firePos = basePos.relative(facing.getOpposite());
                 } else {
                     basePos = client.player.blockPosition().below();
+                    firePos = basePos.relative(client.player.getDirection().getOpposite());
                 }
                 phase = CartPhase.RAIL_SELECT;
                 break;
@@ -77,7 +89,7 @@ public class XbowCart {
             case RAIL_SELECT:
                 targetSlot = findRailSlot(client);
                 if (targetSlot != -1) {
-                    client.player.getInventory().setSelectedSlot(targetSlot);
+                    client.options.keyHotbarSlots[targetSlot].setDown(true);
                     delayTicks = 1;
                     phase = CartPhase.RAIL_WAIT;
                 } else {
@@ -86,17 +98,21 @@ public class XbowCart {
                 break;
 
             case RAIL_WAIT:
+                if (targetSlot != -1) {
+                    client.options.keyHotbarSlots[targetSlot].setDown(false);
+                }
                 delayTicks = 1;
                 phase = CartPhase.RAIL_DEPLOY;
                 break;
 
             case RAIL_DEPLOY:
                 if (basePos != null) {
-                    snapAim(client, basePos);
+                    eyezingzAim(client, basePos);
+                    mouseButtonReleaseTracker = 1;
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2;
+                delayTicks = 1;
                 phase = CartPhase.FIRE_SELECT;
                 break;
 
@@ -106,7 +122,7 @@ public class XbowCart {
                     targetSlot = findItemSlot(client, Items.FIRE_CHARGE);
                 }
                 if (targetSlot != -1) {
-                    client.player.getInventory().setSelectedSlot(targetSlot);
+                    client.options.keyHotbarSlots[targetSlot].setDown(true);
                     delayTicks = 1;
                     phase = CartPhase.FIRE_WAIT;
                 } else {
@@ -115,24 +131,28 @@ public class XbowCart {
                 break;
 
             case FIRE_WAIT:
+                if (targetSlot != -1) {
+                    client.options.keyHotbarSlots[targetSlot].setDown(false);
+                }
                 delayTicks = 1;
                 phase = CartPhase.FIRE_DEPLOY;
                 break;
 
             case FIRE_DEPLOY:
-                if (basePos != null) {
-                    snapAim(client, basePos.above());
+                if (firePos != null) {
+                    eyezingzAim(client, firePos);
+                    mouseButtonReleaseTracker = 1;
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2;
+                delayTicks = 1;
                 phase = CartPhase.CART_SELECT;
                 break;
 
             case CART_SELECT:
                 targetSlot = findItemSlot(client, Items.TNT_MINECART);
                 if (targetSlot != -1) {
-                    client.player.getInventory().setSelectedSlot(targetSlot);
+                    client.options.keyHotbarSlots[targetSlot].setDown(true);
                     delayTicks = 1;
                     phase = CartPhase.CART_WAIT;
                 } else {
@@ -141,17 +161,21 @@ public class XbowCart {
                 break;
 
             case CART_WAIT:
+                if (targetSlot != -1) {
+                    client.options.keyHotbarSlots[targetSlot].setDown(false);
+                }
                 delayTicks = 1;
                 phase = CartPhase.CART_DEPLOY;
                 break;
 
             case CART_DEPLOY:
                 if (basePos != null) {
-                    snapAim(client, basePos.above(2));
+                    eyezingzAim(client, basePos);
+                    mouseButtonReleaseTracker = 1;
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2;
+                delayTicks = 1;
                 phase = CartPhase.CROSSBOW_SELECT;
                 break;
 
@@ -162,7 +186,7 @@ public class XbowCart {
                 }
                 targetSlot = findChargedCrossbowSlot(client);
                 if (targetSlot != -1) {
-                    client.player.getInventory().setSelectedSlot(targetSlot);
+                    client.options.keyHotbarSlots[targetSlot].setDown(true);
                     delayTicks = 1;
                     phase = CartPhase.CROSSBOW_WAIT;
                 } else {
@@ -171,15 +195,22 @@ public class XbowCart {
                 break;
 
             case CROSSBOW_WAIT:
+                if (targetSlot != -1) {
+                    client.options.keyHotbarSlots[targetSlot].setDown(false);
+                }
                 delayTicks = 1;
                 phase = CartPhase.CROSSBOW_FIRE;
                 break;
 
             case CROSSBOW_FIRE:
+                if (basePos != null) {
+                    eyezingzAim(client, basePos);
+                }
+                mouseButtonReleaseTracker = 1;
                 client.options.keyUse.setDown(false);
                 client.options.keyUse.setDown(true);
                 restoreSlot(client, originalSlot);
-                globalCooldownTicks = 8;
+                globalCooldownTicks = 4;
                 resetSequence();
                 break;
 
@@ -211,9 +242,10 @@ public class XbowCart {
         originalSlot = -1;
         targetSlot = -1;
         basePos = null;
+        firePos = null;
     }
 
-    private static void snapAim(Minecraft client, BlockPos pos) {
+    private static void eyezingzAim(Minecraft client, BlockPos pos) {
         if (client.player == null) return;
         Vec3 target = Vec3.atCenterOf(pos);
         double dx = target.x - client.player.getX();
@@ -225,18 +257,20 @@ public class XbowCart {
         float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
         targetPitch = Mth.clamp(targetPitch, -30.0F, 30.0F);
 
-        client.player.setYRot(targetYaw);
-        client.player.setXRot(targetPitch);
-    }
+        float currentYaw = client.player.getYRot();
+        float currentPitch = client.player.getXRot();
 
-    private static void selectSlot(Minecraft client, int slot) {
-        if (client.player == null || slot < 0 || slot > 8) return;
-        client.player.getInventory().setSelectedSlot(slot);
+        float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
+        float pitchDiff = targetPitch - currentPitch;
+
+        client.player.setYRot(currentYaw + yawDiff * 0.95F);
+        client.player.setXRot(currentPitch + pitchDiff * 0.95F);
     }
 
     private static void restoreSlot(Minecraft client, int slot) {
         if (slot >= 0 && slot < 9) {
-            selectSlot(client, slot);
+            client.options.keyHotbarSlots[slot].setDown(true);
+            client.options.keyHotbarSlots[slot].setDown(false);
         }
     }
 
