@@ -42,6 +42,17 @@ public class XbowCart {
                item == Items.ACTIVATOR_RAIL;
     }
 
+    private static int findRail(Minecraft client) {
+        if (client.player == null) return -1;
+        for (int i = 0; i < 9; i++) {
+            Item item = client.player.getInventory().getItem(i).getItem();
+            if (isAnyRail(item)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     private static Vec3 getRailTarget(BlockPos pos, Direction face) {
         if (face == Direction.UP) {
             return Vec3.atCenterOf(pos);
@@ -108,7 +119,7 @@ public class XbowCart {
                 break;
 
             case RAIL_SELECT:
-                int railSlot = ClientBase.InventoryManager.findRail(client);
+                int railSlot = findRail(client);
                 if (railSlot != -1) {
                     ClientBase.InventoryManager.selectSlot(client, railSlot);
                     delayTicks = 1;
