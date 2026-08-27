@@ -184,6 +184,7 @@ public class XbowCart {
 
             case CROSSBOW_FIRE:
                 if (targetBlockPos != null) {
+                    BlockPos shootTarget = targetFace == Direction.UP ? targetBlockPos : targetBlockPos.relative(targetFace);
                     ClientBase.RotationManager.smoothTo(client, getShootTarget(targetBlockPos, targetFace), 0.85F);
                 }
                 ClientBase.InteractionManager.clickUse(client);
