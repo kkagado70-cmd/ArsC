@@ -26,9 +26,12 @@ public class XbowCart {
     private static CartPhase phase = CartPhase.INACTIVE;
     private static int delayTicks = 0;
     private static int globalCooldownTicks = 0;
+    private static int originalSlot = -1;
     private static int targetSlot = -1;
-    private static Vec3 targetVec = null;
-    private static Vec3 fireVec = null;
+    private static BlockPos targetBlockPos = null;
+    private static BlockPos fireBlockPos = null;
+    private static Direction targetFace = Direction.UP;
+    private static boolean hasTriggered = false;
     private static final SafetyWatchdog watchdog = new SafetyWatchdog();
 
     public static void toggle() {
@@ -47,6 +50,10 @@ public class XbowCart {
 
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null) return;
+
+        if (!isHoldingRail(client)) {
+            hasTriggered = false;
+        }
 
         if (globalCooldownTicks > 0) {
             globalCooldownTicks--;
@@ -71,12 +78,16 @@ public class XbowCart {
         switch (phase) {
             case INACTIVE:
                 if (!isInitialActivationValid(client)) return;
+                hasTriggered = true;
+                originalSlot = client.player.getInventory().getSelectedSlot();
                 if (client.hitResult instanceof BlockHitResult hit) {
-                    targetVec = hit.getLocation();
-                    BlockPos basePos = hit.getBlockPos();
-                    Direction facing = client.player.getDirection();
-                    BlockPos fireBlockPos = basePos.relative(facing.getOpposite());
-                    fireVec = Vec3.atCenterOf(fireBlockPos);
+                    targetBlockPos = hit.getBlockPos();
+                    targetFace = hit.getDirection();
+                    if (targetFace == Direction.UP) {
+                        fireBlockPos = targetBlockPos.relative(client.player.getDirection().getOpposite());
+                    } else {
+                        fireBlockPos = targetBlockPos;
+                    }
                 } else {
                     return;
                 }
@@ -96,8 +107,8 @@ public class XbowCart {
                 break;
 
             case RAIL_DEPLOY:
-                if (targetVec != null) {
-                    RotationManager.snapTo(client, targetVec);
+                if (targetBlockPos != null) {
+                    RotationManager.smoothTo(client, Vec3.atCenterOf(targetBlockPos));
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
@@ -117,8 +128,9 @@ public class XbowCart {
                 break;
 
             case CART_DEPLOY:
-                if (targetVec != null) {
-                    RotationManager.snapTo(client, targetVec);
+                if (targetBlockPos != null) {
+                    BlockPos cartTarget = targetFace == Direction.UP ? targetBlockPos : targetBlockPos.relative(targetFace);
+                    RotationManager.smoothTo(client, Vec3.atCenterOf(cartTarget));
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
@@ -141,8 +153,8 @@ public class XbowCart {
                 break;
 
             case FIRE_DEPLOY:
-                if (fireVec != null) {
-                    RotationManager.snapTo(client, fireVec);
+                if (fireBlockPos != null) {
+                    RotationManager.smoothTo(client, Vec3.atCenterOf(fireBlockPos));
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
@@ -162,8 +174,10 @@ public class XbowCart {
                 break;
 
             case CROSSBOW_FIRE:
-                if (targetVec != null) {
-                    RotationManager.snapTo(client, targetVec);
+                if (targetBlockPos != null) {
+                    BlockPos shootTarget = targetFace == Direction.UP ? targetBlockPos : targetBlockPos.relative(targetFace);
+                    Vec3 shootVec = Vec3.atCenterOf(shootTarget).add(0.0D, 0.2D, 0.0D);
+                    RotationManager.smoothTo(client, shootVec);
                 }
                 client.options.keyUse.setDown(false);
                 client.options.keyUse.setDown(true);
@@ -181,7 +195,7 @@ public class XbowCart {
         if (client.player == null || client.hitResult == null) return false;
         if (client.hitResult.getType() != HitResult.Type.BLOCK) return false;
         if (!(client.hitResult instanceof BlockHitResult blockHit)) return false;
-        if (blockHit.getDirection() != Direction.UP) return false;
+        if (blockHit.getDirection() == Direction.DOWN) return false;
         if (!isHoldingRail(client)) return false;
         return InventoryManager.findChargedCrossbow(client) != -1;
     }
@@ -199,13 +213,14 @@ public class XbowCart {
         phase = CartPhase.INACTIVE;
         delayTicks = 0;
         targetSlot = -1;
-        targetVec = null;
-        fireVec = null;
+        targetBlockPos = null;
+        fireBlockPos = null;
+        targetFace = Direction.UP;
         watchdog.disarm();
     }
 
     public static class RotationManager {
-        public static void snapTo(Minecraft client, Vec3 target) {
+        public static void smoothTo(Minecraft client, Vec3 target) {
             if (client.player == null) return;
             double dx = target.x - client.player.getX();
             double dy = target.y - client.player.getEyeY();
@@ -216,8 +231,14 @@ public class XbowCart {
             float targetPitch = (float) (-(Mth.atan2(dy, hDist) * (180.0 / Math.PI)));
             targetPitch = Mth.clamp(targetPitch, -85.0F, 85.0F);
 
-            client.player.setYRot(targetYaw);
-            client.player.setXRot(targetPitch);
+            float currentYaw = client.player.getYRot();
+            float currentPitch = client.player.getXRot();
+
+            float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
+            float pitchDiff = targetPitch - currentPitch;
+
+            client.player.setYRot(currentYaw + yawDiff * 0.88F);
+            client.player.setXRot(currentPitch + pitchDiff * 0.88F);
         }
     }
 
@@ -276,4 +297,4 @@ public class XbowCart {
             watchdogStart = 0L;
         }
     }
-    }
+}
