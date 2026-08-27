@@ -18,83 +18,79 @@ import net.minecraft.util.Mth;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
-import java.util.ArrayList;
-import java.util.List;
-
-public class ClientBase implements ClientModInitializer {
-    private static ClientBase INSTANCE;
-    private static KeyMapping toggleBaseKey;
-    private ModuleManager moduleManager;
+public class XbowCart implements ClientModInitializer {
+    private static ClientBaseInfrastructure infrastructure;
 
     @Override
     public void onInitializeClient() {
-        INSTANCE = this;
-        moduleManager = new ModuleManager();
-        moduleManager.register(new XbowCartModule());
-
-        toggleBaseKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.clientbase.toggle",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_X,
-                KeyMapping.Category.MISC
-        ));
-
-        ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (client.player == null || client.level == null) return;
-            moduleManager.tick(client);
-        });
+        infrastructure = new ClientBaseInfrastructure();
+        infrastructure.init();
     }
 
-    public static ClientBase getInstance() {
-        return INSTANCE;
+    public static boolean enabled = false;
+    public static void toggle() {
+        enabled = !enabled;
+        if (!enabled) {
+            XbowEngine.resetSequence();
+        }
     }
 
-    public ModuleManager getModuleManager() {
-        return moduleManager;
+    public static void onTick(Minecraft client) {
+        if (!enabled) return;
+        XbowEngine.tick(client);
     }
 
-    public abstract static class Module {
-        protected final String name;
-        protected boolean enabled;
+    public static class ClientBaseInfrastructure {
+        private static KeyMapping toggleKey;
 
-        public Module(String name) {
-            this.name = name;
-            this.enabled = true;
-        }
+        public void init() {
+            toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                    "key.xbowcart.toggle",
+                    InputConstants.Type.KEYSYM,
+                    GLFW.GLFW_KEY_X,
+                    KeyMapping.Category.MISC
+            ));
 
-        public String getName() {
-            return name;
-        }
-
-        public boolean isEnabled() {
-            return enabled;
-        }
-
-        public void toggle() {
-            enabled = !enabled;
-        }
-
-        public abstract void tick(Minecraft client);
-    }
-
-    public static class ModuleManager {
-        private final List<Module> modules = new ArrayList<>();
-
-        public void register(Module module) {
-            modules.add(module);
-        }
-
-        public void tick(Minecraft client) {
-            for (Module m : modules) {
-                if (m.isEnabled()) {
-                    m.tick(client);
+            ClientTickEvents.END_CLIENT_TICK.register(client -> {
+                if (client.player == null || client.level == null) return;
+                while (toggleKey.consumeClick()) {
+                    toggle();
                 }
-            }
+                if (enabled) {
+                    onTick(client);
+                }
+            });
         }
     }
 
     public static class RotationManager {
-        public static void snapTo(Minecraft client, Vec3 target) {
+        public static Vec3 getRailTarget(BlockPos pos, Direction face) {
+            if (face == Direction.UP) {
+                return Vec3.atCenterOf(pos);
+            }
+            return Vec3.atCenterOf(pos.relative(face));
+        }
+
+        public static Vec3 getCartTarget(BlockPos pos, Direction face) {
+            if (face == Direction.UP) {
+                return Vec3.atCenterOf(pos);
+            }
+            return Vec3.atCenterOf(pos.relative(face));
+        }
+
+        public static Vec3 getFireTarget(Minecraft client, BlockPos pos, Direction face) {
+            if (face == Direction.UP) {
+                return Vec3.atCenterOf(pos.relative(client.player.getDirection().getOpposite()));
+            }
+            return Vec3.atCenterOf(pos);
+        }
+
+        public static Vec3 getShootTarget(BlockPos pos, Direction face) {
+            BlockPos target = face == Direction.UP ? pos : pos.relative(face);
+            return Vec3.atCenterOf(target).add(0.0D, 0.2D, 0.0D);
+        }
+
+        public static void smoothTo(Minecraft client, Vec3 target) {
             if (client.player == null) return;
             double dx = target.x - client.player.getX();
             double dy = target.y - client.player.getEyeY();
@@ -105,8 +101,14 @@ public class ClientBase implements ClientModInitializer {
             float targetPitch = (float) (-(Mth.atan2(dy, hDist) * (180.0 / Math.PI)));
             targetPitch = Mth.clamp(targetPitch, -85.0F, 85.0F);
 
-            client.player.setYRot(targetYaw);
-            client.player.setXRot(targetPitch);
+            float currentYaw = client.player.getYRot();
+            float currentPitch = client.player.getXRot();
+
+            float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
+            float pitchDiff = targetPitch - currentPitch;
+
+            client.player.setYRot(currentYaw + yawDiff * 0.85F);
+            client.player.setXRot(currentPitch + pitchDiff * 0.85F);
         }
     }
 
@@ -130,7 +132,7 @@ public class ClientBase implements ClientModInitializer {
             if (client.player == null) return -1;
             for (int i = 0; i < 9; i++) {
                 Item item = client.player.getInventory().getItem(i).getItem();
-                if (XbowCartModule.isAnyRail(item)) {
+                if (XbowCart.isAnyRail(item)) {
                     return i;
                 }
             }
@@ -149,25 +151,57 @@ public class ClientBase implements ClientModInitializer {
         }
     }
 
-    public static class SafetyWatchdog {
-        private long watchdogStart = 0L;
-        private final long timeoutMs = 1500L;
-
-        public void arm() {
-            watchdogStart = System.currentTimeMillis();
-        }
-
-        public boolean isTimedOut() {
-            return watchdogStart > 0 && (System.currentTimeMillis() - watchdogStart > timeoutMs);
-        }
-
-        public void disarm() {
-            watchdogStart = 0L;
+    public static class RaycastManager {
+        public static BlockHitResult getValidHit(Minecraft client) {
+            if (client.hitResult != null && client.hitResult.getType() == HitResult.Type.BLOCK) {
+                if (client.hitResult instanceof BlockHitResult blockHit) {
+                    if (blockHit.getDirection() != Direction.DOWN) {
+                        return blockHit;
+                    }
+                }
+            }
+            return null;
         }
     }
 
-    public static class XbowCartModule extends Module {
-        private enum CartPhase {
+    public static class InteractionManager {
+        private static int releaseTracker = 0;
+
+        public static void update(Minecraft client) {
+            if (releaseTracker > 0) {
+                releaseTracker--;
+                if (releaseTracker == 0 && client.options != null) {
+                    client.options.keyUse.setDown(false);
+                }
+            }
+        }
+
+        public static void clickUse(Minecraft client) {
+            releaseTracker = 2;
+            client.options.keyUse.setDown(false);
+            client.options.keyUse.setDown(true);
+        }
+    }
+
+    public static class SafetyWatchdog {
+        private long startEpoch = 0L;
+        private final long timeoutMs = 1500L;
+
+        public void arm() {
+            startEpoch = System.currentTimeMillis();
+        }
+
+        public boolean isTimedOut() {
+            return startEpoch > 0 && (System.currentTimeMillis() - startEpoch > timeoutMs);
+        }
+
+        public void disarm() {
+            startEpoch = 0L;
+        }
+    }
+
+    public static class XbowEngine {
+        private enum Phase {
             INACTIVE, 
             RAIL_SELECT, RAIL_DEPLOY,
             CART_SELECT, CART_DEPLOY,
@@ -175,17 +209,12 @@ public class ClientBase implements ClientModInitializer {
             CROSSBOW_SELECT, CROSSBOW_FIRE
         }
 
-        private CartPhase phase = CartPhase.INACTIVE;
-        private int delayTicks = 0;
-        private int globalCooldownTicks = 0;
-        private int targetSlot = -1;
-        private Vec3 targetVec = null;
-        private Vec3 fireVec = null;
-        private final SafetyWatchdog watchdog = new SafetyWatchdog();
-
-        public XbowCartModule() {
-            super("XbowCart");
-        }
+        private static Phase phase = Phase.INACTIVE;
+        private static int delayTicks = 0;
+        private static int globalCooldown = 0;
+        private static BlockPos targetBlockPos = null;
+        private static Direction targetFace = Direction.UP;
+        private static final SafetyWatchdog watchdog = new SafetyWatchdog();
 
         public static boolean isAnyRail(Item item) {
             return item == Items.RAIL || 
@@ -194,12 +223,13 @@ public class ClientBase implements ClientModInitializer {
                    item == Items.ACTIVATOR_RAIL;
         }
 
-        @Override
-        public void tick(Minecraft client) {
+        public static void tick(Minecraft client) {
+            InteractionManager.update(client);
+
             if (client.player == null || client.level == null) return;
 
-            if (globalCooldownTicks > 0) {
-                globalCooldownTicks--;
+            if (globalCooldown > 0) {
+                globalCooldown--;
                 return;
             }
 
@@ -213,111 +243,105 @@ public class ClientBase implements ClientModInitializer {
                 return;
             }
 
-            if (phase != CartPhase.INACTIVE && !isSequenceIntegrityValid(client)) {
+            if (phase != Phase.INACTIVE && (!enabled || client.player == null || client.level == null)) {
                 resetSequence();
                 return;
             }
 
             switch (phase) {
                 case INACTIVE:
-                    if (!isInitialActivationValid(client)) return;
-                    if (client.hitResult instanceof BlockHitResult hit) {
-                        targetVec = hit.getLocation();
-                        BlockPos basePos = hit.getBlockPos();
-                        Direction facing = client.player.getDirection();
-                        BlockPos fireBlockPos = basePos.relative(facing.getOpposite());
-                        fireVec = Vec3.atCenterOf(fireBlockPos);
-                    } else {
+                    BlockHitResult hit = RaycastManager.getValidHit(client);
+                    if (hit == null || !isHoldingRail(client) || InventoryManager.findChargedCrossbow(client) == -1) {
                         return;
                     }
+
+                    targetBlockPos = hit.getBlockPos();
+                    targetFace = hit.getDirection();
+
                     watchdog.arm();
-                    phase = CartPhase.RAIL_SELECT;
+                    phase = Phase.RAIL_SELECT;
                     break;
 
                 case RAIL_SELECT:
-                    targetSlot = InventoryManager.findRail(client);
-                    if (targetSlot != -1) {
-                        InventoryManager.selectSlot(client, targetSlot);
+                    int railSlot = InventoryManager.findRail(client);
+                    if (railSlot != -1) {
+                        InventoryManager.selectSlot(client, railSlot);
                         delayTicks = 1;
-                        phase = CartPhase.RAIL_DEPLOY;
+                        phase = Phase.RAIL_DEPLOY;
                     } else {
                         resetSequence();
                     }
                     break;
 
                 case RAIL_DEPLOY:
-                    if (targetVec != null) {
-                        RotationManager.snapTo(client, targetVec);
-                        client.options.keyUse.setDown(false);
-                        client.options.keyUse.setDown(true);
+                    if (targetBlockPos != null) {
+                        RotationManager.smoothTo(client, RotationManager.getRailTarget(targetBlockPos, targetFace));
+                        InteractionManager.clickUse(client);
                     }
                     delayTicks = 1;
-                    phase = CartPhase.CART_SELECT;
+                    phase = Phase.CART_SELECT;
                     break;
 
                 case CART_SELECT:
-                    targetSlot = InventoryManager.findItem(client, Items.TNT_MINECART);
-                    if (targetSlot != -1) {
-                        InventoryManager.selectSlot(client, targetSlot);
+                    int cartSlot = InventoryManager.findItem(client, Items.TNT_MINECART);
+                    if (cartSlot != -1) {
+                        InventoryManager.selectSlot(client, cartSlot);
                         delayTicks = 1;
-                        phase = CartPhase.CART_DEPLOY;
+                        phase = Phase.CART_DEPLOY;
                     } else {
                         resetSequence();
                     }
                     break;
 
                 case CART_DEPLOY:
-                    if (targetVec != null) {
-                        RotationManager.snapTo(client, targetVec);
-                        client.options.keyUse.setDown(false);
-                        client.options.keyUse.setDown(true);
+                    if (targetBlockPos != null) {
+                        RotationManager.smoothTo(client, RotationManager.getCartTarget(targetBlockPos, targetFace));
+                        InteractionManager.clickUse(client);
                     }
                     delayTicks = 1;
-                    phase = CartPhase.FIRE_SELECT;
+                    phase = Phase.FIRE_SELECT;
                     break;
 
                 case FIRE_SELECT:
-                    targetSlot = InventoryManager.findItem(client, Items.FLINT_AND_STEEL);
-                    if (targetSlot == -1) {
-                        targetSlot = InventoryManager.findItem(client, Items.FIRE_CHARGE);
+                    int fireSlot = InventoryManager.findItem(client, Items.FLINT_AND_STEEL);
+                    if (fireSlot == -1) {
+                        fireSlot = InventoryManager.findItem(client, Items.FIRE_CHARGE);
                     }
-                    if (targetSlot != -1) {
-                        InventoryManager.selectSlot(client, targetSlot);
+                    if (fireSlot != -1) {
+                        InventoryManager.selectSlot(client, fireSlot);
                         delayTicks = 1;
-                        phase = CartPhase.FIRE_DEPLOY;
+                        phase = Phase.FIRE_DEPLOY;
                     } else {
                         resetSequence();
                     }
                     break;
 
                 case FIRE_DEPLOY:
-                    if (fireVec != null) {
-                        RotationManager.snapTo(client, fireVec);
-                        client.options.keyUse.setDown(false);
-                        client.options.keyUse.setDown(true);
+                    if (targetBlockPos != null) {
+                        RotationManager.smoothTo(client, RotationManager.getFireTarget(client, targetBlockPos, targetFace));
+                        InteractionManager.clickUse(client);
                     }
                     delayTicks = 1;
-                    phase = CartPhase.CROSSBOW_SELECT;
+                    phase = Phase.CROSSBOW_SELECT;
                     break;
 
                 case CROSSBOW_SELECT:
-                    targetSlot = InventoryManager.findChargedCrossbow(client);
-                    if (targetSlot != -1) {
-                        InventoryManager.selectSlot(client, targetSlot);
+                    int crossbowSlot = InventoryManager.findChargedCrossbow(client);
+                    if (crossbowSlot != -1) {
+                        InventoryManager.selectSlot(client, crossbowSlot);
                         delayTicks = 1;
-                        phase = CartPhase.CROSSBOW_FIRE;
+                        phase = Phase.CROSSBOW_FIRE;
                     } else {
                         resetSequence();
                     }
                     break;
 
                 case CROSSBOW_FIRE:
-                    if (targetVec != null) {
-                        RotationManager.snapTo(client, targetVec);
+                    if (targetBlockPos != null) {
+                        RotationManager.smoothTo(client, RotationManager.getShootTarget(targetBlockPos, targetFace));
                     }
-                    client.options.keyUse.setDown(false);
-                    client.options.keyUse.setDown(true);
-                    globalCooldownTicks = 4;
+                    InteractionManager.clickUse(client);
+                    globalCooldown = 4;
                     resetSequence();
                     break;
 
@@ -327,31 +351,17 @@ public class ClientBase implements ClientModInitializer {
             }
         }
 
-        private boolean isInitialActivationValid(Minecraft client) {
-            if (client.player == null || client.hitResult == null) return false;
-            if (client.hitResult.getType() != HitResult.Type.BLOCK) return false;
-            if (!(client.hitResult instanceof BlockHitResult blockHit)) return false;
-            if (blockHit.getDirection() != Direction.UP) return false;
-            if (!isHoldingRail(client)) return false;
-            return InventoryManager.findChargedCrossbow(client) != -1;
-        }
-
-        private boolean isSequenceIntegrityValid(Minecraft client) {
-            return enabled && client.player != null && client.level != null;
-        }
-
-        private boolean isHoldingRail(Minecraft client) {
+        private static boolean isHoldingRail(Minecraft client) {
             if (client.player == null) return false;
-            return isAnyRail(client.player.getMainHandItem().getItem());
+            return XbowCart.isAnyRail(client.player.getMainHandItem().getItem());
         }
 
-        private void resetSequence() {
-            phase = CartPhase.INACTIVE;
+        public static void resetSequence() {
+            phase = Phase.INACTIVE;
             delayTicks = 0;
-            targetSlot = -1;
-            targetVec = null;
-            fireVec = null;
+            targetBlockPos = null;
+            targetFace = Direction.UP;
             watchdog.disarm();
         }
     }
-        }
+            }
