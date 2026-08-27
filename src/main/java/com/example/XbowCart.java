@@ -26,8 +26,8 @@ public class XbowCart {
     private static int delayTicks = 0;
     private static int globalCooldownTicks = 0;
     private static int targetSlot = -1;
-    private static BlockPos basePos = null;
-    private static BlockPos firePos = null;
+    private static Vec3 targetVec = null;
+    private static Vec3 fireVec = null;
 
     public static void toggle() {
         enabled = !enabled;
@@ -65,9 +65,11 @@ public class XbowCart {
             case INACTIVE:
                 if (!isInitialActivationValid(client)) return;
                 if (client.hitResult instanceof BlockHitResult hit) {
-                    basePos = hit.getBlockPos();
+                    targetVec = hit.getLocation();
+                    BlockPos basePos = hit.getBlockPos();
                     Direction facing = client.player.getDirection();
-                    firePos = basePos.relative(facing.getOpposite());
+                    BlockPos fireBlockPos = basePos.relative(facing.getOpposite());
+                    fireVec = Vec3.atCenterOf(fireBlockPos);
                 } else {
                     return;
                 }
@@ -91,8 +93,8 @@ public class XbowCart {
                 break;
 
             case RAIL_DEPLOY:
-                if (basePos != null) {
-                    smoothLegitAim(client, basePos);
+                if (targetVec != null) {
+                    aimAtVector(client, targetVec);
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
@@ -117,8 +119,8 @@ public class XbowCart {
                 break;
 
             case CART_DEPLOY:
-                if (basePos != null) {
-                    smoothLegitAim(client, basePos);
+                if (targetVec != null) {
+                    aimAtVector(client, targetVec);
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
@@ -146,8 +148,8 @@ public class XbowCart {
                 break;
 
             case FIRE_DEPLOY:
-                if (firePos != null) {
-                    smoothLegitAim(client, firePos);
+                if (fireVec != null) {
+                    aimAtVector(client, fireVec);
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
                 }
@@ -156,10 +158,6 @@ public class XbowCart {
                 break;
 
             case CROSSBOW_SELECT:
-                if (client.player.getAttackStrengthScale(0.0F) < 0.9F) {
-                    delayTicks = 1;
-                    return;
-                }
                 targetSlot = findChargedCrossbowSlot(client);
                 if (targetSlot != -1) {
                     client.player.getInventory().setSelectedSlot(targetSlot);
@@ -176,8 +174,8 @@ public class XbowCart {
                 break;
 
             case CROSSBOW_FIRE:
-                if (basePos != null) {
-                    smoothLegitAim(client, basePos);
+                if (targetVec != null) {
+                    aimAtVector(client, targetVec);
                 }
                 client.options.keyUse.setDown(false);
                 client.options.keyUse.setDown(true);
@@ -193,9 +191,9 @@ public class XbowCart {
 
     private static boolean isInitialActivationValid(Minecraft client) {
         if (client.player == null || client.hitResult == null) return false;
-        boolean lookingDown = client.hitResult instanceof BlockHitResult blockHit && blockHit.getDirection() == Direction.UP;
+        boolean lookingAtBlock = client.hitResult instanceof BlockHitResult;
         boolean holdingRail = isHoldingRail(client);
-        return lookingDown && holdingRail;
+        return lookingAtBlock && holdingRail;
     }
 
     private static boolean isSequenceIntegrityValid(Minecraft client) {
@@ -211,13 +209,12 @@ public class XbowCart {
         phase = CartPhase.INACTIVE;
         delayTicks = 0;
         targetSlot = -1;
-        basePos = null;
-        firePos = null;
+        targetVec = null;
+        fireVec = null;
     }
 
-    private static void smoothLegitAim(Minecraft client, BlockPos pos) {
+    private static void aimAtVector(Minecraft client, Vec3 target) {
         if (client.player == null) return;
-        Vec3 target = Vec3.atCenterOf(pos);
         double dx = target.x - client.player.getX();
         double dy = target.y - client.player.getEyeY();
         double dz = target.z - client.player.getZ();
@@ -227,14 +224,8 @@ public class XbowCart {
         float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
         targetPitch = Mth.clamp(targetPitch, -85.0F, 85.0F);
 
-        float currentYaw = client.player.getYRot();
-        float currentPitch = client.player.getXRot();
-
-        float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
-        float pitchDiff = targetPitch - currentPitch;
-
-        client.player.setYRot(currentYaw + yawDiff * 0.82F);
-        client.player.setXRot(currentPitch + pitchDiff * 0.82F);
+        client.player.setYRot(targetYaw);
+        client.player.setXRot(targetPitch);
     }
 
     private static int findRailSlot(Minecraft client) {
@@ -263,6 +254,6 @@ public class XbowCart {
                 return i;
             }
         }
-        return findItemSlot(client, Items.CROSSBOW);
+        return -1;
     }
-}
+    }
