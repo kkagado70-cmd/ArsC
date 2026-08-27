@@ -6,6 +6,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
@@ -25,6 +26,7 @@ public class XbowCart {
     private static CartPhase phase = CartPhase.INACTIVE;
     private static int delayTicks = 0;
     private static int globalCooldownTicks = 0;
+    private static int originalSlot = -1;
     private static int targetSlot = -1;
     private static Vec3 targetVec = null;
     private static Vec3 fireVec = null;
@@ -70,6 +72,7 @@ public class XbowCart {
             case INACTIVE:
                 if (!isInitialActivationValid(client)) return;
                 hasTriggered = true;
+                originalSlot = client.player.getInventory().getSelectedSlot();
                 if (client.hitResult instanceof BlockHitResult hit) {
                     targetVec = hit.getLocation();
                     BlockPos basePos = hit.getBlockPos();
@@ -185,7 +188,10 @@ public class XbowCart {
                 }
                 client.options.keyUse.setDown(false);
                 client.options.keyUse.setDown(true);
-                globalCooldownTicks = 10;
+                if (originalSlot >= 0 && originalSlot < 9) {
+                    client.player.getInventory().setSelectedSlot(originalSlot);
+                }
+                globalCooldownTicks = 8;
                 resetSequence();
                 break;
 
@@ -197,9 +203,11 @@ public class XbowCart {
 
     private static boolean isInitialActivationValid(Minecraft client) {
         if (client.player == null || client.hitResult == null || hasTriggered) return false;
-        boolean lookingAtBlock = client.hitResult instanceof BlockHitResult;
-        boolean holdingRail = isHoldingRail(client);
-        return lookingAtBlock && holdingRail;
+        if (client.hitResult.getType() != HitResult.Type.BLOCK) return false;
+        if (!(client.hitResult instanceof BlockHitResult blockHit)) return false;
+        if (blockHit.getDirection() != Direction.UP) return false;
+        if (!isHoldingRail(client)) return false;
+        return findChargedCrossbowSlot(client) != -1;
     }
 
     private static boolean isSequenceIntegrityValid(Minecraft client) {
@@ -217,6 +225,7 @@ public class XbowCart {
         targetSlot = -1;
         targetVec = null;
         fireVec = null;
+        originalSlot = -1;
     }
 
     private static void aimAtVector(Minecraft client, Vec3 target) {
@@ -226,8 +235,8 @@ public class XbowCart {
         double dz = target.z - client.player.getZ();
         double hDist = Math.sqrt(dx * dx + dz * dz);
 
-        float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
-        float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
+        float targetYaw = (float) (Mth.atan2(dz, dx) * (180.0 / Math.PI) - 90.0D);
+        float targetPitch = (float) (-(Mth.atan2(dy, hDist) * (180.0 / Math.PI)));
         targetPitch = Mth.clamp(targetPitch, -85.0F, 85.0F);
 
         client.player.setYRot(targetYaw);
@@ -262,4 +271,4 @@ public class XbowCart {
         }
         return -1;
     }
-}
+                        }
