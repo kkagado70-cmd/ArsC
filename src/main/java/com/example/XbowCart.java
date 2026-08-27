@@ -16,15 +16,16 @@ public class XbowCart {
 
     private enum CartPhase {
         INACTIVE, 
-        RAIL_SELECT, RAIL_WAIT, RAIL_DEPLOY,
-        CART_SELECT, CART_WAIT, CART_DEPLOY,
-        FIRE_SELECT, FIRE_WAIT, FIRE_DEPLOY,
-        CROSSBOW_SELECT, CROSSBOW_WAIT, CROSSBOW_FIRE
+        RAIL_SELECT, RAIL_AIM, RAIL_CLICK,
+        CART_SELECT, CART_AIM, CART_CLICK,
+        FIRE_SELECT, FIRE_AIM, FIRE_CLICK,
+        CROSSBOW_SELECT, CROSSBOW_AIM, CROSSBOW_FIRE
     }
 
     private static CartPhase phase = CartPhase.INACTIVE;
     private static int delayTicks = 0;
     private static int globalCooldownTicks = 0;
+    private static int originalSlot = -1;
     private static int targetSlot = -1;
     private static Vec3 targetVec = null;
     private static Vec3 fireVec = null;
@@ -64,6 +65,7 @@ public class XbowCart {
         switch (phase) {
             case INACTIVE:
                 if (!isInitialActivationValid(client)) return;
+                originalSlot = client.player.getInventory().getSelectedSlot();
                 if (client.hitResult instanceof BlockHitResult hit) {
                     targetVec = hit.getLocation();
                     BlockPos basePos = hit.getBlockPos();
@@ -81,23 +83,23 @@ public class XbowCart {
                 if (targetSlot != -1) {
                     client.player.getInventory().setSelectedSlot(targetSlot);
                     delayTicks = 1;
-                    phase = CartPhase.RAIL_WAIT;
+                    phase = CartPhase.RAIL_AIM;
                 } else {
                     resetSequence();
                 }
                 break;
 
-            case RAIL_WAIT:
-                delayTicks = 1;
-                phase = CartPhase.RAIL_DEPLOY;
-                break;
-
-            case RAIL_DEPLOY:
+            case RAIL_AIM:
                 if (targetVec != null) {
                     aimAtVector(client, targetVec);
-                    client.options.keyUse.setDown(false);
-                    client.options.keyUse.setDown(true);
                 }
+                delayTicks = 1;
+                phase = CartPhase.RAIL_CLICK;
+                break;
+
+            case RAIL_CLICK:
+                client.options.keyUse.setDown(false);
+                client.options.keyUse.setDown(true);
                 delayTicks = 1;
                 phase = CartPhase.CART_SELECT;
                 break;
@@ -107,23 +109,23 @@ public class XbowCart {
                 if (targetSlot != -1) {
                     client.player.getInventory().setSelectedSlot(targetSlot);
                     delayTicks = 1;
-                    phase = CartPhase.CART_WAIT;
+                    phase = CartPhase.CART_AIM;
                 } else {
                     resetSequence();
                 }
                 break;
 
-            case CART_WAIT:
-                delayTicks = 1;
-                phase = CartPhase.CART_DEPLOY;
-                break;
-
-            case CART_DEPLOY:
+            case CART_AIM:
                 if (targetVec != null) {
                     aimAtVector(client, targetVec);
-                    client.options.keyUse.setDown(false);
-                    client.options.keyUse.setDown(true);
                 }
+                delayTicks = 1;
+                phase = CartPhase.CART_CLICK;
+                break;
+
+            case CART_CLICK:
+                client.options.keyUse.setDown(false);
+                client.options.keyUse.setDown(true);
                 delayTicks = 1;
                 phase = CartPhase.FIRE_SELECT;
                 break;
@@ -136,23 +138,23 @@ public class XbowCart {
                 if (targetSlot != -1) {
                     client.player.getInventory().setSelectedSlot(targetSlot);
                     delayTicks = 1;
-                    phase = CartPhase.FIRE_WAIT;
+                    phase = CartPhase.FIRE_AIM;
                 } else {
                     resetSequence();
                 }
                 break;
 
-            case FIRE_WAIT:
-                delayTicks = 1;
-                phase = CartPhase.FIRE_DEPLOY;
-                break;
-
-            case FIRE_DEPLOY:
+            case FIRE_AIM:
                 if (fireVec != null) {
                     aimAtVector(client, fireVec);
-                    client.options.keyUse.setDown(false);
-                    client.options.keyUse.setDown(true);
                 }
+                delayTicks = 1;
+                phase = CartPhase.FIRE_CLICK;
+                break;
+
+            case FIRE_CLICK:
+                client.options.keyUse.setDown(false);
+                client.options.keyUse.setDown(true);
                 delayTicks = 1;
                 phase = CartPhase.CROSSBOW_SELECT;
                 break;
@@ -162,21 +164,21 @@ public class XbowCart {
                 if (targetSlot != -1) {
                     client.player.getInventory().setSelectedSlot(targetSlot);
                     delayTicks = 1;
-                    phase = CartPhase.CROSSBOW_WAIT;
+                    phase = CartPhase.CROSSBOW_AIM;
                 } else {
                     resetSequence();
                 }
                 break;
 
-            case CROSSBOW_WAIT:
+            case CROSSBOW_AIM:
+                if (targetVec != null) {
+                    aimAtVector(client, targetVec);
+                }
                 delayTicks = 1;
                 phase = CartPhase.CROSSBOW_FIRE;
                 break;
 
             case CROSSBOW_FIRE:
-                if (targetVec != null) {
-                    aimAtVector(client, targetVec);
-                }
                 client.options.keyUse.setDown(false);
                 client.options.keyUse.setDown(true);
                 globalCooldownTicks = 4;
@@ -211,6 +213,10 @@ public class XbowCart {
         targetSlot = -1;
         targetVec = null;
         fireVec = null;
+        if (originalSlot >= 0 && originalSlot < 9 && Minecraft.getInstance().player != null) {
+            Minecraft.getInstance().player.getInventory().setSelectedSlot(originalSlot);
+        }
+        originalSlot = -1;
     }
 
     private static void aimAtVector(Minecraft client, Vec3 target) {
@@ -256,4 +262,4 @@ public class XbowCart {
         }
         return -1;
     }
-    }
+}
