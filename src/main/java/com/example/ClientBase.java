@@ -93,16 +93,16 @@ public class ClientBase implements ClientModInitializer {
         }
     }
 
-    public static class RotationUtils {
-        public static void aimAt(Minecraft client, Vec3 target) {
+    public static class RotationManager {
+        public static void snapTo(Minecraft client, Vec3 target) {
             if (client.player == null) return;
             double dx = target.x - client.player.getX();
             double dy = target.y - client.player.getEyeY();
             double dz = target.z - client.player.getZ();
             double hDist = Math.sqrt(dx * dx + dz * dz);
 
-            float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
-            float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, hDist)));
+            float targetYaw = (float) (Mth.atan2(dz, dx) * (180.0 / Math.PI) - 90.0D);
+            float targetPitch = (float) (-(Mth.atan2(dy, hDist) * (180.0 / Math.PI)));
             targetPitch = Mth.clamp(targetPitch, -85.0F, 85.0F);
 
             client.player.setYRot(targetYaw);
@@ -110,7 +110,12 @@ public class ClientBase implements ClientModInitializer {
         }
     }
 
-    public static class InvUtils {
+    public static class InventoryManager {
+        public static void selectSlot(Minecraft client, int slot) {
+            if (client.player == null || slot < 0 || slot > 8) return;
+            client.player.getInventory().setSelectedSlot(slot);
+        }
+
         public static int findItem(Minecraft client, Item targetItem) {
             if (client.player == null) return -1;
             for (int i = 0; i < 9; i++) {
@@ -140,33 +145,34 @@ public class ClientBase implements ClientModInitializer {
                     return i;
                 }
             }
-            return findItem(client, Items.CROSSBOW);
-        }
-
-        public static void selectSlot(Minecraft client, int slot) {
-            if (client.player == null || slot < 0 || slot > 8) return;
-            client.player.getInventory().setSelectedSlot(slot);
+            return -1;
         }
     }
 
-    public static class RaycastUtils {
-        public static BlockHitResult raycastBlock(Minecraft client, double range) {
-            if (client.hitResult instanceof BlockHitResult blockHit) {
-                if (client.player != null && client.player.distanceToSqr(blockHit.getLocation()) <= range * range) {
-                    return blockHit;
-                }
-            }
-            return null;
+    public static class SafetyWatchdog {
+        private long watchdogStart = 0L;
+        private final long timeoutMs = 1500L;
+
+        public void arm() {
+            watchdogStart = System.currentTimeMillis();
+        }
+
+        public boolean isTimedOut() {
+            return watchdogStart > 0 && (System.currentTimeMillis() - watchdogStart > timeoutMs);
+        }
+
+        public void disarm() {
+            watchdogStart = 0L;
         }
     }
 
     public static class XbowCartModule extends Module {
         private enum CartPhase {
             INACTIVE, 
-            RAIL_SELECT, RAIL_WAIT, RAIL_DEPLOY,
-            CART_SELECT, CART_WAIT, CART_DEPLOY,
-            FIRE_SELECT, FIRE_WAIT, FIRE_DEPLOY,
-            CROSSBOW_SELECT, CROSSBOW_WAIT, CROSSBOW_FIRE
+            RAIL_SELECT, RAIL_DEPLOY,
+            CART_SELECT, CART_DEPLOY,
+            FIRE_SELECT, FIRE_DEPLOY,
+            CROSSBOW_SELECT, CROSSBOW_FIRE
         }
 
         private CartPhase phase = CartPhase.INACTIVE;
@@ -175,6 +181,7 @@ public class ClientBase implements ClientModInitializer {
         private int targetSlot = -1;
         private Vec3 targetVec = null;
         private Vec3 fireVec = null;
+        private final SafetyWatchdog watchdog = new SafetyWatchdog();
 
         public XbowCartModule() {
             super("XbowCart");
@@ -196,6 +203,11 @@ public class ClientBase implements ClientModInitializer {
                 return;
             }
 
+            if (watchdog.isTimedOut()) {
+                resetSequence();
+                return;
+            }
+
             if (delayTicks > 0) {
                 delayTicks--;
                 return;
@@ -209,8 +221,7 @@ public class ClientBase implements ClientModInitializer {
             switch (phase) {
                 case INACTIVE:
                     if (!isInitialActivationValid(client)) return;
-                    BlockHitResult hit = RaycastUtils.raycastBlock(client, 6.0D);
-                    if (hit != null) {
+                    if (client.hitResult instanceof BlockHitResult hit) {
                         targetVec = hit.getLocation();
                         BlockPos basePos = hit.getBlockPos();
                         Direction facing = client.player.getDirection();
@@ -219,28 +230,24 @@ public class ClientBase implements ClientModInitializer {
                     } else {
                         return;
                     }
+                    watchdog.arm();
                     phase = CartPhase.RAIL_SELECT;
                     break;
 
                 case RAIL_SELECT:
-                    targetSlot = InvUtils.findRail(client);
+                    targetSlot = InventoryManager.findRail(client);
                     if (targetSlot != -1) {
-                        InvUtils.selectSlot(client, targetSlot);
+                        InventoryManager.selectSlot(client, targetSlot);
                         delayTicks = 1;
-                        phase = CartPhase.RAIL_WAIT;
+                        phase = CartPhase.RAIL_DEPLOY;
                     } else {
                         resetSequence();
                     }
                     break;
 
-                case RAIL_WAIT:
-                    delayTicks = 1;
-                    phase = CartPhase.RAIL_DEPLOY;
-                    break;
-
                 case RAIL_DEPLOY:
                     if (targetVec != null) {
-                        RotationUtils.aimAt(client, targetVec);
+                        RotationManager.snapTo(client, targetVec);
                         client.options.keyUse.setDown(false);
                         client.options.keyUse.setDown(true);
                     }
@@ -249,24 +256,19 @@ public class ClientBase implements ClientModInitializer {
                     break;
 
                 case CART_SELECT:
-                    targetSlot = InvUtils.findItem(client, Items.TNT_MINECART);
+                    targetSlot = InventoryManager.findItem(client, Items.TNT_MINECART);
                     if (targetSlot != -1) {
-                        InvUtils.selectSlot(client, targetSlot);
+                        InventoryManager.selectSlot(client, targetSlot);
                         delayTicks = 1;
-                        phase = CartPhase.CART_WAIT;
+                        phase = CartPhase.CART_DEPLOY;
                     } else {
                         resetSequence();
                     }
                     break;
 
-                case CART_WAIT:
-                    delayTicks = 1;
-                    phase = CartPhase.CART_DEPLOY;
-                    break;
-
                 case CART_DEPLOY:
                     if (targetVec != null) {
-                        RotationUtils.aimAt(client, targetVec);
+                        RotationManager.snapTo(client, targetVec);
                         client.options.keyUse.setDown(false);
                         client.options.keyUse.setDown(true);
                     }
@@ -275,27 +277,22 @@ public class ClientBase implements ClientModInitializer {
                     break;
 
                 case FIRE_SELECT:
-                    targetSlot = InvUtils.findItem(client, Items.FLINT_AND_STEEL);
+                    targetSlot = InventoryManager.findItem(client, Items.FLINT_AND_STEEL);
                     if (targetSlot == -1) {
-                        targetSlot = InvUtils.findItem(client, Items.FIRE_CHARGE);
+                        targetSlot = InventoryManager.findItem(client, Items.FIRE_CHARGE);
                     }
                     if (targetSlot != -1) {
-                        InvUtils.selectSlot(client, targetSlot);
+                        InventoryManager.selectSlot(client, targetSlot);
                         delayTicks = 1;
-                        phase = CartPhase.FIRE_WAIT;
+                        phase = CartPhase.FIRE_DEPLOY;
                     } else {
                         resetSequence();
                     }
                     break;
 
-                case FIRE_WAIT:
-                    delayTicks = 1;
-                    phase = CartPhase.FIRE_DEPLOY;
-                    break;
-
                 case FIRE_DEPLOY:
                     if (fireVec != null) {
-                        RotationUtils.aimAt(client, fireVec);
+                        RotationManager.snapTo(client, fireVec);
                         client.options.keyUse.setDown(false);
                         client.options.keyUse.setDown(true);
                     }
@@ -304,24 +301,19 @@ public class ClientBase implements ClientModInitializer {
                     break;
 
                 case CROSSBOW_SELECT:
-                    targetSlot = InvUtils.findChargedCrossbow(client);
+                    targetSlot = InventoryManager.findChargedCrossbow(client);
                     if (targetSlot != -1) {
-                        InvUtils.selectSlot(client, targetSlot);
+                        InventoryManager.selectSlot(client, targetSlot);
                         delayTicks = 1;
-                        phase = CartPhase.CROSSBOW_WAIT;
+                        phase = CartPhase.CROSSBOW_FIRE;
                     } else {
                         resetSequence();
                     }
                     break;
 
-                case CROSSBOW_WAIT:
-                    delayTicks = 1;
-                    phase = CartPhase.CROSSBOW_FIRE;
-                    break;
-
                 case CROSSBOW_FIRE:
                     if (targetVec != null) {
-                        RotationUtils.aimAt(client, targetVec);
+                        RotationManager.snapTo(client, targetVec);
                     }
                     client.options.keyUse.setDown(false);
                     client.options.keyUse.setDown(true);
@@ -337,9 +329,11 @@ public class ClientBase implements ClientModInitializer {
 
         private boolean isInitialActivationValid(Minecraft client) {
             if (client.player == null || client.hitResult == null) return false;
-            boolean lookingAtBlock = client.hitResult instanceof BlockHitResult;
-            boolean holdingRail = isHoldingRail(client);
-            return lookingAtBlock && holdingRail;
+            if (client.hitResult.getType() != HitResult.Type.BLOCK) return false;
+            if (!(client.hitResult instanceof BlockHitResult blockHit)) return false;
+            if (blockHit.getDirection() != Direction.UP) return false;
+            if (!isHoldingRail(client)) return false;
+            return InventoryManager.findChargedCrossbow(client) != -1;
         }
 
         private boolean isSequenceIntegrityValid(Minecraft client) {
@@ -357,6 +351,7 @@ public class ClientBase implements ClientModInitializer {
             targetSlot = -1;
             targetVec = null;
             fireVec = null;
+            watchdog.disarm();
         }
     }
-                        }
+        }
