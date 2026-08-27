@@ -5,6 +5,8 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.CrossbowItem;
@@ -18,79 +20,80 @@ import net.minecraft.util.Mth;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
-public class XbowCart implements ClientModInitializer {
-    private static ClientBaseInfrastructure infrastructure;
+import java.util.ArrayList;
+import java.util.List;
+
+public class ClientBase implements ClientModInitializer {
+    private static ClientBase INSTANCE;
+    private ModuleManager moduleManager;
 
     @Override
     public void onInitializeClient() {
-        infrastructure = new ClientBaseInfrastructure();
-        infrastructure.init();
+        INSTANCE = this;
+        moduleManager = new ModuleManager();
+
+        moduleManager.register(new XbowCartModule());
+
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (client.player == null || client.level == null) return;
+            moduleManager.tick(client);
+        });
     }
 
-    public static boolean enabled = false;
-    public static void toggle() {
-        enabled = !enabled;
-        if (!enabled) {
-            XbowEngine.resetSequence();
+    public static ClientBase getInstance() {
+        return INSTANCE;
+    }
+
+    public ModuleManager getModuleManager() {
+        return moduleManager;
+    }
+
+    public abstract static class Module {
+        protected final String name;
+        protected boolean enabled;
+
+        public Module(String name) {
+            this.name = name;
+            this.enabled = false;
         }
+
+        public String getName() {
+            return name;
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void toggle() {
+            enabled = !enabled;
+        }
+
+        public abstract void tick(Minecraft client);
     }
 
-    public static void onTick(Minecraft client) {
-        if (!enabled) return;
-        XbowEngine.tick(client);
-    }
+    public static class ModuleManager {
+        private final List<Module> modules = new ArrayList<>();
 
-    public static class ClientBaseInfrastructure {
-        private static KeyMapping toggleKey;
+        public void register(Module module) {
+            modules.add(module);
+        }
 
-        public void init() {
-            toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                    "key.xbowcart.toggle",
-                    InputConstants.Type.KEYSYM,
-                    GLFW.GLFW_KEY_X,
-                    KeyMapping.Category.MISC
-            ));
+        public List<Module> getModules() {
+            return modules;
+        }
 
-            ClientTickEvents.END_CLIENT_TICK.register(client -> {
-                if (client.player == null || client.level == null) return;
-                while (toggleKey.consumeClick()) {
-                    toggle();
+        public void tick(Minecraft client) {
+            for (Module m : modules) {
+                if (m.isEnabled()) {
+                    m.tick(client);
                 }
-                if (enabled) {
-                    onTick(client);
-                }
-            });
+            }
         }
     }
 
     public static class RotationManager {
-        public static Vec3 getRailTarget(BlockPos pos, Direction face) {
-            if (face == Direction.UP) {
-                return Vec3.atCenterOf(pos);
-            }
-            return Vec3.atCenterOf(pos.relative(face));
-        }
-
-        public static Vec3 getCartTarget(BlockPos pos, Direction face) {
-            if (face == Direction.UP) {
-                return Vec3.atCenterOf(pos);
-            }
-            return Vec3.atCenterOf(pos.relative(face));
-        }
-
-        public static Vec3 getFireTarget(Minecraft client, BlockPos pos, Direction face) {
-            if (face == Direction.UP) {
-                return Vec3.atCenterOf(pos.relative(client.player.getDirection().getOpposite()));
-            }
-            return Vec3.atCenterOf(pos);
-        }
-
-        public static Vec3 getShootTarget(BlockPos pos, Direction face) {
-            BlockPos target = face == Direction.UP ? pos : pos.relative(face);
-            return Vec3.atCenterOf(target).add(0.0D, 0.2D, 0.0D);
-        }
-
-        public static void smoothTo(Minecraft client, Vec3 target) {
+        public static void smoothTo(Minecraft client, Vec3 target, float factor) {
             if (client.player == null) return;
             double dx = target.x - client.player.getX();
             double dy = target.y - client.player.getEyeY();
@@ -107,8 +110,8 @@ public class XbowCart implements ClientModInitializer {
             float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
             float pitchDiff = targetPitch - currentPitch;
 
-            client.player.setYRot(currentYaw + yawDiff * 0.85F);
-            client.player.setXRot(currentPitch + pitchDiff * 0.85F);
+            client.player.setYRot(currentYaw + yawDiff * factor);
+            client.player.setXRot(currentPitch + pitchDiff * factor);
         }
     }
 
@@ -122,17 +125,6 @@ public class XbowCart implements ClientModInitializer {
             if (client.player == null) return -1;
             for (int i = 0; i < 9; i++) {
                 if (client.player.getInventory().getItem(i).getItem() == targetItem) {
-                    return i;
-                }
-            }
-            return -1;
-        }
-
-        public static int findRail(Minecraft client) {
-            if (client.player == null) return -1;
-            for (int i = 0; i < 9; i++) {
-                Item item = client.player.getInventory().getItem(i).getItem();
-                if (XbowCart.isAnyRail(item)) {
                     return i;
                 }
             }
@@ -183,6 +175,25 @@ public class XbowCart implements ClientModInitializer {
         }
     }
 
+    public static class TargetUtils {
+        public static LivingEntity nearest(Minecraft client, double range) {
+            if (client.player == null || client.level == null) return null;
+            LivingEntity closest = null;
+            double minDistSq = range * range;
+
+            for (Entity entity : client.level.entitiesForRendering()) {
+                if (entity instanceof LivingEntity living && living != client.player && living.isAlive() && !living.isSpectator()) {
+                    double distSq = client.player.distanceToSqr(living);
+                    if (distSq <= minDistSq) {
+                        minDistSq = distSq;
+                        closest = living;
+                    }
+                }
+            }
+            return closest;
+        }
+    }
+
     public static class SafetyWatchdog {
         private long startEpoch = 0L;
         private final long timeoutMs = 1500L;
@@ -200,7 +211,7 @@ public class XbowCart implements ClientModInitializer {
         }
     }
 
-    public static class XbowEngine {
+    public static class XbowCartModule extends Module {
         private enum Phase {
             INACTIVE, 
             RAIL_SELECT, RAIL_DEPLOY,
@@ -209,12 +220,17 @@ public class XbowCart implements ClientModInitializer {
             CROSSBOW_SELECT, CROSSBOW_FIRE
         }
 
-        private static Phase phase = Phase.INACTIVE;
-        private static int delayTicks = 0;
-        private static int globalCooldown = 0;
-        private static BlockPos targetBlockPos = null;
-        private static Direction targetFace = Direction.UP;
-        private static final SafetyWatchdog watchdog = new SafetyWatchdog();
+        private Phase phase = Phase.INACTIVE;
+        private int delayTicks = 0;
+        private int globalCooldown = 0;
+        private BlockPos targetBlockPos = null;
+        private Direction targetFace = Direction.UP;
+        private final SafetyWatchdog watchdog = new SafetyWatchdog();
+
+        public XbowCartModule() {
+            super("XbowCart");
+            this.enabled = true;
+        }
 
         public static boolean isAnyRail(Item item) {
             return item == Items.RAIL || 
@@ -223,7 +239,8 @@ public class XbowCart implements ClientModInitializer {
                    item == Items.ACTIVATOR_RAIL;
         }
 
-        public static void tick(Minecraft client) {
+        @Override
+        public void tick(Minecraft client) {
             InteractionManager.update(client);
 
             if (client.player == null || client.level == null) return;
@@ -263,7 +280,7 @@ public class XbowCart implements ClientModInitializer {
                     break;
 
                 case RAIL_SELECT:
-                    int railSlot = InventoryManager.findRail(client);
+                    int railSlot = findRail(client);
                     if (railSlot != -1) {
                         InventoryManager.selectSlot(client, railSlot);
                         delayTicks = 1;
@@ -275,7 +292,7 @@ public class XbowCart implements ClientModInitializer {
 
                 case RAIL_DEPLOY:
                     if (targetBlockPos != null) {
-                        RotationManager.smoothTo(client, RotationManager.getRailTarget(targetBlockPos, targetFace));
+                        RotationManager.smoothTo(client, Vec3.atCenterOf(targetBlockPos), 0.85F);
                         InteractionManager.clickUse(client);
                     }
                     delayTicks = 1;
@@ -295,7 +312,8 @@ public class XbowCart implements ClientModInitializer {
 
                 case CART_DEPLOY:
                     if (targetBlockPos != null) {
-                        RotationManager.smoothTo(client, RotationManager.getCartTarget(targetBlockPos, targetFace));
+                        BlockPos cartTarget = targetFace == Direction.UP ? targetBlockPos : targetBlockPos.relative(targetFace);
+                        RotationManager.smoothTo(client, Vec3.atCenterOf(cartTarget), 0.85F);
                         InteractionManager.clickUse(client);
                     }
                     delayTicks = 1;
@@ -318,7 +336,8 @@ public class XbowCart implements ClientModInitializer {
 
                 case FIRE_DEPLOY:
                     if (targetBlockPos != null) {
-                        RotationManager.smoothTo(client, RotationManager.getFireTarget(client, targetBlockPos, targetFace));
+                        BlockPos fireTarget = targetFace == Direction.UP ? targetBlockPos.relative(client.player.getDirection().getOpposite()) : targetBlockPos;
+                        RotationManager.smoothTo(client, Vec3.atCenterOf(fireTarget), 0.85F);
                         InteractionManager.clickUse(client);
                     }
                     delayTicks = 1;
@@ -338,7 +357,8 @@ public class XbowCart implements ClientModInitializer {
 
                 case CROSSBOW_FIRE:
                     if (targetBlockPos != null) {
-                        RotationManager.smoothTo(client, RotationManager.getShootTarget(targetBlockPos, targetFace));
+                        BlockPos shootTarget = targetFace == Direction.UP ? targetBlockPos : targetBlockPos.relative(targetFace);
+                        RotationManager.smoothTo(client, Vec3.atCenterOf(shootTarget).add(0.0D, 0.2D, 0.0D), 0.85F);
                     }
                     InteractionManager.clickUse(client);
                     globalCooldown = 4;
@@ -351,12 +371,22 @@ public class XbowCart implements ClientModInitializer {
             }
         }
 
-        private static boolean isHoldingRail(Minecraft client) {
+        private boolean isHoldingRail(Minecraft client) {
             if (client.player == null) return false;
-            return XbowCart.isAnyRail(client.player.getMainHandItem().getItem());
+            return isAnyRail(client.player.getMainHandItem().getItem());
         }
 
-        public static void resetSequence() {
+        private int findRail(Minecraft client) {
+            for (int i = 0; i < 9; i++) {
+                Item item = client.player.getInventory().getItem(i).getItem();
+                if (isAnyRail(item)) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        public void resetSequence() {
             phase = Phase.INACTIVE;
             delayTicks = 0;
             targetBlockPos = null;
@@ -364,4 +394,4 @@ public class XbowCart implements ClientModInitializer {
             watchdog.disarm();
         }
     }
-            }
+                            }
