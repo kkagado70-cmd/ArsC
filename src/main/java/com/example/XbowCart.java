@@ -16,17 +16,17 @@ public class XbowCart {
 
     private enum CartPhase {
         INACTIVE, 
-        RAIL_SELECT, RAIL_DEPLOY,
-        CART_SELECT, CART_DEPLOY,
-        FIRE_SELECT, FIRE_DEPLOY,
-        CROSSBOW_SELECT, CROSSBOW_FIRE
+        RAIL, 
+        CART, 
+        FIRE, 
+        SHOOT
     }
 
     private static CartPhase phase = CartPhase.INACTIVE;
     private static int delayTicks = 0;
     private static int globalCooldown = 0;
-    private static BlockPos targetBlockPos = null;
-    private static Direction targetFace = Direction.UP;
+    private static Vec3 targetHitVec = null;
+    private static Vec3 fireVec = null;
     private static int mouseButtonReleaseTracker = 0;
     private static final ClientBase.SafetyWatchdog watchdog = new ClientBase.SafetyWatchdog();
 
@@ -42,59 +42,6 @@ public class XbowCart {
                item == Items.POWERED_RAIL || 
                item == Items.DETECTOR_RAIL || 
                item == Items.ACTIVATOR_RAIL;
-    }
-
-    private static int findRail(Minecraft client) {
-        if (client.player == null) return -1;
-        for (int i = 0; i < 9; i++) {
-            Item item = client.player.getInventory().getItem(i).getItem();
-            if (isAnyRail(item)) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private static void snapTo(Minecraft client, Vec3 target) {
-        if (client.player == null) return;
-        double dx = target.x - client.player.getX();
-        double dy = target.y - client.player.getEyeY();
-        double dz = target.z - client.player.getZ();
-        double hDist = Math.sqrt(dx * dx + dz * dz);
-
-        float targetYaw = (float) (Mth.atan2(dz, dx) * (180.0 / Math.PI) - 90.0D);
-        float targetPitch = (float) (-(Mth.atan2(dy, hDist) * (180.0 / Math.PI)));
-        targetPitch = Mth.clamp(targetPitch, -85.0F, 85.0F);
-
-        client.player.setYRot(targetYaw);
-        client.player.setXRot(targetPitch);
-    }
-
-    private static BlockPos getPlacementPos(BlockPos pos, Direction face) {
-        if (face == Direction.UP) {
-            return pos;
-        }
-        return pos.above();
-    }
-
-    private static BlockPos getFirePosition(Minecraft client, BlockPos pos, Direction face) {
-        if (face == Direction.UP) {
-            return pos.relative(client.player.getDirection().getOpposite());
-        }
-        return pos;
-    }
-
-    private static Vec3 getTargetVec(BlockPos pos, Direction face, double yOffset) {
-        BlockPos p = getPlacementPos(pos, face);
-        return Vec3.atCenterOf(p).add(0.0D, yOffset, 0.0D);
-    }
-
-    private static Vec3 getFireVec(Minecraft client, BlockPos pos, Direction face) {
-        BlockPos f = getFirePosition(client, pos, face);
-        if (face == Direction.UP) {
-            return Vec3.atCenterOf(f);
-        }
-        return Vec3.atCenterOf(f).add(0.0D, 0.5D, 0.0D);
     }
 
     public static void onTick(Minecraft client) {
@@ -134,98 +81,74 @@ public class XbowCart {
                     return;
                 }
 
-                targetBlockPos = hit.getBlockPos();
-                targetFace = hit.getDirection();
+                targetHitVec = hit.getLocation();
+                BlockPos basePos = hit.getBlockPos();
+                Direction face = hit.getDirection();
+
+                if (face == Direction.UP) {
+                    fireVec = Vec3.atCenterOf(basePos.relative(client.player.getDirection().getOpposite()));
+                } else {
+                    fireVec = Vec3.atCenterOf(basePos.relative(face));
+                }
 
                 watchdog.arm();
-                phase = CartPhase.RAIL_SELECT;
+                phase = CartPhase.RAIL;
                 break;
 
-            case RAIL_SELECT:
+            case RAIL:
                 int railSlot = findRail(client);
-                if (railSlot != -1) {
-                    ClientBase.InventoryManager.selectSlot(client, railSlot);
+                if (railSlot != -1 && targetHitVec != null) {
+                    client.player.getInventory().setSelectedSlot(railSlot);
+                    snapTo(client, targetHitVec);
+                    mouseButtonReleaseTracker = 2;
+                    client.options.keyUse.setDown(true);
                     delayTicks = 1;
-                    phase = CartPhase.RAIL_DEPLOY;
+                    phase = CartPhase.CART;
                 } else {
                     resetSequence();
                 }
                 break;
 
-            case RAIL_DEPLOY:
-                if (targetBlockPos != null) {
-                    snapTo(client, getTargetVec(targetBlockPos, targetFace, 0.0D));
-                    mouseButtonReleaseTracker = 2;
-                    client.options.keyUse.setDown(true);
-                }
-                delayTicks = 2;
-                phase = CartPhase.CART_SELECT;
-                break;
-
-            case CART_SELECT:
+            case CART:
                 int cartSlot = ClientBase.InventoryManager.findItem(client, Items.TNT_MINECART);
-                if (cartSlot != -1) {
-                    ClientBase.InventoryManager.selectSlot(client, cartSlot);
+                if (cartSlot != -1 && targetHitVec != null) {
+                    client.player.getInventory().setSelectedSlot(cartSlot);
+                    snapTo(client, targetHitVec);
+                    mouseButtonReleaseTracker = 2;
+                    client.options.keyUse.setDown(true);
                     delayTicks = 1;
-                    phase = CartPhase.CART_DEPLOY;
+                    phase = CartPhase.FIRE;
                 } else {
                     resetSequence();
                 }
                 break;
 
-            case CART_DEPLOY:
-                if (targetBlockPos != null) {
-                    BlockPos cartTarget = targetFace == Direction.UP ? targetBlockPos : targetBlockPos.relative(targetFace);
-                    snapTo(client, Vec3.atCenterOf(cartTarget));
-                    mouseButtonReleaseTracker = 2;
-                    client.options.keyUse.setDown(true);
-                }
-                delayTicks = 2;
-                phase = CartPhase.FIRE_SELECT;
-                break;
-
-            case FIRE_SELECT:
+            case FIRE:
                 int fireSlot = ClientBase.InventoryManager.findItem(client, Items.FLINT_AND_STEEL);
                 if (fireSlot == -1) {
                     fireSlot = ClientBase.InventoryManager.findItem(client, Items.FIRE_CHARGE);
                 }
-                if (fireSlot != -1) {
-                    ClientBase.InventoryManager.selectSlot(client, fireSlot);
+                if (fireSlot != -1 && fireVec != null) {
+                    client.player.getInventory().setSelectedSlot(fireSlot);
+                    snapTo(client, fireVec);
+                    mouseButtonReleaseTracker = 2;
+                    client.options.keyUse.setDown(true);
                     delayTicks = 1;
-                    phase = CartPhase.FIRE_DEPLOY;
+                    phase = CartPhase.SHOOT;
                 } else {
                     resetSequence();
                 }
                 break;
 
-            case FIRE_DEPLOY:
-                if (targetBlockPos != null) {
-                    snapTo(client, getFireVec(client, targetBlockPos, targetFace));
+            case SHOOT:
+                int crossbowSlot = ClientBase.InventoryManager.findChargedCrossbow(client);
+                if (crossbowSlot != -1 && targetHitVec != null) {
+                    client.player.getInventory().setSelectedSlot(crossbowSlot);
+                    snapTo(client, targetHitVec.add(0.0D, 0.25D, 0.0D));
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2;
-                phase = CartPhase.CROSSBOW_SELECT;
-                break;
-
-            case CROSSBOW_SELECT:
-                int crossbowSlot = ClientBase.InventoryManager.findChargedCrossbow(client);
-                if (crossbowSlot != -1) {
-                    ClientBase.InventoryManager.selectSlot(client, crossbowSlot);
-                    delayTicks = 1;
-                    phase = CartPhase.CROSSBOW_FIRE;
-                } else {
-                    resetSequence();
-                }
-                break;
-
-            case CROSSBOW_FIRE:
-                if (targetBlockPos != null) {
-                    snapTo(client, getTargetVec(targetBlockPos, targetFace, 0.35D));
-                }
-                mouseButtonReleaseTracker = 2;
-                client.options.keyUse.setDown(true);
-                globalCooldown = 4;
+                globalCooldown = 2;
                 resetSequence();
                 break;
 
@@ -235,16 +158,42 @@ public class XbowCart {
         }
     }
 
+    private static int findRail(Minecraft client) {
+        if (client.player == null) return -1;
+        for (int i = 0; i < 9; i++) {
+            Item item = client.player.getInventory().getItem(i).getItem();
+            if (isAnyRail(item)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     private static boolean isHoldingRail(Minecraft client) {
         if (client.player == null) return false;
         return isAnyRail(client.player.getMainHandItem().getItem());
     }
 
+    private static void snapTo(Minecraft client, Vec3 target) {
+        if (client.player == null) return;
+        double dx = target.x - client.player.getX();
+        double dy = target.y - client.player.getEyeY();
+        double dz = target.z - client.player.getZ();
+        double hDist = Math.sqrt(dx * dx + dz * dz);
+
+        float targetYaw = (float) (Mth.atan2(dz, dx) * (180.0 / Math.PI) - 90.0D);
+        float targetPitch = (float) (-(Mth.atan2(dy, hDist) * (180.0 / Math.PI)));
+        targetPitch = Mth.clamp(targetPitch, -85.0F, 85.0F);
+
+        client.player.setYRot(targetYaw);
+        client.player.setXRot(targetPitch);
+    }
+
     public static void resetSequence() {
         phase = CartPhase.INACTIVE;
         delayTicks = 0;
-        targetBlockPos = null;
-        targetFace = Direction.UP;
+        targetHitVec = null;
+        fireVec = null;
         mouseButtonReleaseTracker = 0;
         watchdog.disarm();
     }
