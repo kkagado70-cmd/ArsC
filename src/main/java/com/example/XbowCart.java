@@ -19,7 +19,7 @@ public class XbowCart {
         RAIL_SELECT, RAIL_DEPLOY,
         CART_SELECT, CART_DEPLOY,
         FIRE_SELECT, FIRE_DEPLOY,
-        CROSSBOW_SELECT, CROSSBOW_FIRE
+        CROSSBOW_SELECT, CROSSBOW_DEPLOY
     }
 
     private static CartPhase phase = CartPhase.INACTIVE;
@@ -115,11 +115,9 @@ public class XbowCart {
 
             case RAIL_DEPLOY:
                 if (targetBlockPos != null) {
-                    BlockPos railTarget = getRailPos(targetBlockPos, targetFace);
-                    snapToTarget(client, Vec3.atCenterOf(railTarget));
-                    client.options.keyUse.setDown(false);
-                    client.options.keyUse.setDown(true);
+                    smoothStreamAim(client, Vec3.atCenterOf(getRailPos(targetBlockPos, targetFace)));
                     mouseButtonReleaseTracker = 2;
+                    client.options.keyUse.setDown(true);
                 }
                 delayTicks = 1;
                 phase = CartPhase.CART_SELECT;
@@ -139,10 +137,9 @@ public class XbowCart {
             case CART_DEPLOY:
                 if (targetBlockPos != null) {
                     BlockPos cartTarget = getRailPos(targetBlockPos, targetFace);
-                    snapToTarget(client, Vec3.atCenterOf(cartTarget));
-                    client.options.keyUse.setDown(false);
-                    client.options.keyUse.setDown(true);
+                    smoothStreamAim(client, Vec3.atCenterOf(cartTarget));
                     mouseButtonReleaseTracker = 2;
+                    client.options.keyUse.setDown(true);
                 }
                 delayTicks = 1;
                 phase = CartPhase.FIRE_SELECT;
@@ -164,11 +161,9 @@ public class XbowCart {
 
             case FIRE_DEPLOY:
                 if (targetBlockPos != null) {
-                    BlockPos fireTarget = getFirePos(client, targetBlockPos, targetFace);
-                    snapToTarget(client, Vec3.atCenterOf(fireTarget));
-                    client.options.keyUse.setDown(false);
-                    client.options.keyUse.setDown(true);
+                    smoothStreamAim(client, Vec3.atCenterOf(getFirePos(client, targetBlockPos, targetFace)));
                     mouseButtonReleaseTracker = 2;
+                    client.options.keyUse.setDown(true);
                 }
                 delayTicks = 1;
                 phase = CartPhase.CROSSBOW_SELECT;
@@ -188,8 +183,7 @@ public class XbowCart {
             case CROSSBOW_DEPLOY:
                 if (targetBlockPos != null) {
                     BlockPos shootTarget = getRailPos(targetBlockPos, targetFace);
-                    snapToTarget(client, Vec3.atCenterOf(shootTarget).add(0.0D, 0.25D, 0.0D));
-                    client.options.keyUse.setDown(false);
+                    smoothStreamAim(client, Vec3.atCenterOf(shootTarget).add(0.0D, 0.25D, 0.0D));
                     client.options.keyUse.setDown(true);
                     mouseButtonReleaseTracker = 1;
                 }
@@ -219,7 +213,7 @@ public class XbowCart {
         return isAnyRail(client.player.getMainHandItem().getItem());
     }
 
-    private static void snapToTarget(Minecraft client, Vec3 target) {
+    private static void smoothStreamAim(Minecraft client, Vec3 target) {
         if (client.player == null) return;
         double dx = target.x - client.player.getX();
         double dy = target.y - client.player.getEyeY();
@@ -230,8 +224,14 @@ public class XbowCart {
         float targetPitch = (float) (-(Mth.atan2(dy, hDist) * (180.0 / Math.PI)));
         targetPitch = Mth.clamp(targetPitch, -85.0F, 85.0F);
 
-        client.player.setYRot(targetYaw);
-        client.player.setXRot(targetPitch);
+        float currentYaw = client.player.getYRot();
+        float currentPitch = client.player.getXRot();
+
+        float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
+        float pitchDiff = targetPitch - currentPitch;
+
+        client.player.setYRot(currentYaw + yawDiff * 0.90F);
+        client.player.setXRot(currentPitch + pitchDiff * 0.90F);
     }
 
     public static void resetSequence() {
@@ -242,4 +242,4 @@ public class XbowCart {
         mouseButtonReleaseTracker = 0;
         watchdog.disarm();
     }
-        }
+}
