@@ -27,7 +27,6 @@ public class XbowCart {
     private static int globalCooldown = 0;
     private static BlockPos targetBlockPos = null;
     private static Direction targetFace = Direction.UP;
-    private static int mouseButtonReleaseTracker = 0;
     private static final ClientBase.SafetyWatchdog watchdog = new ClientBase.SafetyWatchdog();
 
     public static void toggle() {
@@ -59,13 +58,6 @@ public class XbowCart {
     }
 
     public static void onTick(Minecraft client) {
-        if (mouseButtonReleaseTracker > 0) {
-            mouseButtonReleaseTracker--;
-            if (mouseButtonReleaseTracker == 0 && client.options != null) {
-                client.options.keyUse.setDown(false);
-            }
-        }
-
         if (!enabled || client.player == null || client.level == null) return;
 
         if (globalCooldown > 0) {
@@ -80,6 +72,9 @@ public class XbowCart {
 
         if (delayTicks > 0) {
             delayTicks--;
+            if (delayTicks == 0) {
+                client.options.keyUse.setDown(false);
+            }
             return;
         }
 
@@ -115,8 +110,7 @@ public class XbowCart {
 
             case RAIL_DEPLOY:
                 if (targetBlockPos != null) {
-                    eyezingzStreamAim(client, Vec3.atCenterOf(getRailPos(targetBlockPos, targetFace)));
-                    mouseButtonReleaseTracker = 2;
+                    snapAim(client, Vec3.atCenterOf(getRailPos(targetBlockPos, targetFace)));
                     client.options.keyUse.setDown(true);
                 }
                 delayTicks = 1;
@@ -137,8 +131,7 @@ public class XbowCart {
             case CART_DEPLOY:
                 if (targetBlockPos != null) {
                     BlockPos cartTarget = getRailPos(targetBlockPos, targetFace);
-                    eyezingzStreamAim(client, Vec3.atCenterOf(cartTarget));
-                    mouseButtonReleaseTracker = 2;
+                    snapAim(client, Vec3.atCenterOf(cartTarget));
                     client.options.keyUse.setDown(true);
                 }
                 delayTicks = 1;
@@ -161,8 +154,7 @@ public class XbowCart {
 
             case FIRE_DEPLOY:
                 if (targetBlockPos != null) {
-                    eyezingzStreamAim(client, Vec3.atCenterOf(getFirePos(client, targetBlockPos, targetFace)));
-                    mouseButtonReleaseTracker = 2;
+                    snapAim(client, Vec3.atCenterOf(getFirePos(client, targetBlockPos, targetFace)));
                     client.options.keyUse.setDown(true);
                 }
                 delayTicks = 1;
@@ -183,10 +175,10 @@ public class XbowCart {
             case CROSSBOW_DEPLOY:
                 if (targetBlockPos != null) {
                     BlockPos shootTarget = getRailPos(targetBlockPos, targetFace);
-                    eyezingzStreamAim(client, Vec3.atCenterOf(shootTarget).add(0.0D, 0.25D, 0.0D));
-                    mouseButtonReleaseTracker = 1;
+                    snapAim(client, Vec3.atCenterOf(shootTarget).add(0.0D, 0.25D, 0.0D));
                     client.options.keyUse.setDown(true);
                 }
+                delayTicks = 1;
                 globalCooldown = 4;
                 resetSequence();
                 break;
@@ -213,7 +205,7 @@ public class XbowCart {
         return isAnyRail(client.player.getMainHandItem().getItem());
     }
 
-    private static void eyezingzStreamAim(Minecraft client, Vec3 target) {
+    private static void snapAim(Minecraft client, Vec3 target) {
         if (client.player == null) return;
         double dx = target.x - client.player.getX();
         double dy = target.y - client.player.getEyeY();
@@ -224,14 +216,8 @@ public class XbowCart {
         float targetPitch = (float) (-(Mth.atan2(dy, hDist) * (180.0 / Math.PI)));
         targetPitch = Mth.clamp(targetPitch, -85.0F, 85.0F);
 
-        float currentYaw = client.player.getYRot();
-        float currentPitch = client.player.getXRot();
-
-        float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
-        float pitchDiff = targetPitch - currentPitch;
-
-        client.player.setYRot(currentYaw + yawDiff * 0.96F);
-        client.player.setXRot(currentPitch + pitchDiff * 0.96F);
+        client.player.setYRot(targetYaw);
+        client.player.setXRot(targetPitch);
     }
 
     public static void resetSequence() {
@@ -239,7 +225,9 @@ public class XbowCart {
         delayTicks = 0;
         targetBlockPos = null;
         targetFace = Direction.UP;
-        mouseButtonReleaseTracker = 0;
+        if (Minecraft.getInstance().options != null) {
+            Minecraft.getInstance().options.keyUse.setDown(false);
+        }
         watchdog.disarm();
     }
-        }
+}
