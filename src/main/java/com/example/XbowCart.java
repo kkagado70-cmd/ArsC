@@ -115,7 +115,7 @@ public class XbowCart {
 
             case RAIL_DEPLOY:
                 if (targetBlockPos != null) {
-                    smoothStreamAim(client, Vec3.atCenterOf(getRailPos(targetBlockPos, targetFace)));
+                    eyezingzStreamAim(client, Vec3.atCenterOf(getRailPos(targetBlockPos, targetFace)));
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                 }
@@ -137,7 +137,7 @@ public class XbowCart {
             case CART_DEPLOY:
                 if (targetBlockPos != null) {
                     BlockPos cartTarget = getRailPos(targetBlockPos, targetFace);
-                    smoothStreamAim(client, Vec3.atCenterOf(cartTarget));
+                    eyezingzStreamAim(client, Vec3.atCenterOf(cartTarget));
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                 }
@@ -161,7 +161,7 @@ public class XbowCart {
 
             case FIRE_DEPLOY:
                 if (targetBlockPos != null) {
-                    smoothStreamAim(client, Vec3.atCenterOf(getFirePos(client, targetBlockPos, targetFace)));
+                    eyezingzStreamAim(client, Vec3.atCenterOf(getFirePos(client, targetBlockPos, targetFace)));
                     mouseButtonReleaseTracker = 2;
                     client.options.keyUse.setDown(true);
                 }
@@ -183,9 +183,9 @@ public class XbowCart {
             case CROSSBOW_DEPLOY:
                 if (targetBlockPos != null) {
                     BlockPos shootTarget = getRailPos(targetBlockPos, targetFace);
-                    smoothStreamAim(client, Vec3.atCenterOf(shootTarget).add(0.0D, 0.25D, 0.0D));
-                    client.options.keyUse.setDown(true);
+                    eyezingzStreamAim(client, Vec3.atCenterOf(shootTarget).add(0.0D, 0.25D, 0.0D));
                     mouseButtonReleaseTracker = 1;
+                    client.options.keyUse.setDown(true);
                 }
                 globalCooldown = 4;
                 resetSequence();
@@ -213,7 +213,7 @@ public class XbowCart {
         return isAnyRail(client.player.getMainHandItem().getItem());
     }
 
-    private static void smoothStreamAim(Minecraft client, Vec3 target) {
+    private static void eyezingzStreamAim(Minecraft client, Vec3 target) {
         if (client.player == null) return;
         double dx = target.x - client.player.getX();
         double dy = target.y - client.player.getEyeY();
@@ -230,8 +230,8 @@ public class XbowCart {
         float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
         float pitchDiff = targetPitch - currentPitch;
 
-        client.player.setYRot(currentYaw + yawDiff * 0.90F);
-        client.player.setXRot(currentPitch + pitchDiff * 0.90F);
+        client.player.setYRot(currentYaw + yawDiff * 0.96F);
+        client.player.setXRot(currentPitch + pitchDiff * 0.96F);
     }
 
     public static void resetSequence() {
@@ -242,4 +242,4 @@ public class XbowCart {
         mouseButtonReleaseTracker = 0;
         watchdog.disarm();
     }
-}
+        }
