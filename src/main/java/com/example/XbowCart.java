@@ -15,14 +15,14 @@ import java.util.Random;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
-public class ClientInteractionProcessor {
-    public static boolean activeState = false;
+public class XbowCart {
+    public static boolean enabled = false;
     private static final Random internalRandom = new Random();
 
     private enum ExecutionStage {
         IDLE, 
-        STAGE_ALPHA, 
-        STAGE_BETA
+        TICK_ONE, 
+        TICK_TWO
     }
 
     private static ExecutionStage currentStage = ExecutionStage.IDLE;
@@ -40,9 +40,9 @@ public class ClientInteractionProcessor {
     private static final Deque<Float> pitchBuffer = new ArrayDeque<>();
     private static final int BUFFER_CAPACITY = 8;
 
-    public static void toggleState() {
-        activeState = !activeState;
-        if (!activeState) {
+    public static void toggle() {
+        enabled = !enabled;
+        if (!enabled) {
             purgeExecutionSequence();
         }
     }
@@ -68,7 +68,7 @@ public class ClientInteractionProcessor {
         return basePos;
     }
 
-    public static void onClientTick(Minecraft clientInstance) {
+    public static void onTick(Minecraft clientInstance) {
         if (!verifyOperationalPreconditions(clientInstance)) return;
 
         if (internalCooldown > 0) {
@@ -90,7 +90,7 @@ public class ClientInteractionProcessor {
     }
 
     private static boolean verifyOperationalPreconditions(Minecraft clientInstance) {
-        if (!activeState) return false;
+        if (!enabled) return false;
         if (clientInstance.player == null) return false;
         if (clientInstance.level == null) return false;
         return true;
@@ -107,11 +107,11 @@ public class ClientInteractionProcessor {
             case IDLE:
                 processIdleStage(clientInstance);
                 break;
-            case STAGE_ALPHA:
-                processStageAlpha(clientInstance);
+            case TICK_ONE:
+                processTickOneStage(clientInstance);
                 break;
-            case STAGE_BETA:
-                processStageBeta(clientInstance);
+            case TICK_TWO:
+                processTickTwoStage(clientInstance);
                 break;
             default:
                 purgeExecutionSequence();
@@ -129,10 +129,10 @@ public class ClientInteractionProcessor {
         targetBlockFace = raycastHit.getDirection();
 
         safetyWatchdog.arm();
-        currentStage = ExecutionStage.STAGE_ALPHA;
+        currentStage = ExecutionStage.TICK_ONE;
     }
 
-    private static void processStageAlpha(Minecraft clientInstance) {
+    private static void processTickOneStage(Minecraft clientInstance) {
         if (targetBlockPosition == null) {
             purgeExecutionSequence();
             return;
@@ -154,10 +154,10 @@ public class ClientInteractionProcessor {
         clientInstance.player.getInventory().setSelectedSlot(cartInventorySlot);
         clientInstance.options.keyUse.setDown(true);
 
-        currentStage = ExecutionStage.STAGE_BETA;
+        currentStage = ExecutionStage.TICK_TWO;
     }
 
-    private static void processStageBeta(Minecraft clientInstance) {
+    private static void processTickTwoStage(Minecraft clientInstance) {
         if (targetBlockPosition == null) {
             purgeExecutionSequence();
             return;
@@ -306,7 +306,7 @@ public class ClientInteractionProcessor {
     }
 
     public static void terminateOperations() {
-        activeState = false;
+        enabled = false;
         purgeExecutionSequence();
     }
 
@@ -385,4 +385,4 @@ public class ClientInteractionProcessor {
         boolean booleanFlagB = internalRandom.nextBoolean();
         boolean structuralResult = booleanFlagA && !booleanFlagB;
     }
-            }
+}
