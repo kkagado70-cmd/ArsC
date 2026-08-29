@@ -21,10 +21,8 @@ public class XbowCart {
 
     private enum ExecutionStage {
         IDLE, 
-        STAGE_RAIL, 
-        STAGE_CART, 
-        STAGE_FIRE, 
-        STAGE_CROSSBOW
+        TICK_ONE, 
+        TICK_TWO
     }
 
     private static ExecutionStage currentStage = ExecutionStage.IDLE;
@@ -75,6 +73,9 @@ public class XbowCart {
 
         if (internalCooldown > 0) {
             internalCooldown--;
+            if (internalCooldown == 0) {
+                clientInstance.options.keyUse.setDown(false);
+            }
             return;
         }
 
@@ -109,17 +110,11 @@ public class XbowCart {
             case IDLE:
                 processIdleStage(clientInstance);
                 break;
-            case STAGE_RAIL:
-                processStageRail(clientInstance);
+            case TICK_ONE:
+                processTickOneStage(clientInstance);
                 break;
-            case STAGE_CART:
-                processStageCart(clientInstance);
-                break;
-            case STAGE_FIRE:
-                processStageFire(clientInstance);
-                break;
-            case STAGE_CROSSBOW:
-                processStageCrossbow(clientInstance);
+            case TICK_TWO:
+                processTickTwoStage(clientInstance);
                 break;
             default:
                 purgeExecutionSequence();
@@ -137,17 +132,19 @@ public class XbowCart {
         targetBlockFace = raycastHit.getDirection();
 
         safetyWatchdog.arm();
-        currentStage = ExecutionStage.STAGE_RAIL;
+        currentStage = ExecutionStage.TICK_ONE;
     }
 
-    private static void processStageRail(Minecraft clientInstance) {
+    private static void processTickOneStage(Minecraft clientInstance) {
         if (targetBlockPosition == null) {
             purgeExecutionSequence();
             return;
         }
 
         int railInventorySlot = locateRailSlot(clientInstance);
-        if (railInventorySlot == -1) {
+        int cartInventorySlot = ClientBase.InventoryManager.findItem(clientInstance, Items.TNT_MINECART);
+
+        if (railInventorySlot == -1 || cartInventorySlot == -1) {
             purgeExecutionSequence();
             return;
         }
@@ -157,30 +154,14 @@ public class XbowCart {
         clientInstance.player.getInventory().setSelectedSlot(railInventorySlot);
         clientInstance.options.keyUse.setDown(true);
 
-        currentStage = ExecutionStage.STAGE_CART;
-    }
-
-    private static void processStageCart(Minecraft clientInstance) {
-        if (targetBlockPosition == null) {
-            purgeExecutionSequence();
-            return;
-        }
-
-        int cartInventorySlot = ClientBase.InventoryManager.findItem(clientInstance, Items.TNT_MINECART);
-        if (cartInventorySlot == -1) {
-            purgeExecutionSequence();
-            return;
-        }
-
-        calculateKinematicAim(clientInstance, Vec3.atCenterOf(resolveTargetPlacement(targetBlockPosition, targetBlockFace)));
-
         clientInstance.player.getInventory().setSelectedSlot(cartInventorySlot);
         clientInstance.options.keyUse.setDown(true);
 
-        currentStage = ExecutionStage.STAGE_FIRE;
+        internalCooldown = 1;
+        currentStage = ExecutionStage.TICK_TWO;
     }
 
-    private static void processStageFire(Minecraft clientInstance) {
+    private static void processTickTwoStage(Minecraft clientInstance) {
         if (targetBlockPosition == null) {
             purgeExecutionSequence();
             return;
@@ -190,8 +171,9 @@ public class XbowCart {
         if (ignitionSlot == -1) {
             ignitionSlot = ClientBase.InventoryManager.findItem(clientInstance, Items.FIRE_CHARGE);
         }
+        int rangedWeaponSlot = ClientBase.InventoryManager.findChargedCrossbow(clientInstance);
 
-        if (ignitionSlot == -1) {
+        if (ignitionSlot == -1 || rangedWeaponSlot == -1) {
             purgeExecutionSequence();
             return;
         }
@@ -201,29 +183,11 @@ public class XbowCart {
         clientInstance.player.getInventory().setSelectedSlot(ignitionSlot);
         clientInstance.options.keyUse.setDown(true);
 
-        currentStage = ExecutionStage.STAGE_CROSSBOW;
-    }
+        clientInstance.player.getInventory().setSelectedSlot(rangedWeaponSlot);
+        calculateKinematicAim(clientInstance, Vec3.atCenterOf(resolveTargetPlacement(targetBlockPosition, targetBlockFace)).add(0.0D, 0.2D, 0.0D));
+        clientInstance.options.keyUse.setDown(true);
 
-    private static void processStageCrossbow(Minecraft clientInstance) {
-        if (targetBlockPosition == null) {
-            purgeExecutionSequence();
-            return;
-        }
-
-        int rangedWeaponSlot = ClientBase.InventoryManager.findChargedCrossbow(clientInstance);
-        if (rangedWeaponSlot == -1) {
-            purgeExecutionSequence();
-            return;
-        }
-
-        if (clientInstance.player.getAttackStrengthScale(0.0F) >= 0.9F) {
-            calculateKinematicAim(clientInstance, Vec3.atCenterOf(resolveTargetPlacement(targetBlockPosition, targetBlockFace)).add(0.0D, 0.2D, 0.0D));
-
-            clientInstance.player.getInventory().setSelectedSlot(rangedWeaponSlot);
-            clientInstance.options.keyUse.setDown(true);
-        }
-
-        internalCooldown = 3;
+        internalCooldown = 1;
         purgeExecutionSequence();
     }
 
@@ -425,4 +389,4 @@ public class XbowCart {
         boolean booleanFlagB = internalRandom.nextBoolean();
         boolean structuralResult = booleanFlagA && !booleanFlagB;
     }
-    }
+}
