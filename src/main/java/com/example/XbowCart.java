@@ -11,11 +11,8 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
 
-import java.util.Random;
-
 public class XbowCart {
     public static boolean enabled = false;
-    private static final Random random = new Random();
 
     private enum CartPhase {
         INACTIVE, 
@@ -31,9 +28,6 @@ public class XbowCart {
     private static BlockPos targetBlockPos = null;
     private static Direction targetFace = Direction.UP;
     private static final ClientBase.SafetyWatchdog watchdog = new ClientBase.SafetyWatchdog();
-
-    private static float targetYawCache = 0.0f;
-    private static float targetPitchCache = 0.0f;
 
     public static void toggle() {
         enabled = !enabled;
@@ -80,8 +74,6 @@ public class XbowCart {
             delayTicks--;
             if (delayTicks == 0) {
                 client.options.keyUse.setDown(false);
-            } else {
-                updateAimDirectly(client);
             }
             return;
         }
@@ -109,7 +101,7 @@ public class XbowCart {
                 int railSlot = findRail(client);
                 if (railSlot != -1) {
                     selectHotbarSlot(client, railSlot);
-                    delayTicks = 2;
+                    delayTicks = 1;
                     phase = CartPhase.RAIL_DEPLOY;
                 } else {
                     resetSequence();
@@ -118,11 +110,10 @@ public class XbowCart {
 
             case RAIL_DEPLOY:
                 if (targetBlockPos != null) {
-                    calculateInstantAim(client, Vec3.atCenterOf(getRailPos(targetBlockPos, targetFace)));
-                    updateAimDirectly(client);
+                    snapAimToBlock(client, getRailPos(targetBlockPos, targetFace));
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2;
+                delayTicks = 1;
                 phase = CartPhase.CART_SELECT;
                 break;
 
@@ -130,7 +121,7 @@ public class XbowCart {
                 int cartSlot = ClientBase.InventoryManager.findItem(client, Items.TNT_MINECART);
                 if (cartSlot != -1) {
                     selectHotbarSlot(client, cartSlot);
-                    delayTicks = 2;
+                    delayTicks = 1;
                     phase = CartPhase.CART_DEPLOY;
                 } else {
                     resetSequence();
@@ -139,11 +130,10 @@ public class XbowCart {
 
             case CART_DEPLOY:
                 if (targetBlockPos != null) {
-                    calculateInstantAim(client, Vec3.atCenterOf(getRailPos(targetBlockPos, targetFace)));
-                    updateAimDirectly(client);
+                    snapAimToBlock(client, getRailPos(targetBlockPos, targetFace));
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2;
+                delayTicks = 1;
                 phase = CartPhase.FIRE_SELECT;
                 break;
 
@@ -154,7 +144,7 @@ public class XbowCart {
                 }
                 if (fireSlot != -1) {
                     selectHotbarSlot(client, fireSlot);
-                    delayTicks = 2;
+                    delayTicks = 1;
                     phase = CartPhase.FIRE_DEPLOY;
                 } else {
                     resetSequence();
@@ -163,11 +153,10 @@ public class XbowCart {
 
             case FIRE_DEPLOY:
                 if (targetBlockPos != null) {
-                    calculateInstantAim(client, Vec3.atCenterOf(getFirePos(client, targetBlockPos, targetFace)));
-                    updateAimDirectly(client);
+                    snapAimToBlock(client, getFirePos(client, targetBlockPos, targetFace));
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2;
+                delayTicks = 1;
                 phase = CartPhase.CROSSBOW_SELECT;
                 break;
 
@@ -175,7 +164,7 @@ public class XbowCart {
                 int crossbowSlot = ClientBase.InventoryManager.findChargedCrossbow(client);
                 if (crossbowSlot != -1) {
                     selectHotbarSlot(client, crossbowSlot);
-                    delayTicks = 2;
+                    delayTicks = 1;
                     phase = CartPhase.CROSSBOW_DEPLOY;
                 } else {
                     resetSequence();
@@ -183,12 +172,11 @@ public class XbowCart {
                 break;
 
             case CROSSBOW_DEPLOY:
-                if (targetBlockPos != null && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
-                    calculateInstantAim(client, Vec3.atCenterOf(getRailPos(targetBlockPos, targetFace)).add(0.0D, 0.1D, 0.0D));
-                    updateAimDirectly(client);
+                if (targetBlockPos != null) {
+                    snapAimToBlock(client, getRailPos(targetBlockPos, targetFace));
                     client.options.keyUse.setDown(true);
                 }
-                delayTicks = 2;
+                delayTicks = 1;
                 globalCooldown = 4;
                 resetSequence();
                 break;
@@ -223,39 +211,28 @@ public class XbowCart {
         client.player.getInventory().setSelectedSlot(slot);
     }
 
-    private static void calculateInstantAim(Minecraft client, Vec3 target) {
-        if (client.player == null) return;
-        double dx = target.x - client.player.getX();
-        double dy = target.y - client.player.getEyeY();
-        double dz = target.z - client.player.getZ();
-        double hDist = Math.sqrt(dx * dx + dz * dz);
-
-        targetYawCache = (float) (Mth.atan2(dz, dx) * (180.0 / Math.PI) - 90.0D);
-        targetPitchCache = (float) (-(Mth.atan2(dy, hDist) * (180.0 / Math.PI)));
-        targetPitchCache = Mth.clamp(targetPitchCache, -90.0F, 90.0F);
-    }
-
-    private static void updateAimDirectly(Minecraft client) {
+    private static void snapAimToBlock(Minecraft client, BlockPos targetPos) {
         if (client.player == null) return;
         
-        float currentYaw = client.player.getYRot();
-        float currentPitch = client.player.getXRot();
+        double eyesX = client.player.getX();
+        double eyesY = client.player.getEyeY();
+        double eyesZ = client.player.getZ();
 
-        float yawDiff = targetYawCache - currentYaw;
-        while (yawDiff < -180.0f) yawDiff += 360.0f;
-        while (yawDiff > 180.0f) yawDiff -= 360.0f;
+        double targetX = targetPos.getX() + 0.5D;
+        double targetY = targetPos.getY() + 0.5D;
+        double targetZ = targetPos.getZ() + 0.5D;
 
-        float newYaw = currentYaw + yawDiff;
-        float newPitch = targetPitchCache;
+        double diffX = targetX - eyesX;
+        double diffY = targetY - eyesY;
+        double diffZ = targetZ - eyesZ;
 
-        client.player.setYRot(newYaw);
-        client.player.setXRot(newPitch);
+        double diffXZ = Math.sqrt(diffX * diffX + diffZ * diffZ);
 
-        double sens = client.options.sensitivity().get() * 0.6D + 0.2D;
-        double dYaw = yawDiff / (sens * 0.15D);
-        double dPitch = (newPitch - currentPitch) / (sens * 0.15D);
-        
-        client.player.turn(dYaw, -dPitch);
+        float yaw = (float) (Mth.atan2(diffZ, diffX) * (180.0 / Math.PI)) - 90.0F;
+        float pitch = (float) (-(Mth.atan2(diffY, diffXZ) * (180.0 / Math.PI)));
+
+        client.player.setYRot(yaw);
+        client.player.setXRot(pitch);
     }
 
     public static void resetSequence() {
@@ -268,4 +245,4 @@ public class XbowCart {
         }
         watchdog.disarm();
     }
-}
+    }
