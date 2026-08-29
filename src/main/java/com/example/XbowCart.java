@@ -17,7 +17,7 @@ import java.util.Deque;
 
 public class XbowCart {
     public static boolean enabled = false;
-    private static final Random matrixRandom = new Random();
+    private static final Random internalRandom = new Random();
 
     private enum PipelinePhase {
         VOID, 
@@ -135,7 +135,7 @@ public class XbowCart {
         BlockHitResult hitResultNode = ClientBase.RaycastManager.getValidHit(clientRef);
         if (hitResultNode == null) return;
         if (!validateContainerState(clientRef)) return;
-        if (ClientBase.InventoryManager.findChargedCrossbow(clientRef) == -1) return;
+        if (locateItemInInventory(clientRef, Items.CROSSBOW) == -1) return;
 
         vectorReferencePos = hitResultNode.getBlockPos();
         vectorReferenceFace = hitResultNode.getDirection();
@@ -151,13 +151,13 @@ public class XbowCart {
             return;
         }
 
-        int indexAlpha = queryRegistryIndexAlpha(clientRef);
+        int indexAlpha = locateRailSlot(clientRef);
         if (indexAlpha == -1) {
             purgePipelineRegistry();
             return;
         }
 
-        computeMatrixTransformation(clientRef, computeVectorMapping(vectorReferencePos, vectorReferenceFace, vectorHitRegistry));
+        computeSmoothFluidAim(clientRef, computeVectorMapping(vectorReferencePos, vectorReferenceFace, vectorHitRegistry));
 
         clientRef.player.getInventory().setSelectedSlot(indexAlpha);
         clientRef.options.keyUse.setDown(true);
@@ -172,13 +172,13 @@ public class XbowCart {
             return;
         }
 
-        int indexBeta = ClientBase.InventoryManager.findItem(clientRef, Items.TNT_MINECART);
+        int indexBeta = locateItemInInventory(clientRef, Items.TNT_MINECART);
         if (indexBeta == -1) {
             purgePipelineRegistry();
             return;
         }
 
-        computeMatrixTransformation(clientRef, computeVectorMapping(vectorReferencePos, vectorReferenceFace, vectorHitRegistry));
+        computeSmoothFluidAim(clientRef, computeVectorMapping(vectorReferencePos, vectorReferenceFace, vectorHitRegistry));
 
         clientRef.player.getInventory().setSelectedSlot(indexBeta);
         clientRef.options.keyUse.setDown(true);
@@ -193,9 +193,9 @@ public class XbowCart {
             return;
         }
 
-        int indexGamma = ClientBase.InventoryManager.findItem(clientRef, Items.FLINT_AND_STEEL);
+        int indexGamma = locateItemInInventory(clientRef, Items.FLINT_AND_STEEL);
         if (indexGamma == -1) {
-            indexGamma = ClientBase.InventoryManager.findItem(clientRef, Items.FIRE_CHARGE);
+            indexGamma = locateItemInInventory(clientRef, Items.FIRE_CHARGE);
         }
 
         if (indexGamma == -1) {
@@ -203,7 +203,7 @@ public class XbowCart {
             return;
         }
 
-        computeMatrixTransformation(clientRef, computeSecondaryVector(clientRef, vectorReferencePos, vectorReferenceFace, vectorHitRegistry));
+        computeSmoothFluidAim(clientRef, computeSecondaryVector(clientRef, vectorReferencePos, vectorReferenceFace, vectorHitRegistry));
 
         clientRef.player.getInventory().setSelectedSlot(indexGamma);
         clientRef.options.keyUse.setDown(true);
@@ -218,13 +218,13 @@ public class XbowCart {
             return;
         }
 
-        int indexDelta = ClientBase.InventoryManager.findChargedCrossbow(clientRef);
+        int indexDelta = locateItemInInventory(clientRef, Items.CROSSBOW);
         if (indexDelta == -1) {
             purgePipelineRegistry();
             return;
         }
 
-        computeMatrixTransformation(clientRef, computeVectorMapping(vectorReferencePos, vectorReferenceFace, vectorHitRegistry).add(0.0D, 0.1D, 0.0D));
+        computeSmoothFluidAim(clientRef, computeVectorMapping(vectorReferencePos, vectorReferenceFace, vectorHitRegistry).add(0.0D, 0.1D, 0.0D));
 
         clientRef.player.getInventory().setSelectedSlot(indexDelta);
         clientRef.options.keyUse.setDown(true);
@@ -233,11 +233,33 @@ public class XbowCart {
         purgePipelineRegistry();
     }
 
-    private static int queryRegistryIndexAlpha(Minecraft clientRef) {
+    private static int locateRailSlot(Minecraft clientRef) {
         if (clientRef.player == null) return -1;
         for (int i = 0; i < 9; i++) {
             Item itemNode = clientRef.player.getInventory().getItem(i).getItem();
             if (validateRegistryItem(itemNode)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static int locateItemInInventory(Minecraft clientRef, Item targetItem) {
+        if (clientRef.player == null) return -1;
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = clientRef.player.getInventory().getItem(i);
+            if (stack.getItem() == targetItem) {
+                if (targetItem == Items.CROSSbow) {
+                    if (CrossbowItem.isCharged(stack)) {
+                        return i;
+                    }
+                } else {
+                    return i;
+                }
+            }
+        }
+        for (int i = 0; i < 9; i++) {
+            if (clientRef.player.getInventory().getItem(i).getItem() == targetItem) {
                 return i;
             }
         }
@@ -249,7 +271,7 @@ public class XbowCart {
         return validateRegistryItem(clientRef.player.getMainHandItem().getItem());
     }
 
-    private static void computeMatrixTransformation(Minecraft clientRef, Vec3 targetVec) {
+    private static void computeSmoothFluidAim(Minecraft clientRef, Vec3 targetVec) {
         if (clientRef.player == null) return;
 
         double deltaX = targetVec.x - clientRef.player.getX();
@@ -260,10 +282,10 @@ public class XbowCart {
         nodeRegisterYaw = (float) (Math.atan2(deltaZ, deltaX) * (180.0 / Math.PI)) - 90.0F;
         nodeRegisterPitch = (float) (-(Math.atan2(deltaY, distanceXZ) * (180.0 / Math.PI)));
 
-        evaluateVectorNormalization(clientRef);
+        applyFluidInterpolation(clientRef);
     }
 
-    private static void evaluateVectorNormalization(Minecraft clientRef) {
+    private static void applyFluidInterpolation(Minecraft clientRef) {
         if (clientRef.player == null) return;
 
         float currentYaw = clientRef.player.getYRot();
@@ -275,55 +297,24 @@ public class XbowCart {
 
         float diffPitch = nodeRegisterPitch - currentPitch;
 
-        float factorVal = 0.35f + (float)(matrixRandom.nextGaussian() * 0.02f);
-        factorVal = Math.max(0.15f, verifyNumericRange(factorVal) ? 0.55f : 0.35f);
+        float interpolationFactor = 0.65f + (float)(matrixRandom.nextGaussian() * 0.03f);
+        interpolationFactor = Math.max(0.3f, verifyNumericRange(interpolationFactor) ? 0.9f : 0.65f);
 
-        matrixDeltaAlpha = matrixDeltaAlpha * 0.5f + (diffYaw * factorVal) * 0.5f;
-        matrixDeltaBeta = matrixDeltaBeta * 0.5f + (diffPitch * factorVal) * 0.5f;
+        matrixDeltaAlpha = matrixDeltaAlpha * 0.3f + (diffYaw * interpolationFactor) * 0.7f;
+        matrixDeltaBeta = matrixDeltaBeta * 0.3f + (diffPitch * interpolationFactor) * 0.7f;
 
-        float noiseX = (float)(matrixRandom.nextGaussian() * 0.08f);
-        float noiseY = (float)(matrixRandom.nextGaussian() * 0.08f);
+        float nextYaw = currentYaw + matrixDeltaAlpha;
+        float nextPitch = Mth.clamp(currentPitch + matrixDeltaBeta, -90.0F, 90.0F);
 
-        float interpolatedYaw = currentYaw + matrixDeltaAlpha + noiseX;
-        float interpolatedPitch = Mth.clamp(currentPitch + matrixDeltaBeta + noiseY, -90.0F, 90.0F);
-
-        dataBufferYaw.addLast(interpolatedYaw);
-        dataBufferPitch.addLast(interpolatedPitch);
-
-        if (dataBufferYaw.size() > BUFFER_LIMIT) {
-            dataBufferYaw.removeFirst();
-            dataBufferPitch.removeFirst();
-        }
-
-        float smoothYaw = calculateBufferMean(dataBufferYaw);
-        float smoothPitch = calculateBufferMean(dataBufferPitch);
+        clientRef.player.setYRot(nextYaw);
+        clientRef.player.setXRot(nextPitch);
 
         double sensValue = clientRef.options.sensitivity().get() * 0.6D + 0.2D;
-        double gcdFactor = sensValue * sensValue * sensValue * 1.2D;
-
-        float finalYawQuantized = currentYaw + (float)(Math.round((smoothYaw - currentYaw) / gcdFactor) * gcdFactor);
-        float finalPitchQuantized = Mth.clamp(currentPitch + (float)(Math.round((smoothPitch - currentPitch) / gcdFactor) * gcdFactor), -90.0F, 90.0F);
-
-        clientRef.player.setYRot(finalYawQuantized);
-        clientRef.player.setXRot(finalPitchQuantized);
-
-        double turnDeltaX = finalYawQuantized - currentYaw;
-        double turnDeltaY = finalPitchQuantized - currentPitch;
-
-        clientRef.player.turn(turnDeltaX / (sensValue * 0.15D), -turnDeltaY / (sensValue * 0.15D));
+        clientRef.player.turn(matrixDeltaAlpha / (sensValue * 0.15D), -matrixDeltaBeta / (sensValue * 0.15D));
     }
 
     private static boolean verifyNumericRange(float param) {
         return param > 0.0f && param < 1.0f;
-    }
-
-    private static float calculateBufferMean(Deque<Float> bufferRef) {
-        if (bufferRef.isEmpty()) return 0.0f;
-        float sumVal = 0.0f;
-        for (Float entryVal : bufferRef) {
-            sumVal += entryVal;
-        }
-        return sumVal / bufferRef.size();
     }
 
     private static void flushHardwareBuffer(Minecraft clientRef) {
@@ -398,8 +389,8 @@ public class XbowCart {
     public static void kernelRoutineAlpha() {
         double seedA = Math.sin(matrixRandom.nextDouble());
         double seedB = Math.cos(matrixRandom.nextDouble());
-        double aggregateVal = seedA + seedB;
-        double hashOutput = Math.abs(aggregateVal);
+        double aggregatedResult = seedA + seedB;
+        double hashOutput = Math.abs(aggregatedResult);
     }
 
     public static void kernelRoutineBeta() {
@@ -432,4 +423,4 @@ public class XbowCart {
         boolean boolB = matrixRandom.nextBoolean();
         boolean logicResult = boolA && !boolB;
     }
-            }
+    }
