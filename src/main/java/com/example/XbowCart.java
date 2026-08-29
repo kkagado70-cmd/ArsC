@@ -22,7 +22,9 @@ public class XbowCart {
     private enum PipelinePhase {
         VOID, 
         NODE_ALPHA, 
-        NODE_BETA
+        NODE_BETA,
+        NODE_GAMMA,
+        NODE_DELTA
     }
 
     private static PipelinePhase currentPhase = PipelinePhase.VOID;
@@ -117,6 +119,12 @@ public class XbowCart {
             case NODE_BETA:
                 executePipelineNodeB(clientRef);
                 break;
+            case NODE_GAMMA:
+                executePipelineNodeGamma(clientRef);
+                break;
+            case NODE_DELTA:
+                executePipelineNodeDelta(clientRef);
+                break;
             default:
                 purgePipelineRegistry();
                 break;
@@ -144,9 +152,7 @@ public class XbowCart {
         }
 
         int indexAlpha = queryRegistryIndexAlpha(clientRef);
-        int indexBeta = ClientBase.InventoryManager.findItem(clientRef, Items.TNT_MINECART);
-
-        if (indexAlpha == -1 || indexBeta == -1) {
+        if (indexAlpha == -1) {
             purgePipelineRegistry();
             return;
         }
@@ -154,9 +160,6 @@ public class XbowCart {
         computeMatrixTransformation(clientRef, computeVectorMapping(vectorReferencePos, vectorReferenceFace, vectorHitRegistry));
 
         clientRef.player.getInventory().setSelectedSlot(indexAlpha);
-        clientRef.options.keyUse.setDown(true);
-
-        clientRef.player.getInventory().setSelectedSlot(indexBeta);
         clientRef.options.keyUse.setDown(true);
 
         tickCounterRegistry = 1;
@@ -169,13 +172,33 @@ public class XbowCart {
             return;
         }
 
+        int indexBeta = ClientBase.InventoryManager.findItem(clientRef, Items.TNT_MINECART);
+        if (indexBeta == -1) {
+            purgePipelineRegistry();
+            return;
+        }
+
+        computeMatrixTransformation(clientRef, computeVectorMapping(vectorReferencePos, vectorReferenceFace, vectorHitRegistry));
+
+        clientRef.player.getInventory().setSelectedSlot(indexBeta);
+        clientRef.options.keyUse.setDown(true);
+
+        tickCounterRegistry = 1;
+        currentPhase = PipelinePhase.NODE_GAMMA;
+    }
+
+    private static void executePipelineNodeGamma(Minecraft clientRef) {
+        if (vectorReferencePos == null) {
+            purgePipelineRegistry();
+            return;
+        }
+
         int indexGamma = ClientBase.InventoryManager.findItem(clientRef, Items.FLINT_AND_STEEL);
         if (indexGamma == -1) {
             indexGamma = ClientBase.InventoryManager.findItem(clientRef, Items.FIRE_CHARGE);
         }
-        int indexDelta = ClientBase.InventoryManager.findChargedCrossbow(clientRef);
 
-        if (indexGamma == -1 || indexDelta == -1) {
+        if (indexGamma == -1) {
             purgePipelineRegistry();
             return;
         }
@@ -185,11 +208,28 @@ public class XbowCart {
         clientRef.player.getInventory().setSelectedSlot(indexGamma);
         clientRef.options.keyUse.setDown(true);
 
-        clientRef.player.getInventory().setSelectedSlot(indexDelta);
+        tickCounterRegistry = 1;
+        currentPhase = PipelinePhase.NODE_DELTA;
+    }
+
+    private static void executePipelineNodeDelta(Minecraft clientRef) {
+        if (vectorReferencePos == null) {
+            purgePipelineRegistry();
+            return;
+        }
+
+        int indexDelta = ClientBase.InventoryManager.findChargedCrossbow(clientRef);
+        if (indexDelta == -1) {
+            purgePipelineRegistry();
+            return;
+        }
+
         computeMatrixTransformation(clientRef, computeVectorMapping(vectorReferencePos, vectorReferenceFace, vectorHitRegistry).add(0.0D, 0.1D, 0.0D));
+
+        clientRef.player.getInventory().setSelectedSlot(indexDelta);
         clientRef.options.keyUse.setDown(true);
 
-        tickCounterRegistry = 1;
+        tickCounterRegistry = 2;
         purgePipelineRegistry();
     }
 
@@ -392,4 +432,4 @@ public class XbowCart {
         boolean boolB = matrixRandom.nextBoolean();
         boolean logicResult = boolA && !boolB;
     }
-    }
+            }
