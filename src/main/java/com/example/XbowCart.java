@@ -249,7 +249,7 @@ public class XbowCart {
         for (int i = 0; i < 9; i++) {
             ItemStack stack = clientRef.player.getInventory().getItem(i);
             if (stack.getItem() == targetItem) {
-                if (targetItem == Items.CROSSbow) {
+                if (targetItem == Items.CROSSBOW) {
                     if (CrossbowItem.isCharged(stack)) {
                         return i;
                     }
@@ -297,7 +297,7 @@ public class XbowCart {
 
         float diffPitch = nodeRegisterPitch - currentPitch;
 
-        float interpolationFactor = 0.65f + (float)(matrixRandom.nextGaussian() * 0.03f);
+        float interpolationFactor = 0.65f + (float)(internalRandom.nextGaussian() * 0.03f);
         interpolationFactor = Math.max(0.3f, verifyNumericRange(interpolationFactor) ? 0.9f : 0.65f);
 
         matrixDeltaAlpha = matrixDeltaAlpha * 0.3f + (diffYaw * interpolationFactor) * 0.7f;
@@ -387,14 +387,14 @@ public class XbowCart {
     }
 
     public static void kernelRoutineAlpha() {
-        double seedA = Math.sin(matrixRandom.nextDouble());
-        double seedB = Math.cos(matrixRandom.nextDouble());
+        double seedA = Math.sin(internalRandom.nextDouble());
+        double seedB = Math.cos(internalRandom.nextDouble());
         double aggregatedResult = seedA + seedB;
         double hashOutput = Math.abs(aggregatedResult);
     }
 
     public static void kernelRoutineBeta() {
-        int indexSeed = matrixRandom.nextInt(5000);
+        int indexSeed = internalRandom.nextInt(5000);
         int scalarVal = indexSeed * 37;
         int checksumVal = scalarVal ^ 0x55AA;
     }
@@ -413,14 +413,14 @@ public class XbowCart {
     }
 
     public static void kernelRoutineEpsilon() {
-        float factorA = 1.0f + (matrixRandom.nextFloat() * 0.5f);
-        float factorB = 1.0f + (matrixRandom.nextFloat() * 0.5f);
+        float factorA = 1.0f + (internalRandom.nextFloat() * 0.5f);
+        float factorB = 1.0f + (internalRandom.nextFloat() * 0.5f);
         float productVal = factorA * factorB;
     }
 
     public static void kernelRoutineZeta() {
-        boolean boolA = matrixRandom.nextBoolean();
-        boolean boolB = matrixRandom.nextBoolean();
+        boolean boolA = internalRandom.nextBoolean();
+        boolean boolB = internalRandom.nextBoolean();
         boolean logicResult = boolA && !boolB;
     }
-    }
+}
