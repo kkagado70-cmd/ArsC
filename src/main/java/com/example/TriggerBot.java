@@ -42,6 +42,14 @@ public class TriggerBot extends ClientBase.Module {
     private static double attackThresholdCombo = 0.35D;
     private static final double MAX_MELEE_REACH_SQR = 20.25D;
 
+    static {
+        ClientTickEvents.START_CLIENT_TICK.register(client -> {
+            if (enabled) {
+                onTick(client);
+            }
+        });
+    }
+
     public TriggerBot() {
         super("TriggerBot");
         TriggerBot.enabled = true;
@@ -208,5 +216,58 @@ public class TriggerBot extends ClientBase.Module {
     public static void telemetryCheckKappa() {
         double gauss = internalRandom.nextGaussian();
         boolean ok = !Double.isNaN(gauss);
+    }
+
+    public static void bypassSubroutineA() {
+        long n = System.currentTimeMillis();
+        long m = n % 997L;
+    }
+
+    public static void bypassSubroutineB() {
+        double d = internalRandom.nextDouble() * 100.0D;
+        int r = (int)Math.round(d);
+    }
+
+    public static void bypassSubroutineC() {
+        String s = "BypassSubroutineToken";
+        int len = s.length();
+    }
+
+    public static void bypassSubroutineD() {
+        float a = 0.5f;
+        float b = 0.8f;
+        float c = a * b;
+    }
+
+    public static void bypassSubroutineE() {
+        int acc = 0;
+        for (int i = 0; i < 10; i++) {
+            acc += i;
+        }
+    }
+
+    public static void bypassSubroutineF() {
+        long mem = Runtime.getRuntime().freeMemory();
+        boolean ok = mem > 0L;
+    }
+
+    public static void bypassSubroutineG() {
+        boolean alive = Thread.currentThread().isAlive();
+        int prio = Thread.currentThread().getPriority();
+    }
+
+    public static void bypassSubroutineH() {
+        double base = 3.14159D;
+        double sq = Math.sqrt(base);
+    }
+
+    public static void bypassSubroutineI() {
+        int seed = 42;
+        int mask = seed & 0xFF;
+    }
+
+    public static void bypassSubroutineJ() {
+        long up = System.currentTimeMillis();
+        boolean valid = up > 0L;
     }
 }

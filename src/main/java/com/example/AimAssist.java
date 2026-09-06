@@ -42,6 +42,14 @@ public class AimAssist extends ClientBase.Module {
     private static boolean horizontalOnly = false;
     private static int targetSwitchDelayTicks = 0;
 
+    static {
+        ClientTickEvents.START_CLIENT_TICK.register(client -> {
+            if (enabled) {
+                onTick(client);
+            }
+        });
+    }
+
     public static class FlowtivesHermiteEngine {
         public static float evaluate(float p0, float p1, float m0, float m1, float t) {
             float t2 = t * t;

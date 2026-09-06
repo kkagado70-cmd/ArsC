@@ -11,12 +11,13 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
 
 public class XbowCart {
+    public static final String FILE_NAME = "XbowCart.java";
     public static boolean enabled = false;
 
-    private enum PipelinePhase { VOID, NODE_ALPHA, NODE_BETA, NODE_GAMMA, NODE_DELTA }
+    private enum PipelinePhase { VOID, RAIL_ACTION, CART_ACTION, FLINT_ACTION, XBOW_ACTION, CLEANUP }
 
     private static PipelinePhase currentPhase = PipelinePhase.VOID;
-    private static int tickCounterRegistry = 0;
+    private static int actionTickCounter = 0;
     private static BlockPos vectorReferencePos = null;
     private static Direction vectorReferenceFace = Direction.UP;
     private static Vec3 vectorHitRegistry = null;
@@ -30,8 +31,11 @@ public class XbowCart {
     public static void onTick(Minecraft clientRef) {
         if (!enabled || clientRef.player == null || clientRef.level == null) return;
 
-        if (tickCounterRegistry > 0) {
-            tickCounterRegistry--;
+        if (actionTickCounter > 0) {
+            actionTickCounter--;
+            if (actionTickCounter == 0) {
+                advancePipelinePhase(clientRef);
+            }
             return;
         }
 
@@ -48,48 +52,58 @@ public class XbowCart {
                 vectorReferenceFace = hit.getDirection();
                 vectorHitRegistry = hit.getLocation();
                 safetyWatchdog.arm();
-                currentPhase = PipelinePhase.NODE_ALPHA;
+                currentPhase = PipelinePhase.RAIL_ACTION;
                 break;
-            case NODE_ALPHA:
+            case RAIL_ACTION:
                 int r = locateRailSlot(clientRef);
                 if (r == -1) { purgePipelineRegistry(); return; }
-                RotationManager.smoothTo(clientRef, vectorHitRegistry != null ? vectorHitRegistry : Vec3.atCenterOf(vectorReferencePos), 0.85F);
+                RotationManager.smoothTo(clientRef, vectorHitRegistry != null ? vectorHitRegistry : Vec3.atCenterOf(vectorReferencePos), 0.99F);
                 InventoryManager.selectSlot(clientRef, r);
                 InteractionManager.simulateClickUse(clientRef);
-                tickCounterRegistry = 1;
-                currentPhase = PipelinePhase.NODE_BETA;
+                actionTickCounter = 2;
                 break;
-            case NODE_BETA:
+            case CART_ACTION:
                 int c = InventoryManager.findItem(clientRef, Items.TNT_MINECART);
                 if (c == -1) { purgePipelineRegistry(); return; }
                 BlockPos cartPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
-                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(cartPos), 0.85F);
+                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(cartPos), 0.99F);
                 InventoryManager.selectSlot(clientRef, c);
                 InteractionManager.simulateClickUse(clientRef);
-                tickCounterRegistry = 1;
-                currentPhase = PipelinePhase.NODE_GAMMA;
+                actionTickCounter = 2;
                 break;
-            case NODE_GAMMA:
+            case FLINT_ACTION:
                 int f = InventoryManager.findItem(clientRef, Items.FLINT_AND_STEEL);
                 if (f == -1) f = InventoryManager.findItem(clientRef, Items.FIRE_CHARGE);
                 if (f == -1) { purgePipelineRegistry(); return; }
                 BlockPos firePos = vectorReferenceFace == Direction.UP ? vectorReferencePos.relative(clientRef.player.getDirection().getOpposite()) : vectorReferencePos;
-                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(firePos), 0.85F);
+                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(firePos), 0.99F);
                 InventoryManager.selectSlot(clientRef, f);
                 InteractionManager.simulateClickUse(clientRef);
-                tickCounterRegistry = 1;
-                currentPhase = PipelinePhase.NODE_DELTA;
+                actionTickCounter = 2;
                 break;
-            case NODE_DELTA:
+            case XBOW_ACTION:
                 int x = InventoryManager.findChargedCrossbow(clientRef);
                 if (x == -1) { purgePipelineRegistry(); return; }
                 BlockPos shootPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
-                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(shootPos).add(0.0D, 0.2D, 0.0D), 0.85F);
+                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(shootPos).add(0.0D, 0.2D, 0.0D), 0.99F);
                 InventoryManager.selectSlot(clientRef, x);
                 InteractionManager.simulateClickUse(clientRef);
-                tickCounterRegistry = 4;
+                actionTickCounter = 2;
+                break;
+            case CLEANUP:
                 purgePipelineRegistry();
                 break;
+        }
+    }
+
+    private static void advancePipelinePhase(Minecraft clientRef) {
+        clientRef.options.keyUse.setDown(false);
+        switch (currentPhase) {
+            case RAIL_ACTION: currentPhase = PipelinePhase.CART_ACTION; break;
+            case CART_ACTION: currentPhase = PipelinePhase.FLINT_ACTION; break;
+            case FLINT_ACTION: currentPhase = PipelinePhase.XBOW_ACTION; break;
+            case XBOW_ACTION: currentPhase = PipelinePhase.CLEANUP; break;
+            default: purgePipelineRegistry(); break;
         }
     }
 
@@ -107,7 +121,7 @@ public class XbowCart {
         vectorReferencePos = null;
         vectorReferenceFace = Direction.UP;
         vectorHitRegistry = null;
-        tickCounterRegistry = 0;
+        actionTickCounter = 0;
         safetyWatchdog.disarm();
     }
 }

@@ -6,6 +6,7 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class InteractionManager {
+    public static final String FILE_NAME = "InteractionManager.java";
     private static final SecureRandom secureRandom = new SecureRandom();
     private static final Queue<InteractionPacketTask> packetTaskQueue = new ConcurrentLinkedQueue<>();
     
@@ -14,8 +15,6 @@ public class InteractionManager {
     private static boolean attackSimulated = false;
     private static boolean useSimulated = false;
     private static long interactionCooldownTracker = 0L;
-    private static boolean burstModeActive = false;
-    private static int burstCount = 0;
 
     public static class InteractionPacketTask {
         public final boolean isAttack;
@@ -65,20 +64,14 @@ public class InteractionManager {
 
     public static void simulateClickUse(Minecraft client) {
         if (client == null || client.options == null) return;
-        if (System.currentTimeMillis() < interactionCooldownTracker) return;
-
-        long jitterDelay = secureRandom.nextInt(15);
+        long jitterDelay = secureRandom.nextInt(10);
         packetTaskQueue.add(new InteractionPacketTask(false, jitterDelay));
-        interactionCooldownTracker = System.currentTimeMillis() + 30 + secureRandom.nextInt(25);
     }
 
     public static void simulateClickAttack(Minecraft client) {
         if (client == null || client.options == null) return;
-        if (System.currentTimeMillis() < interactionCooldownTracker) return;
-
-        long jitterDelay = secureRandom.nextInt(20);
+        long jitterDelay = secureRandom.nextInt(10);
         packetTaskQueue.add(new InteractionPacketTask(true, jitterDelay));
-        interactionCooldownTracker = System.currentTimeMillis() + 40 + secureRandom.nextInt(30);
     }
 
     private static void executeRawUse(Minecraft client) {
@@ -95,11 +88,6 @@ public class InteractionManager {
         client.options.keyAttack.setDown(false);
         client.options.keyAttack.setDown(true);
         attackSimulated = true;
-
-        if (client.gameMode != null && client.crosshairPickEntity != null) {
-            client.gameMode.attack(client.player, client.crosshairPickEntity);
-            client.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
-        }
     }
 
     public static void forceReleaseAll(Minecraft client) {
@@ -111,96 +99,5 @@ public class InteractionManager {
         attackSimulated = false;
         useSimulated = false;
         packetTaskQueue.clear();
-    }
-
-    public static boolean isAttackSimulated() { return attackSimulated; }
-    public static boolean isUseSimulated() { return useSimulated; }
-
-    public static void injectArtificialDelay(long ms) {
-        interactionCooldownTracker = System.currentTimeMillis() + ms;
-    }
-
-    public static boolean verifyInteractionReady() {
-        return System.currentTimeMillis() >= interactionCooldownTracker;
-    }
-
-    public static void resetManager() {
-        attackHoldTicks = 0;
-        useHoldTicks = 0;
-        attackSimulated = false;
-        useSimulated = false;
-        interactionCooldownTracker = 0L;
-        packetTaskQueue.clear();
-    }
-
-    public static void auditInteractionState(Minecraft client) {
-        if (client == null) {
-            resetManager();
-        }
-    }
-
-    public static void setCustomCooldown(long cooldown) {
-        interactionCooldownTracker = System.currentTimeMillis() + cooldown;
-    }
-
-    public static long fetchRemainingCooldown() {
-        return Math.max(0L, interactionCooldownTracker - System.currentTimeMillis());
-    }
-
-    public static void triggerRapidBurst(Minecraft client, int count) {
-        for (int i = 0; i < count; i++) {
-            simulateClickAttack(client);
-        }
-    }
-
-    public static void executeSilentInteraction(Minecraft client, boolean isAttack) {
-        if (isAttack) {
-            simulateClickAttack(client);
-        } else {
-            simulateClickUse(client);
-        }
-    }
-
-    public static void stepCycle(Minecraft client) {
-        update(client);
-    }
-
-    public static int getQueueSize() {
-        return packetTaskQueue.size();
-    }
-
-    public static void setBurstMode(boolean active, int count) {
-        burstModeActive = active;
-        burstCount = count;
-    }
-
-    public static boolean isBurstModeActive() {
-        return burstModeActive;
-    }
-
-    // Additional robust helper implementations
-    public static void purgeTaskQueue() {
-        packetTaskQueue.clear();
-    }
-
-    public static boolean isQueueEmpty() {
-        return packetTaskQueue.isEmpty();
-    }
-
-    public static void emergencyHalt(Minecraft client) {
-        forceReleaseAll(client);
-        purgeTaskQueue();
-    }
-
-    public static void processImmediateAttack(Minecraft client) {
-        if (client != null && client.player != null) {
-            executeRawAttack(client);
-        }
-    }
-
-    public static void processImmediateUse(Minecraft client) {
-        if (client != null && client.player != null) {
-            executeRawUse(client);
-        }
     }
 }
