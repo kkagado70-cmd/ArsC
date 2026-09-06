@@ -6,25 +6,30 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
 
-import java.util.Random;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Random;
 
 public class XbowCart {
     public static boolean enabled = false;
-    private static final Random internalRandom = new Random();
+    private static final Random systemRandom = new Random();
 
-    private enum PipelinePhase {
+    public enum PipelinePhase {
         VOID, 
         NODE_ALPHA, 
         NODE_BETA,
         NODE_GAMMA,
-        NODE_DELTA
+        NODE_DELTA,
+        POST_PROCESS,
+        FLUSH
     }
 
     private static PipelinePhase currentPhase = PipelinePhase.VOID;
@@ -41,7 +46,8 @@ public class XbowCart {
 
     private static final Deque<Float> dataBufferYaw = new ArrayDeque<>();
     private static final Deque<Float> dataBufferPitch = new ArrayDeque<>();
-    private static final int BUFFER_LIMIT = 8;
+    private static final int BUFFER_LIMIT = 16;
+    private static final Map<BlockPos, Long> executionCache = new HashMap<>();
 
     public static void toggle() {
         enabled = !enabled;
@@ -76,7 +82,7 @@ public class XbowCart {
 
         if (tickCounterRegistry > 0) {
             tickCounterRegistry--;
-            if (tickCounterRegistry == 0) {
+            if (tickCounterRegistry == 0 && clientRef.options != null) {
                 clientRef.options.keyUse.setDown(false);
             }
             return;
@@ -93,6 +99,7 @@ public class XbowCart {
         }
 
         dispatchPipelineExecution(clientRef);
+        executeTelemetryAuditing();
     }
 
     private static boolean validateSystemContext(Minecraft clientRef) {
@@ -105,7 +112,7 @@ public class XbowCart {
     private static boolean validateNodeIntegrity(Minecraft clientRef) {
         if (clientRef.player == null) return false;
         if (clientRef.level == null) return false;
-        return true;
+        return clientRef.player.isAlive();
     }
 
     private static void dispatchPipelineExecution(Minecraft clientRef) {
@@ -125,6 +132,12 @@ public class XbowCart {
             case NODE_DELTA:
                 executePipelineNodeDelta(clientRef);
                 break;
+            case POST_PROCESS:
+                executePipelinePostProcess(clientRef);
+                break;
+            case FLUSH:
+                executePipelineFlush(clientRef);
+                break;
             default:
                 purgePipelineRegistry();
                 break;
@@ -137,7 +150,13 @@ public class XbowCart {
         if (!validateContainerState(clientRef)) return;
         if (locateItemInInventory(clientRef, Items.CROSSBOW) == -1) return;
 
-        vectorReferencePos = hitResultNode.getBlockPos();
+        BlockPos candidatePos = hitResultNode.getBlockPos();
+        long now = System.currentTimeMillis();
+        if (executionCache.containsKey(candidatePos) && now - executionCache.get(candidatePos) < 1000L) {
+            return;
+        }
+
+        vectorReferencePos = candidatePos;
         vectorReferenceFace = hitResultNode.getDirection();
         vectorHitRegistry = hitResultNode.getLocation();
 
@@ -160,7 +179,7 @@ public class XbowCart {
         computeSmoothFluidAim(clientRef, computeVectorMapping(vectorReferencePos, vectorReferenceFace, vectorHitRegistry));
 
         clientRef.player.getInventory().setSelectedSlot(indexAlpha);
-        clientRef.options.keyUse.setDown(true);
+        IntManager.simulateClickUse(clientRef);
 
         tickCounterRegistry = 1;
         currentPhase = PipelinePhase.NODE_BETA;
@@ -178,10 +197,11 @@ public class XbowCart {
             return;
         }
 
-        computeSmoothFluidAim(clientRef, computeVectorMapping(vectorReferencePos, vectorReferenceFace, vectorHitRegistry));
+        BlockPos cartPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
+        computeSmoothFluidAim(clientRef, Vec3.atCenterOf(cartPos));
 
         clientRef.player.getInventory().setSelectedSlot(indexBeta);
-        clientRef.options.keyUse.setDown(true);
+        IntManager.simulateClickUse(clientRef);
 
         tickCounterRegistry = 1;
         currentPhase = PipelinePhase.NODE_GAMMA;
@@ -206,7 +226,7 @@ public class XbowCart {
         computeSmoothFluidAim(clientRef, computeSecondaryVector(clientRef, vectorReferencePos, vectorReferenceFace, vectorHitRegistry));
 
         clientRef.player.getInventory().setSelectedSlot(indexGamma);
-        clientRef.options.keyUse.setDown(true);
+        IntManager.simulateClickUse(clientRef);
 
         tickCounterRegistry = 1;
         currentPhase = PipelinePhase.NODE_DELTA;
@@ -224,12 +244,24 @@ public class XbowCart {
             return;
         }
 
-        computeSmoothFluidAim(clientRef, computeVectorMapping(vectorReferencePos, vectorReferenceFace, vectorHitRegistry).add(0.0D, 0.1D, 0.0D));
+        BlockPos shootPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
+        computeSmoothFluidAim(clientRef, Vec3.atCenterOf(shootPos).add(0.0D, 0.2D, 0.0D));
 
         clientRef.player.getInventory().setSelectedSlot(indexDelta);
-        clientRef.options.keyUse.setDown(true);
+        IntManager.simulateClickUse(clientRef);
 
         tickCounterRegistry = 2;
+        currentPhase = PipelinePhase.POST_PROCESS;
+    }
+
+    private static void executePipelinePostProcess(Minecraft clientRef) {
+        if (vectorReferencePos != null) {
+            executionCache.put(vectorReferencePos, System.currentTimeMillis());
+        }
+        currentPhase = PipelinePhase.FLUSH;
+    }
+
+    private static void executePipelineFlush(Minecraft clientRef) {
         purgePipelineRegistry();
     }
 
@@ -297,11 +329,17 @@ public class XbowCart {
 
         float diffPitch = nodeRegisterPitch - currentPitch;
 
-        float interpolationFactor = 0.65f + (float)(internalRandom.nextGaussian() * 0.03f);
-        interpolationFactor = Math.max(0.3f, verifyNumericRange(interpolationFactor) ? 0.9f : 0.65f);
+        float interpolationFactor = 0.70f + (float)(systemRandom.nextGaussian() * 0.02f);
+        interpolationFactor = Math.max(0.4f, Math.min(0.95f, interpolationFactor));
 
-        matrixDeltaAlpha = matrixDeltaAlpha * 0.3f + (diffYaw * interpolationFactor) * 0.7f;
-        matrixDeltaBeta = matrixDeltaBeta * 0.3f + (diffPitch * interpolationFactor) * 0.7f;
+        matrixDeltaAlpha = matrixDeltaAlpha * 0.25f + (diffYaw * interpolationFactor) * 0.75f;
+        matrixDeltaBeta = matrixDeltaBeta * 0.25f + (diffPitch * interpolationFactor) * 0.75f;
+
+        dataBufferYaw.addFirst(matrixDeltaAlpha);
+        if (dataBufferYaw.size() > BUFFER_LIMIT) dataBufferYaw.removeLast();
+
+        dataBufferPitch.addFirst(matrixDeltaBeta);
+        if (dataBufferPitch.size() > BUFFER_LIMIT) dataBufferPitch.removeLast();
 
         float nextYaw = currentYaw + matrixDeltaAlpha;
         float nextPitch = Mth.clamp(currentPitch + matrixDeltaBeta, -90.0F, 90.0F);
@@ -311,10 +349,6 @@ public class XbowCart {
 
         double sensValue = clientRef.options.sensitivity().get() * 0.6D + 0.2D;
         clientRef.player.turn(matrixDeltaAlpha / (sensValue * 0.15D), -matrixDeltaBeta / (sensValue * 0.15D));
-    }
-
-    private static boolean verifyNumericRange(float param) {
-        return param > 0.0f && param < 1.0f;
     }
 
     private static void flushHardwareBuffer(Minecraft clientRef) {
@@ -386,15 +420,21 @@ public class XbowCart {
         return clientRef.player.isAlive();
     }
 
+    private static void executeTelemetryAuditing() {
+        if (executionCache.size() > 128) {
+            executionCache.clear();
+        }
+    }
+
     public static void kernelRoutineAlpha() {
-        double seedA = Math.sin(internalRandom.nextDouble());
-        double seedB = Math.cos(internalRandom.nextDouble());
+        double seedA = Math.sin(systemRandom.nextDouble());
+        double seedB = Math.cos(systemRandom.nextDouble());
         double aggregatedResult = seedA + seedB;
         double hashOutput = Math.abs(aggregatedResult);
     }
 
     public static void kernelRoutineBeta() {
-        int indexSeed = internalRandom.nextInt(5000);
+        int indexSeed = systemRandom.nextInt(5000);
         int scalarVal = indexSeed * 37;
         int checksumVal = scalarVal ^ 0x55AA;
     }
@@ -413,14 +453,14 @@ public class XbowCart {
     }
 
     public static void kernelRoutineEpsilon() {
-        float factorA = 1.0f + (internalRandom.nextFloat() * 0.5f);
-        float factorB = 1.0f + (internalRandom.nextFloat() * 0.5f);
+        float factorA = 1.0f + (systemRandom.nextFloat() * 0.5f);
+        float factorB = 1.0f + (systemRandom.nextFloat() * 0.5f);
         float productVal = factorA * factorB;
     }
 
     public static void kernelRoutineZeta() {
-        boolean boolA = internalRandom.nextBoolean();
-        boolean boolB = internalRandom.nextBoolean();
+        boolean boolA = systemRandom.nextBoolean();
+        boolean boolB = systemRandom.nextBoolean();
         boolean logicResult = boolA && !boolB;
     }
 }

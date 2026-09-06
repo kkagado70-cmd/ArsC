@@ -10,18 +10,11 @@ import net.minecraft.world.item.AxeItem;
 import net.minecraft.world.item.ShieldItem;
 import net.minecraft.world.item.MaceItem;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.util.Mth;
-import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.EntityHitResult;
-import net.minecraft.world.phys.HitResult;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
-import java.util.Optional;
-import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -37,7 +30,7 @@ public class AutoMace implements ClientModInitializer {
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (mc.player == null || mc.level == null) return;
+            if (client.player == null || client.level == null) return;
             while (toggleKey.consumeClick()) {
                 enabled = !enabled;
                 HT1CombatController.getInstance().hardReset();
@@ -53,10 +46,6 @@ public class AutoMace implements ClientModInitializer {
         HT1CombatController.getInstance().hardReset();
     }
 
-    public static void onTick() {
-        onTick(Minecraft.getInstance());
-    }
-
     public static void onTick(Minecraft client) {
         if (client.player == null || client.level == null || !enabled) return;
         HT1CombatController.getInstance().onTick(client);
@@ -66,24 +55,19 @@ public class AutoMace implements ClientModInitializer {
         private static final HT1CombatController INSTANCE = new HT1CombatController();
         private final HT1Config config = new HT1Config();
         private final EliteTargetAuditor auditor = new EliteTargetAuditor();
-        private final HyperRotationEngine rotator = new HyperRotationEngine();
         private final InventoryOptimizer inventory = new InventoryOptimizer();
         private final MomentumStunEngine momentum = new MomentumStunEngine();
         private final AggressivePipeline pipeline = new AggressivePipeline();
 
-        public static HT1CombatController getInstance() {
-            return INSTANCE;
-        }
+        public static HT1CombatController getInstance() { return INSTANCE; }
 
         public void onTick(Minecraft client) {
             if (client.player == null || client.level == null) return;
             config.refresh();
-            pipeline.processFrame(client, config, auditor, rotator, inventory, momentum);
+            pipeline.processFrame(client, config, auditor, inventory, momentum);
         }
 
-        public void hardReset() {
-            pipeline.abortPipeline();
-        }
+        public void hardReset() { pipeline.abortPipeline(); }
     }
 
     public static class HT1Config {
@@ -94,7 +78,6 @@ public class AutoMace implements ClientModInitializer {
         private final int zeroLatencyDelay = 0;
 
         public void refresh() {}
-
         public double getMaxSwingRange() { return maxSwingRange; }
         public double getMaxAimRange() { return maxAimRange; }
         public double getMinFallDist() { return minFallDist; }
@@ -103,8 +86,8 @@ public class AutoMace implements ClientModInitializer {
     }
 
     public static class EliteTargetAuditor {
-        private final ConcurrentHashMap<UUID, Vec3> posHistory = new ConcurrentHashMap<>();
-        private final ConcurrentHashMap<UUID, Vec3> velocityHistory = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<UUID, net.minecraft.world.phys.Vec3> posHistory = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<UUID, net.minecraft.world.phys.Vec3> velocityHistory = new ConcurrentHashMap<>();
         private final ConcurrentHashMap<UUID, Long> timeHistory = new ConcurrentHashMap<>();
 
         public Player selectPrimaryTarget(Minecraft client, double radius) {
@@ -129,13 +112,13 @@ public class AutoMace implements ClientModInitializer {
 
         private void calculateVelocityVector(Player player) {
             long now = System.currentTimeMillis();
-            Vec3 current = player.position();
-            Vec3 prev = posHistory.getOrDefault(player.getUUID(), current);
+            net.minecraft.world.phys.Vec3 current = player.position();
+            net.minecraft.world.phys.Vec3 prev = posHistory.getOrDefault(player.getUUID(), current);
             long oldTime = timeHistory.getOrDefault(player.getUUID(), now);
 
             long elapsed = Math.max(1L, now - oldTime);
-            Vec3 diff = current.subtract(prev);
-            Vec3 velocity = new Vec3(
+            net.minecraft.world.phys.Vec3 diff = current.subtract(prev);
+            net.minecraft.world.phys.Vec3 velocity = new net.minecraft.world.phys.Vec3(
                 diff.x / (elapsed / 50.0D),
                 diff.y / (elapsed / 50.0D),
                 diff.z / (elapsed / 50.0D)
@@ -153,45 +136,9 @@ public class AutoMace implements ClientModInitializer {
             return factor;
         }
 
-        public Vec3 extrapolatePosition(Player player, double scale) {
-            Vec3 vel = velocityHistory.getOrDefault(player.getUUID(), Vec3.ZERO);
+        public net.minecraft.world.phys.Vec3 extrapolatePosition(Player player, double scale) {
+            net.minecraft.world.phys.Vec3 vel = velocityHistory.getOrDefault(player.getUUID(), net.minecraft.world.phys.Vec3.ZERO);
             return player.position().add(vel.scale(scale));
-        }
-    }
-
-    public static class HyperRotationEngine {
-        private final Random jitter = new Random();
-
-        public void snapToCoordinates(Vec3 target, float speed, boolean isDive) {
-            if (mc.player == null) return;
-
-            double dx = target.x - mc.player.getX();
-            double dy = target.y - mc.player.getEyeY();
-            double dz = target.z - mc.player.getZ();
-            double distPlane = Math.sqrt(dx * dx + dz * dz);
-
-            float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
-            float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, distPlane)));
-
-            float yawErr = Mth.wrapDegrees(targetYaw - mc.player.getYRot());
-            float pitchErr = Mth.wrapDegrees(targetPitch - mc.player.getXRot());
-
-            float velocityFactor = isDive ? 0.98F : speed;
-            float stepYaw = yawErr * (velocityFactor + (jitter.nextFloat() * 0.02F));
-            float stepPitch = pitchErr * (velocityFactor + (jitter.nextFloat() * 0.02F));
-
-            float rawYaw = mc.player.getYRot() + stepYaw;
-            float rawPitch = mc.player.getXRot() + stepPitch;
-
-            double sens = mc.options.sensitivity().get();
-            double m = sens * 0.6D + 0.2D;
-            double gcd = m * m * m * 8.0D * 0.15D;
-
-            float finalYaw = (float) (mc.player.getYRot() + Math.round((rawYaw - mc.player.getYRot()) / gcd) * gcd);
-            float finalPitch = (float) (mc.player.getXRot() + Math.round((rawPitch - mc.player.getXRot()) / gcd) * gcd);
-
-            mc.player.setYRot(finalYaw);
-            mc.player.setXRot(Mth.clamp(finalPitch, -90.0F, 90.0F));
         }
     }
 
@@ -291,16 +238,8 @@ public class AutoMace implements ClientModInitializer {
         private int ticksLeft = 0;
         private int startingSlotIndex = -1;
         private long watchdogTimer = 0L;
-        private int attackReleaseTimer = 0;
 
-        public void processFrame(Minecraft client, HT1Config cfg, EliteTargetAuditor auditor, HyperRotationEngine rotator, InventoryOptimizer inv, MomentumStunEngine momentum) {
-            if (attackReleaseTimer > 0) {
-                attackReleaseTimer--;
-                if (attackReleaseTimer == 0 && mc.options != null) {
-                    mc.options.keyAttack.setDown(false);
-                }
-            }
-
+        public void processFrame(Minecraft client, HT1Config cfg, EliteTargetAuditor auditor, InventoryOptimizer inv, MomentumStunEngine momentum) {
             if (ticksLeft > 0) {
                 ticksLeft--;
                 return;
@@ -344,9 +283,8 @@ public class AutoMace implements ClientModInitializer {
 
                 case AXE_HIT:
                     if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
-                        rotator.snapToCoordinates(auditor.extrapolatePosition(target, 0.2D), cfg.getHyperSnapSpeed(), diving);
-                        mc.options.keyAttack.setDown(true);
-                        attackReleaseTimer = 2;
+                        RotationManager.smoothTo(client, auditor.extrapolatePosition(target, 0.2D), cfg.getHyperSnapSpeed());
+                        IntManager.simulateClickAttack(client);
                         ticksLeft = cfg.getZeroLatencyDelay();
                         currentStage = State.MACE_PREP;
                     }
@@ -366,9 +304,8 @@ public class AutoMace implements ClientModInitializer {
                 case MACE_HIT:
                     boolean ready = fall >= cfg.getMinFallDist() || diving || momentum.isStunned(target);
                     if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && ready && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
-                        rotator.snapToCoordinates(auditor.extrapolatePosition(target, 0.2D), cfg.getHyperSnapSpeed(), diving);
-                        mc.options.keyAttack.setDown(true);
-                        attackReleaseTimer = 2;
+                        RotationManager.smoothTo(client, auditor.extrapolatePosition(target, 0.2D), cfg.getHyperSnapSpeed());
+                        IntManager.simulateClickAttack(client);
                         ticksLeft = cfg.getZeroLatencyDelay();
                         currentStage = State.COMPLETE;
                     }
@@ -395,4 +332,4 @@ public class AutoMace implements ClientModInitializer {
             watchdogTimer = 0L;
         }
     }
-                                       }
+}
