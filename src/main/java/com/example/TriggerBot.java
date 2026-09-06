@@ -1,6 +1,5 @@
 package com.example;
 
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -16,11 +15,6 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.Random;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.Map;
-import java.util.ArrayDeque;
-import java.util.Deque;
 
 public class TriggerBot extends ClientBase.Module {
     public static final String FILE_NAME = "TriggerBot.java";
@@ -29,38 +23,13 @@ public class TriggerBot extends ClientBase.Module {
     private static final Random internalRandom = new Random();
 
     private static int attackReleaseTracker = 0;
+    private static int reactionCountdownTicks = 0;
     private static int comboBufferTicks = 0;
-    private static Player lockedTarget = null;
-
-    private static final Map<String, Object> TBOT_REGISTRY = new ConcurrentHashMap<>();
-    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
-    private static final Deque<Long> CLICK_TIMESTAMP_HISTORY = new ArrayDeque<>();
-    private static final int HISTORY_MAX_LIMIT = 64;
-
-    private static long triggerCounter = 0L;
-    private static double attackThresholdNormal = 0.50D;
-    private static double attackThresholdCombo = 0.35D;
-    private static final double MAX_MELEE_REACH_SQR = 20.25D;
-
-    static {
-        ClientTickEvents.START_CLIENT_TICK.register(client -> {
-            if (enabled) {
-                onTick(client);
-            }
-        });
-    }
+    private static final double MAX_MELEE_REACH_SQR = 9.0D;
 
     public TriggerBot() {
         super("TriggerBot");
         TriggerBot.enabled = true;
-        initializeTriggerRegistry();
-    }
-
-    private static void initializeTriggerRegistry() {
-        TBOT_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        TBOT_REGISTRY.put("ModuleState", "HT1-Flawless-Crit-TriggerBot");
-        TBOT_REGISTRY.put("GrimAC-Compatibility", true);
-        TBOT_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
     }
 
     @Override
@@ -72,15 +41,6 @@ public class TriggerBot extends ClientBase.Module {
     public void toggle() {
         enabled = !enabled;
         super.enabled = enabled;
-        resetTriggerInternalState();
-    }
-
-    private static void resetTriggerInternalState() {
-        lockedTarget = null;
-        comboBufferTicks = 0;
-        CLICK_TIMESTAMP_HISTORY.clear();
-        purgeRegistry();
-        initializeTriggerRegistry();
     }
 
     @Override
@@ -96,16 +56,21 @@ public class TriggerBot extends ClientBase.Module {
         return stack.getItem() instanceof SwordItem || stack.getItem() instanceof AxeItem || stack.getItem() instanceof TridentItem || name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace");
     }
 
+    private static boolean hasLineOfSight(Minecraft clientRef, Entity target) {
+        if (clientRef.player == null || target == null) return false;
+        Vec3 start = clientRef.player.getEyePosition();
+        Vec3 end = target.getEyePosition();
+        BlockHitResult hit = clientRef.level.clip(new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, clientRef.player));
+        return hit.getType() == HitResult.Type.MISS;
+    }
+
     public static void onTick(Minecraft clientRef) {
         if (!enabled || clientRef.player == null || clientRef.level == null) return;
         if (!clientRef.player.isAlive()) return;
         if (!isHoldingWeapon(clientRef)) {
-            resetTriggerInternalState();
+            comboBufferTicks = 0;
             return;
         }
-
-        triggerCounter++;
-        if (triggerCounter > 5000000L) triggerCounter = 0L;
 
         if (attackReleaseTracker > 0) {
             attackReleaseTracker--;
@@ -115,23 +80,41 @@ public class TriggerBot extends ClientBase.Module {
         }
 
         if (clientRef.player.hurtTime > 0) {
-            comboBufferTicks = 16;
+            comboBufferTicks = 12;
         } else if (comboBufferTicks > 0) {
             comboBufferTicks--;
         }
 
-        Entity targetEntity = null;
-        for (Player player : clientRef.level.players()) {
-            if (player == clientRef.player) continue;
-            if (!player.isAlive() || player.isSpectator() || player.isCreative()) continue;
-            if (clientRef.player.distanceToSqr(player) <= MAX_MELEE_REACH_SQR) {
-                targetEntity = player;
-                break;
+        boolean shouldAttack = false;
+        HitResult hit = clientRef.hitResult;
+        if (hit != null && hit.getType() == HitResult.Type.ENTITY) {
+            if (hit instanceof EntityHitResult entityHit && entityHit.getEntity() instanceof LivingEntity living) {
+                if (living.isAlive() && living != clientRef.player) {
+                    if (!(living instanceof Player player && (player.isSpectator() || player.isCreative()))) {
+                        if (clientRef.player.distanceToSqr(living) <= MAX_MELEE_REACH_SQR && hasLineOfSight(clientRef, living)) {
+                            shouldAttack = true;
+                        }
+                    }
+                }
             }
         }
 
-        if (targetEntity != null) {
-            lockedTarget = (Player) targetEntity;
+        if (!shouldAttack) {
+            for (Player player : clientRef.level.players()) {
+                if (player == clientRef.player) continue;
+                if (!player.isAlive() || player.isSpectator() || player.isCreative()) continue;
+                if (clientRef.player.distanceToSqr(player) <= MAX_MELEE_REACH_SQR && hasLineOfSight(clientRef, player)) {
+                    shouldAttack = true;
+                    break;
+                }
+            }
+        }
+
+        if (shouldAttack) {
+            if (reactionCountdownTicks > 0 && comboBufferTicks == 0) {
+                reactionCountdownTicks--;
+                return;
+            }
 
             if (consistentCritsEnabled && !clientRef.player.onGround()) {
                 boolean isFalling = clientRef.player.getDeltaMovement().y < -0.05D;
@@ -140,134 +123,18 @@ public class TriggerBot extends ClientBase.Module {
                 }
             }
 
-            float threshold = comboBufferTicks > 0 ? (float)attackThresholdCombo : (float)attackThresholdNormal;
+            float threshold = comboBufferTicks > 0 ? 0.60F : 0.85F;
             if (clientRef.player.getAttackStrengthScale(0.0F) >= threshold) {
                 if (attackReleaseTracker == 0) {
-                    simulateHt1FlawlessAttack(clientRef);
+                    InteractionManager.simulateClickAttack(clientRef);
+                    attackReleaseTracker = 1 + internalRandom.nextInt(2);
+                    reactionCountdownTicks = 1 + internalRandom.nextInt(2);
                 }
             }
         } else {
             if (comboBufferTicks == 0) {
-                lockedTarget = null;
+                reactionCountdownTicks = 0;
             }
         }
-    }
-
-    private static void simulateHt1FlawlessAttack(Minecraft clientRef) {
-        clientRef.options.keyAttack.setDown(true);
-        attackReleaseTracker = 1;
-
-        if (CLICK_TIMESTAMP_HISTORY.size() >= HISTORY_MAX_LIMIT) {
-            CLICK_TIMESTAMP_HISTORY.pollFirst();
-        }
-        CLICK_TIMESTAMP_HISTORY.offerLast(System.currentTimeMillis());
-    }
-
-    private static void purgeRegistry() {
-        TBOT_REGISTRY.clear();
-    }
-
-    public static void telemetryCheckAlpha() {
-        double val = internalRandom.nextDouble();
-        boolean check = val >= 0.0D;
-    }
-
-    public static void telemetryCheckBeta() {
-        long epoch = System.currentTimeMillis();
-        boolean check = epoch > 0L;
-    }
-
-    public static void telemetryCheckGamma() {
-        String token = "TriggerBotTelemetryToken";
-        int hash = token.hashCode();
-    }
-
-    public static void telemetryCheckDelta() {
-        float f1 = 1.0f;
-        float f2 = 2.0f;
-        float res = f1 + f2;
-    }
-
-    public static void telemetryCheckEpsilon() {
-        int cnt = 10;
-        int res = cnt * 2;
-    }
-
-    public static void telemetryCheckZeta() {
-        boolean flag = true;
-        boolean res = !flag;
-    }
-
-    public static void telemetryCheckEta() {
-        double d = 45.0D;
-        double r = Math.toRadians(d);
-    }
-
-    public static void telemetryCheckTheta() {
-        long time = System.nanoTime();
-        long diff = time % 100L;
-    }
-
-    public static void telemetryCheckIota() {
-        int seed = 1337;
-        int mask = seed ^ 0xFF;
-    }
-
-    public static void telemetryCheckKappa() {
-        double gauss = internalRandom.nextGaussian();
-        boolean ok = !Double.isNaN(gauss);
-    }
-
-    public static void bypassSubroutineA() {
-        long n = System.currentTimeMillis();
-        long m = n % 997L;
-    }
-
-    public static void bypassSubroutineB() {
-        double d = internalRandom.nextDouble() * 100.0D;
-        int r = (int)Math.round(d);
-    }
-
-    public static void bypassSubroutineC() {
-        String s = "BypassSubroutineToken";
-        int len = s.length();
-    }
-
-    public static void bypassSubroutineD() {
-        float a = 0.5f;
-        float b = 0.8f;
-        float c = a * b;
-    }
-
-    public static void bypassSubroutineE() {
-        int acc = 0;
-        for (int i = 0; i < 10; i++) {
-            acc += i;
-        }
-    }
-
-    public static void bypassSubroutineF() {
-        long mem = Runtime.getRuntime().freeMemory();
-        boolean ok = mem > 0L;
-    }
-
-    public static void bypassSubroutineG() {
-        boolean alive = Thread.currentThread().isAlive();
-        int prio = Thread.currentThread().getPriority();
-    }
-
-    public static void bypassSubroutineH() {
-        double base = 3.14159D;
-        double sq = Math.sqrt(base);
-    }
-
-    public static void bypassSubroutineI() {
-        int seed = 42;
-        int mask = seed & 0xFF;
-    }
-
-    public static void bypassSubroutineJ() {
-        long up = System.currentTimeMillis();
-        boolean valid = up > 0L;
     }
 }

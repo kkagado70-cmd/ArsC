@@ -10,15 +10,6 @@ public class RotationManager {
     private static final SecureRandom secureRandom = new SecureRandom();
     private static float currentYaw = 0.0f;
     private static float currentPitch = 0.0f;
-    private static boolean active = false;
-
-    public static void initializeEngine() {
-        if (Minecraft.getInstance().player != null) {
-            currentYaw = Minecraft.getInstance().player.getYRot();
-            currentPitch = Minecraft.getInstance().player.getXRot();
-        }
-        active = false;
-    }
 
     public static void smoothTo(Minecraft client, Vec3 target, float factor) {
         if (client.player == null || target == null) return;
@@ -31,10 +22,13 @@ public class RotationManager {
         float calculatedYaw = (float) (Math.toDegrees(Math.atan2(diffZ, diffX)) - 90.0D);
         float calculatedPitch = (float) (-Math.toDegrees(Math.atan2(diffY, horizontalDistance)));
 
-        float targetYaw = currentYaw + Mth.wrapDegrees(calculatedYaw - currentYaw);
-        float targetPitch = Mth.clamp(calculatedPitch, -90.0F, 90.0F);
+        float noiseYaw = (float)((secureRandom.nextDouble() - 0.5) * 0.03D);
+        float noisePitch = (float)((secureRandom.nextDouble() - 0.5) * 0.03D);
 
-        float smooth = Mth.clamp(factor, 0.1f, 1.0f);
+        float targetYaw = currentYaw + Mth.wrapDegrees((calculatedYaw + noiseYaw) - currentYaw);
+        float targetPitch = Mth.clamp(calculatedPitch + noisePitch, -90.0F, 90.0F);
+
+        float smooth = Mth.clamp(factor + (float)((secureRandom.nextDouble() - 0.5) * 0.02D), 0.1f, 0.95f);
         currentYaw = currentYaw + (targetYaw - currentYaw) * smooth;
         currentPitch = currentPitch + (targetPitch - currentPitch) * smooth;
 
@@ -49,19 +43,4 @@ public class RotationManager {
             client.player.turn(deltaYaw / (gcd * 0.15D), deltaPitch / (gcd * 0.15D));
         }
     }
-
-    public static float[] calculateRotationsToPos(Vec3 targetPos, float currentYawRef) {
-        Minecraft client = Minecraft.getInstance();
-        if (client.player == null) return new float[]{0.0f, 0.0f};
-        double dx = targetPos.x - client.player.getX();
-        double dy = targetPos.y - client.player.getEyeY();
-        double dz = targetPos.z - client.player.getZ();
-        double hDist = Math.sqrt(dx * dx + dz * dz);
-        float yaw = (float) (Math.atan2(dz, dx) * (180.0 / Math.PI)) - 90.0F;
-        float pitch = (float) (-(Math.atan2(dy, hDist) * (180.0 / Math.PI)));
-        return new float[]{yaw, Mth.clamp(pitch, -90.0F, 90.0F)};
-    }
-
-    public static boolean isRotationActive() { return active; }
-    public static void purgeEngineState() { active = false; }
 }

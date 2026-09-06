@@ -1,6 +1,5 @@
 package com.example;
 
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -29,50 +28,46 @@ public class AimAssist extends ClientBase.Module {
     private static Entity lockedTarget = null;
     private static int targetLockTicks = 0;
 
-    private static final Map<String, Object> AIM_REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, Object> AIM_GIGACHAD_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static final Deque<Float> YAW_HISTORY_QUEUE = new ArrayDeque<>();
     private static final Deque<Float> PITCH_HISTORY_QUEUE = new ArrayDeque<>();
-    private static final int HISTORY_LIMIT = 128;
+    private static final int HISTORY_CAPACITY = 128;
 
-    private static double smoothingFactor = 0.35D;
-    private static float maxFovLimit = 360.0F;
-    private static double maxReachLimit = 4.5D;
-    private static long executionCounter = 0L;
-    private static boolean horizontalOnly = false;
-    private static int targetSwitchDelayTicks = 0;
-
-    static {
-        ClientTickEvents.START_CLIENT_TICK.register(client -> {
-            if (enabled) {
-                onTick(client);
-            }
-        });
-    }
-
-    public static class FlowtivesHermiteEngine {
-        public static float evaluate(float p0, float p1, float m0, float m1, float t) {
-            float t2 = t * t;
-            float t3 = t2 * t;
-            float h00 = 2.0f * t3 - 3.0f * t2 + 1.0f;
-            float h10 = t3 - 2.0f * t2 + t;
-            float h01 = -2.0f * t3 + 3.0f * t2;
-            float h11 = t3 - t2;
-            return h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1;
-        }
-    }
+    private static double kinematicSmoothingRate = 0.22D;
+    private static double stochasticJitterScale = 0.007D;
+    private static float maximumFovAngle = 75.0F;
+    private static double maximumReachBound = 4.0D;
+    private static long globalExecutionCounter = 0L;
+    private static boolean windMouseEngineActive = true;
+    private static boolean horizontalAxisOnly = false;
+    private static boolean gcdCorrectionActive = true;
+    private static double cumulativeWindX = 0.0D;
+    private static double cumulativeWindY = 0.0D;
+    private static int targetSwitchThrottleTicks = 0;
 
     public AimAssist() {
         super("AimAssist");
         AimAssist.enabled = true;
-        initializeRegistry();
+        initializeGigachadRegistry();
     }
 
-    private static void initializeRegistry() {
-        AIM_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        AIM_REGISTRY.put("Profile", "HT1-Flowtives-360-Flick");
-        AIM_REGISTRY.put("BypassEngine", "GrimAC-Vulcan-360-Fluid");
-        AIM_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+    private static void initializeGigachadRegistry() {
+        AIM_GIGACHAD_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        AIM_GIGACHAD_REGISTRY.put("Profile", "Vulcan-Grim-Gcd-Bypass-AimAssist");
+        AIM_GIGACHAD_REGISTRY.put("BypassEngine", "Ultimate-AntiCheat-Evading-System");
+        AIM_GIGACHAD_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        AIM_GIGACHAD_REGISTRY.put("BufferFlushCounter", 0);
+        AIM_GIGACHAD_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
+        AIM_GIGACHAD_REGISTRY.put("WindMouseState", windMouseEngineActive);
+        AIM_GIGACHAD_REGISTRY.put("GcdCorrectionState", gcdCorrectionActive);
+        AIM_GIGACHAD_REGISTRY.put("SmoothingFactor", kinematicSmoothingRate);
+        AIM_GIGACHAD_REGISTRY.put("JitterScale", stochasticJitterScale);
+        AIM_GIGACHAD_REGISTRY.put("MaxFov", maximumFovAngle);
+        AIM_GIGACHAD_REGISTRY.put("MaxReach", maximumReachBound);
+        AIM_GIGACHAD_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
+        AIM_GIGACHAD_REGISTRY.put("ActiveTargetState", false);
+        AIM_GIGACHAD_REGISTRY.put("HistoryBufferSize", 0);
     }
 
     @Override
@@ -84,17 +79,19 @@ public class AimAssist extends ClientBase.Module {
     public void toggle() {
         enabled = !enabled;
         super.enabled = enabled;
-        resetAimSubsystem();
+        hardResetAimSubsystem();
     }
 
-    private static void resetAimSubsystem() {
+    private static void hardResetAimSubsystem() {
         lockedTarget = null;
         targetLockTicks = 0;
-        targetSwitchDelayTicks = 0;
+        targetSwitchThrottleTicks = 0;
+        cumulativeWindX = 0.0D;
+        cumulativeWindY = 0.0D;
         YAW_HISTORY_QUEUE.clear();
         PITCH_HISTORY_QUEUE.clear();
-        purgeRegistry();
-        initializeRegistry();
+        purgeGigachadRegistry();
+        initializeGigachadRegistry();
     }
 
     @Override
@@ -102,7 +99,7 @@ public class AimAssist extends ClientBase.Module {
         onTick(clientRef);
     }
 
-    private static boolean isHoldingWeapon(Minecraft clientRef) {
+    private static boolean validateWeaponContext(Minecraft clientRef) {
         if (clientRef.player == null) return false;
         ItemStack stack = clientRef.player.getMainHandItem();
         if (stack.isEmpty()) return false;
@@ -110,53 +107,64 @@ public class AimAssist extends ClientBase.Module {
         return stack.getItem() instanceof SwordItem || stack.getItem() instanceof AxeItem || stack.getItem() instanceof TridentItem || name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace");
     }
 
+    private static boolean verifyLineOfSight(Minecraft clientRef, Entity target) {
+        if (clientRef.player == null || target == null) return false;
+        Vec3 start = clientRef.player.getEyePosition();
+        Vec3 end = target.getEyePosition();
+        BlockHitResult hit = clientRef.level.clip(new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, clientRef.player));
+        return hit.getType() == HitResult.Type.MISS;
+    }
+
     public static void onTick(Minecraft clientRef) {
         if (!enabled || clientRef.player == null || clientRef.level == null) return;
         if (!clientRef.player.isAlive()) return;
-        if (!isHoldingWeapon(clientRef)) {
-            resetAimSubsystem();
+        if (!validateWeaponContext(clientRef)) {
+            hardResetAimSubsystem();
             return;
         }
 
-        executionCounter++;
-        executeDiagnosticRoutine();
+        globalExecutionCounter++;
+        executeSubsystemDiagnostics();
 
-        if (targetSwitchDelayTicks > 0) {
-            targetSwitchDelayTicks--;
+        if (targetSwitchThrottleTicks > 0) {
+            targetSwitchThrottleTicks--;
         }
 
-        Entity target = getSmartTarget(clientRef);
+        Entity target = evaluateSmartTarget(clientRef);
         if (target != null) {
-            executeFlowtives360Aim(clientRef, target);
+            executeGcdAwareAimPipeline(clientRef, target);
         } else {
             lockedTarget = null;
             targetLockTicks = 0;
+            cumulativeWindX = 0.0D;
+            cumulativeWindY = 0.0D;
         }
     }
 
-    private static Entity getSmartTarget(Minecraft clientRef) {
+    private static Entity evaluateSmartTarget(Minecraft clientRef) {
         if (lockedTarget != null) {
-            if (lockedTarget.isAlive() && clientRef.player.distanceToSqr(lockedTarget) <= (maxReachLimit * maxReachLimit)) {
+            if (lockedTarget.isAlive() && clientRef.player.distanceToSqr(lockedTarget) <= (maximumReachBound * maximumReachBound) && computeFovCheck(clientRef, lockedTarget, maximumFovAngle) && verifyLineOfSight(clientRef, lockedTarget)) {
                 targetLockTicks++;
-                if (targetLockTicks < 500) {
+                if (targetLockTicks < 300) {
                     return lockedTarget;
                 }
             }
             lockedTarget = null;
             targetLockTicks = 0;
-            targetSwitchDelayTicks = 2;
+            targetSwitchThrottleTicks = 5 + internalRandom.nextInt(5);
         }
 
-        if (targetSwitchDelayTicks > 0) return null;
+        if (targetSwitchThrottleTicks > 0) return null;
 
         Entity bestEntity = null;
-        double minDistanceSqr = (maxReachLimit * maxReachLimit) + 1.0D;
+        double minDistanceSqr = (maximumReachBound * maximumReachBound) + 1.0D;
 
         for (Player player : clientRef.level.players()) {
             if (player == clientRef.player) continue;
             if (!player.isAlive() || player.isSpectator() || player.isCreative()) continue;
             double distSqr = clientRef.player.distanceToSqr(player);
-            if (distSqr > (maxReachLimit * maxReachLimit)) continue;
+            if (distSqr > (maximumReachBound * maximumReachBound)) continue;
+            if (!verifyLineOfSight(clientRef, player)) continue;
 
             if (distSqr < minDistanceSqr) {
                 minDistanceSqr = distSqr;
@@ -171,137 +179,223 @@ public class AimAssist extends ClientBase.Module {
         return lockedTarget;
     }
 
-    private static void executeFlowtives360Aim(Minecraft clientRef, Entity target) {
-        Vec3 targetPos = target.position().add(0.0D, target.getBbHeight() * 0.55D, 0.0D);
-        
+    private static boolean computeFovCheck(Minecraft clientRef, Entity entity, double maxAngle) {
+        double angle = computeAngleOffset(clientRef, entity);
+        return angle <= maxAngle;
+    }
+
+    private static double computeAngleOffset(Minecraft clientRef, Entity entity) {
+        Vec3 targetPos = entity.position();
         double deltaX = targetPos.x - clientRef.player.getX();
-        double deltaY = targetPos.y - clientRef.player.getEyeY();
         double deltaZ = targetPos.z - clientRef.player.getZ();
-        double hDist = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
-
         float targetYaw = (float) (Math.atan2(deltaZ, deltaX) * (180.0 / Math.PI)) - 90.0F;
-        float targetPitch = (float) (-(Math.atan2(deltaY, hDist) * (180.0 / Math.PI)));
-        targetPitch = Mth.clamp(targetPitch, -89.0F, 89.0F);
-
         float currentYaw = clientRef.player.getYRot();
-        float currentPitch = clientRef.player.getXRot();
-        float yawDiff = Mth.wrapDegrees(targetYaw - currentYaw);
-        float pitchDiff = targetPitch - currentPitch;
-
-        float smooth = (float)smoothingFactor;
-        float nextYaw = currentYaw + yawDiff * smooth;
-
-        float nextPitch = currentPitch;
-        if (!horizontalOnly) {
-            nextPitch = Mth.clamp(currentPitch + pitchDiff * smooth, -89.0F, 89.0F);
-        }
-
-        appendAimHistory(nextYaw, nextPitch);
-        clientRef.player.setYRot(nextYaw);
-        if (!horizontalOnly) {
-            clientRef.player.setXRot(nextPitch);
-        }
-        applyGcdTurn(clientRef, currentYaw, nextYaw, horizontalOnly ? 0.0D : (nextPitch - currentPitch));
-        updateRegistryMetrics();
+        return Math.abs(Mth.wrapDegrees(targetYaw - currentYaw));
     }
 
-    private static void appendAimHistory(float yaw, float pitch) {
-        if (YAW_HISTORY_QUEUE.size() >= HISTORY_LIMIT) {
-            YAW_HISTORY_QUEUE.pollFirst();
-        }
-        YAW_HISTORY_QUEUE.offerLast(yaw);
+    private static void executeGcdAwareAimPipeline(Minecraft clientRef, Entity target) {
+        Vec3 targetVelocityPrediction = target.getDeltaMovement().scale(1.25D);
+        Vec3 resolvedTargetPos = target.position().add(targetVelocityPrediction);
+        
+        double deltaX = resolvedTargetPos.x - clientRef.player.getX();
+        double deltaY = resolvedTargetPos.y - clientRef.player.getEyeY();
+        double deltaZ = resolvedTargetPos.z - clientRef.player.getZ();
+        double horizontalDistance = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
 
-        if (PITCH_HISTORY_QUEUE.size() >= HISTORY_LIMIT) {
-            PITCH_HISTORY_QUEUE.pollFirst();
+        float calculatedTargetYaw = (float) (Math.atan2(deltaZ, deltaX) * (180.0 / Math.PI)) - 90.0F;
+        float calculatedTargetPitch = (float) (-(Math.atan2(deltaY, horizontalDistance) * (180.0 / Math.PI)));
+        calculatedTargetPitch = Mth.clamp(calculatedTargetPitch, -89.0F, 89.0F);
+
+        float playerCurrentYaw = clientRef.player.getYRot();
+        float playerCurrentPitch = clientRef.player.getXRot();
+        float yawDifference = Mth.wrapDegrees(calculatedTargetYaw - playerCurrentYaw);
+        float pitchDifference = calculatedTargetPitch - playerCurrentPitch;
+
+        if (windMouseEngineActive) {
+            cumulativeWindX = cumulativeWindX / Math.sqrt(3.0D) + (internalRandom.nextGaussian() * 2.2D) / Math.sqrt(5.0D);
+            if (!horizontalAxisOnly) {
+                cumulativeWindY = cumulativeWindY / Math.sqrt(3.0D) + (internalRandom.nextGaussian() * 2.2D) / Math.sqrt(5.0D);
+            }
+
+            float curveStepYaw = (float) (yawDifference / 11.0D + cumulativeWindX * 0.03D);
+            float noiseYaw = (float)(internalRandom.nextGaussian() * stochasticJitterScale);
+            float nextEvaluatedYaw = playerCurrentYaw + curveStepYaw + noiseYaw;
+
+            float nextEvaluatedPitch = playerCurrentPitch;
+            if (!horizontalAxisOnly) {
+                float curveStepPitch = (float) (pitchDifference / 11.0D + cumulativeWindY * 0.03D);
+                float noisePitch = (float)(internalRandom.nextGaussian() * stochasticJitterScale);
+                nextEvaluatedPitch = Mth.clamp(playerCurrentPitch + curveStepPitch + noisePitch, -89.0F, 89.0F);
+            }
+
+            if (gcdCorrectionActive) {
+                nextEvaluatedYaw = applyGcdGridSnap(clientRef, playerCurrentYaw, nextEvaluatedYaw);
+            }
+
+            pushHistoryBuffers(nextEvaluatedYaw, nextEvaluatedPitch);
+            clientRef.player.setYRot(nextEvaluatedYaw);
+            if (!horizontalAxisOnly) {
+                clientRef.player.setXRot(nextEvaluatedPitch);
+            }
+            applyGcdHardwareTurnSimulation(clientRef, playerCurrentYaw, nextEvaluatedYaw, horizontalAxisOnly ? 0.0D : (nextEvaluatedPitch - playerCurrentPitch));
+        } else {
+            float dynamicSmooth = (float)(kinematicSmoothingRate + (internalRandom.nextGaussian() * 0.02D));
+            dynamicSmooth = Mth.clamp(dynamicSmooth, 0.10f, 0.42f);
+
+            float nextEvaluatedYaw = playerCurrentYaw + yawDifference * dynamicSmooth + (float)(internalRandom.nextGaussian() * stochasticJitterScale);
+            float nextEvaluatedPitch = playerCurrentPitch;
+            if (!horizontalAxisOnly) {
+                nextEvaluatedPitch = Mth.clamp(playerCurrentPitch + pitchDifference * dynamicSmooth + (float)(internalRandom.nextGaussian() * stochasticJitterScale), -89.0F, 89.0F);
+            }
+
+            if (gcdCorrectionActive) {
+                nextEvaluatedYaw = applyGcdGridSnap(clientRef, playerCurrentYaw, nextEvaluatedYaw);
+            }
+
+            pushHistoryBuffers(nextEvaluatedYaw, nextEvaluatedPitch);
+            clientRef.player.setYRot(nextEvaluatedYaw);
+            if (!horizontalAxisOnly) {
+                clientRef.player.setXRot(nextEvaluatedPitch);
+            }
+            applyGcdHardwareTurnSimulation(clientRef, playerCurrentYaw, nextEvaluatedYaw, horizontalAxisOnly ? 0.0D : (nextEvaluatedPitch - playerCurrentPitch));
         }
-        PITCH_HISTORY_QUEUE.offerLast(pitch);
+
+        refreshAimRegistryState();
     }
 
-    private static void applyGcdTurn(Minecraft clientRef, float currentYaw, float nextYaw, double deltaPitch) {
+    private static float applyGcdGridSnap(Minecraft clientRef, float currentYaw, float targetYaw) {
+        if (clientRef.options == null) return targetYaw;
+        double sensitivity = clientRef.options.sensitivity().get() * 0.6D + 0.2D;
+        double gcd = sensitivity * sensitivity * sensitivity * 8.0D;
+        if (gcd <= 0.0D) return targetYaw;
+        double deltaYaw = targetYaw - currentYaw;
+        double clampedDelta = Math.round(deltaYaw / (gcd * 0.15D)) * (gcd * 0.15D);
+        return currentYaw + (float)clampedDelta;
+    }
+
+    private static void pushHistoryBuffers(float yawVal, float pitchVal) {
+        if (YAW_HISTORY_BUFFER.size() >= HISTORY_CAPACITY) {
+            YAW_HISTORY_BUFFER.pollFirst();
+        }
+        YAW_HISTORY_BUFFER.offerLast(yawVal);
+
+        if (PITCH_HISTORY_BUFFER.size() >= HISTORY_CAPACITY) {
+            PITCH_HISTORY_BUFFER.pollFirst();
+        }
+        PITCH_HISTORY_BUFFER.offerLast(pitchVal);
+    }
+
+    private static void applyGcdHardwareTurnSimulation(Minecraft clientRef, float currentYaw, float nextYaw, double deltaPitch) {
         if (clientRef.options != null) {
             double sensitivity = clientRef.options.sensitivity().get() * 0.6D + 0.2D;
             double gcd = sensitivity * sensitivity * sensitivity * 8.0D;
             if (gcd > 0.0D) {
                 double deltaYawAngle = (nextYaw - currentYaw);
-                double deltaPitchAngle = deltaPitch;
-                clientRef.player.turn(deltaYawAngle / (gcd * 0.15D), deltaPitchAngle / (gcd * 0.15D));
+                clientRef.player.turn(deltaYawAngle / (gcd * 0.15D), deltaPitch / (gcd * 0.15D));
             }
         }
     }
 
-    private static void updateRegistryMetrics() {
-        AIM_REGISTRY.put("ExecutionCounter", executionCounter);
+    private static void refreshAimRegistryState() {
+        AIM_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
         AIM_REGISTRY.put("ActiveLockState", lockedTarget != null);
-        AIM_REGISTRY.put("HistoryQueueSize", YAW_HISTORY_QUEUE.size());
+        AIM_REGISTRY.put("WindOffset", cumulativeWindX);
+        AIM_REGISTRY.put("HistoryQueueSize", YAW_HISTORY_BUFFER.size());
     }
 
-    private static void executeDiagnosticRoutine() {
-        if (executionCounter > 4000000L) {
-            executionCounter = 0L;
+    private static void executeSubsystemDiagnostics() {
+        if (globalExecutionCounter > 5000000L) {
+            globalExecutionCounter = 0L;
         }
-        if (AIM_REGISTRY.size() > 80) {
-            purgeRegistry();
-            initializeRegistry();
+        if (AIM_REGISTRY.size() > 90) {
+            purgeAimRegistry();
+            initializeAimSubsystemRegistry();
         }
     }
 
-    private static void purgeRegistry() {
+    private static void purgeAimRegistry() {
         AIM_REGISTRY.clear();
     }
 
-    public static void auxiliaryTelemetrySubroutineA() {
-        long epochMark = System.currentTimeMillis();
-        long computedDelta = epochMark % 997L;
-        boolean checkState = computedDelta > 0L;
+    public static boolean verifySubsystemHealth() {
+        return enabled && SUBSESSION_IDENTITY != null;
     }
 
-    public static void auxiliaryTelemetrySubroutineB() {
-        double telemetryFactor = internalRandom.nextDouble() * 100.0D;
-        int roundedTelemetry = (int)Math.round(telemetryFactor);
-        boolean parityCheck = (roundedTelemetry % 2) == 0;
+    public static long getGlobalExecutionCounter() {
+        return globalExecutionCounter;
     }
 
-    public static void auxiliaryTelemetrySubroutineC() {
-        String diagnosticString = "AimAssistRuntimeDiagnosticToken";
-        int stringLengthCheck = diagnosticString.length();
-        boolean validityFlag = stringLengthCheck == 30;
+    public static void setKinematicSmoothing(double value) {
+        kinematicSmoothingRate = value;
     }
 
-    public static void auxiliaryTelemetrySubroutineD() {
-        float internalScalarA = 0.5f;
-        float internalScalarB = 0.8f;
-        float combinedScalar = internalScalarA * internalScalarB;
+    public static double getKinematicSmoothing() {
+        return kinematicSmoothingRate;
     }
 
-    public static void auxiliaryTelemetrySubroutineE() {
-        int accumulator = 0;
-        for (int i = 0; i < 10; i++) {
-            accumulator += i;
+    public static void toggleWindMouseEngine(boolean state) {
+        windMouseEngineActive = state;
+    }
+
+    public static boolean isWindMouseEngineActive() {
+        return windMouseEngineActive;
+    }
+
+    public static void toggleHorizontalAxisOnly(boolean state) {
+        horizontalAxisOnly = state;
+    }
+
+    public static boolean isHorizontalAxisOnly() {
+        return horizontalAxisOnly;
+    }
+
+    public static void toggleGcdCorrection(boolean state) {
+        gcdCorrectionActive = state;
+    }
+
+    public static boolean isGcdCorrectionActive() {
+        return gcdCorrectionActive;
+    }
+
+    public static int getYawHistorySize() {
+        return YAW_HISTORY_BUFFER.size();
+    }
+
+    public static int getPitchHistorySize() {
+        return PITCH_HISTORY_BUFFER.size();
+    }
+
+    public static void runBaselineCalibration() {
+        kinematicSmoothingRate = 0.22D;
+        stochasticJitterScale = 0.007D;
+        maximumFovAngle = 75.0F;
+        maximumReachBound = 4.0D;
+        windMouseEngineActive = true;
+        horizontalAxisOnly = false;
+        gcdCorrectionActive = true;
+        cumulativeWindX = 0.0D;
+        cumulativeWindY = 0.0D;
+    }
+
+    public static void executeExtendedDiagnosticFlush() {
+        executeSubsystemDiagnostics();
+        if (YAW_HISTORY_BUFFER.size() > HISTORY_CAPACITY) {
+            YAW_HISTORY_BUFFER.clear();
+        }
+        if (PITCH_HISTORY_BUFFER.size() > HISTORY_CAPACITY) {
+            PITCH_HISTORY_BUFFER.clear();
         }
     }
 
-    public static void auxiliaryTelemetrySubroutineF() {
-        long memoryAllocationRef = Runtime.getRuntime().freeMemory();
-        boolean memoryCheckPass = memoryAllocationRef > 0L;
+    public static double getWindOffsetX() {
+        return cumulativeWindX;
     }
 
-    public static void auxiliaryTelemetrySubroutineG() {
-        boolean threadContextCheck = Thread.currentThread().isAlive();
-        int priorityLevel = Thread.currentThread().getPriority();
+    public static double getWindOffsetY() {
+        return cumulativeWindY;
     }
 
-    public static void auxiliaryTelemetrySubroutineH() {
-        double baseVal = 3.141592653589793D;
-        double sqrtVal = Math.sqrt(baseVal);
-    }
-
-    public static void auxiliaryTelemetrySubroutineI() {
-        int tokenSeed = 42;
-        int bitwiseMask = tokenSeed & 0xFF;
-    }
-
-    public static void auxiliaryTelemetrySubroutineJ() {
-        long currentUptime = System.currentTimeMillis();
-        boolean uptimeValidity = currentUptime > 0L;
+    public static UUID getSubsessionIdentity() {
+        return SUBSESSION_IDENTITY;
     }
 }

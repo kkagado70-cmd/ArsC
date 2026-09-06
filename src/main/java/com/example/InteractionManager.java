@@ -14,7 +14,7 @@ public class InteractionManager {
     private static int useHoldTicks = 0;
     private static boolean attackSimulated = false;
     private static boolean useSimulated = false;
-    private static long interactionCooldownTracker = 0L;
+    private static long lastPacketExecutionEpoch = 0L;
 
     public static class InteractionPacketTask {
         public final boolean isAttack;
@@ -28,7 +28,6 @@ public class InteractionManager {
 
     public static void update(Minecraft client) {
         if (client == null || client.options == null) return;
-
         processQueue(client);
 
         if (attackHoldTicks > 0) {
@@ -50,6 +49,8 @@ public class InteractionManager {
 
     private static void processQueue(Minecraft client) {
         long now = System.currentTimeMillis();
+        if (now - lastPacketExecutionEpoch < 25L) return;
+
         while (!packetTaskQueue.isEmpty() && packetTaskQueue.peek().executionTimestamp <= now) {
             InteractionPacketTask task = packetTaskQueue.poll();
             if (task != null) {
@@ -58,19 +59,21 @@ public class InteractionManager {
                 } else {
                     executeRawUse(client);
                 }
+                lastPacketExecutionEpoch = now;
+                break;
             }
         }
     }
 
     public static void simulateClickUse(Minecraft client) {
         if (client == null || client.options == null) return;
-        long jitterDelay = secureRandom.nextInt(10);
+        long jitterDelay = 15 + secureRandom.nextInt(20);
         packetTaskQueue.add(new InteractionPacketTask(false, jitterDelay));
     }
 
     public static void simulateClickAttack(Minecraft client) {
         if (client == null || client.options == null) return;
-        long jitterDelay = secureRandom.nextInt(10);
+        long jitterDelay = 15 + secureRandom.nextInt(20);
         packetTaskQueue.add(new InteractionPacketTask(true, jitterDelay));
     }
 
