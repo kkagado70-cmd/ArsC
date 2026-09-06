@@ -34,32 +34,37 @@ public class ClickGUI extends Screen {
         int bw = 140, bh = 20;
 
         this.addRenderableWidget(Button.builder(
-                Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")),
-                btn -> {
-                    AutoMace.enabled = !AutoMace.enabled;
-                    btn.setMessage(Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")));
-                }
-        ).bounds(cx - bw / 2, cy - 30, bw, bh).build());
-
-        this.addRenderableWidget(Button.builder(
                 Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")),
                 btn -> {
                     XbowCart.enabled = !XbowCart.enabled;
                     btn.setMessage(Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")));
+                }
+        ).bounds(cx - bw / 2, cy - 50, bw, bh).build());
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal("AimAssist: " + (AimAssist.enabled ? "§aON" : "§cOFF")),
+                btn -> {
+                    AimAssist.enabled = !AimAssist.enabled;
+                    btn.setMessage(Component.literal("AimAssist: " + (AimAssist.enabled ? "§aON" : "§cOFF")));
+                }
+        ).bounds(cx - bw / 2, cy - 20, bw, bh).build());
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal("TriggerBot: " + (TriggerBot.enabled ? "§aON" : "§cOFF")),
+                btn -> {
+                    TriggerBot.enabled = !TriggerBot.enabled;
+                    btn.setMessage(Component.literal("TriggerBot: " + (TriggerBot.enabled ? "§aON" : "§cOFF")));
                 }
         ).bounds(cx - bw / 2, cy + 10, bw, bh).build());
 
         this.addRenderableWidget(Button.builder(
                 Component.literal("Fechar"),
                 btn -> this.onClose()
-        ).bounds(cx - 40, cy + 50, 80, 20).build());
+        ).bounds(cx - 40, cy + 45, 80, 20).build());
     }
 
     @Override
     public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        // Screen.render() já cuida do renderBackground() internamente na 1.21.11.
-        // Chamar renderBackground() manualmente antes causava blur duplicado
-        // e o crash "Can only blur once per frame".
         super.render(context, mouseX, mouseY, delta);
     }
 

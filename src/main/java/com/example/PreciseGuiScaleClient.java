@@ -4,33 +4,28 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.KeyMapping;
-import net.minecraft.resources.Identifier;
+import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
 public class PreciseGuiScaleClient implements ClientModInitializer {
-    private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(
-            Identifier.fromNamespaceAndPath("preciseguiscale", "main")
-    );
-
-    private static KeyMapping openGuiKey;
+    private static KeyMapping guiKeyBinding;
 
     @Override
     public void onInitializeClient() {
-        openGuiKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.preciseguiscale.open_gui",
+        guiKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.example.clickgui",
+                InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_RIGHT_SHIFT,
-                CATEGORY
+                "key.categories.misc"
         ));
 
-        ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (openGuiKey.consumeClick()) {
-                if (ClickGUI.isOpen()) ClickGUI.close();
-                else ClickGUI.open();
-            }
-
-            if (client.player != null) {
-                if (AutoMace.enabled) AutoMace.onTick(client);
-                if (XbowCart.enabled) XbowCart.onTick(client);
+        ClientTickEvents.START_CLIENT_TICK.register(client -> {
+            while (guiKeyBinding.consumeClick()) {
+                if (client.screen == null) {
+                    client.setScreen(new ClickGUI());
+                } else if (client.screen instanceof ClickGUI) {
+                    client.setScreen(null);
+                }
             }
         });
     }

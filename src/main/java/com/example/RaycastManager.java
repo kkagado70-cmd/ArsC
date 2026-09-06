@@ -110,4 +110,24 @@ public class RaycastManager {
             client.player
         )).getType() == HitResult.Type.MISS;
     }
+
+    // Additional robust expansion helpers
+    public static boolean isLookingAtAir(Minecraft client) {
+        return client != null && client.hitResult != null && client.hitResult.getType() == HitResult.Type.MISS;
+    }
+
+    public static Entity findTargetEntityInCrosshair(Minecraft client, double range) {
+        EntityHitResult hit = getEntityHit(client);
+        if (hit != null && isEntityWithinRange(client, hit.getEntity(), range)) {
+            return hit.getEntity();
+        }
+        return null;
+    }
+
+    public static void refreshRaycastState(Minecraft client) {
+        if (client != null) {
+            getValidHit(client);
+            getEntityHit(client);
+        }
+    }
 }

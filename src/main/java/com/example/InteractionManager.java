@@ -15,7 +15,7 @@ public class InteractionManager {
     private static boolean useSimulated = false;
     private static long interactionCooldownTracker = 0L;
     private static boolean burstModeActive = false;
-    private static int burstCounter = 0;
+    private static int burstCount = 0;
 
     public static class InteractionPacketTask {
         public final boolean isAttack;
@@ -176,5 +176,31 @@ public class InteractionManager {
 
     public static boolean isBurstModeActive() {
         return burstModeActive;
+    }
+
+    // Additional robust helper implementations
+    public static void purgeTaskQueue() {
+        packetTaskQueue.clear();
+    }
+
+    public static boolean isQueueEmpty() {
+        return packetTaskQueue.isEmpty();
+    }
+
+    public static void emergencyHalt(Minecraft client) {
+        forceReleaseAll(client);
+        purgeTaskQueue();
+    }
+
+    public static void processImmediateAttack(Minecraft client) {
+        if (client != null && client.player != null) {
+            executeRawAttack(client);
+        }
+    }
+
+    public static void processImmediateUse(Minecraft client) {
+        if (client != null && client.player != null) {
+            executeRawUse(client);
+        }
     }
 }

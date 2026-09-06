@@ -194,12 +194,7 @@ public class AutoMace implements ClientModInitializer {
         public int getMaceSlot() { return cachedMace; }
 
         public void swapSlot(int slot) {
-            if (mc.player == null) return;
-            mc.player.getInventory().setSelectedSlot(slot);
-            if (slot >= 0 && slot < 9) {
-                mc.options.keyHotbarSlots[slot].setDown(true);
-                mc.options.keyHotbarSlots[slot].setDown(false);
-            }
+            InventoryManager.selectSlot(mc, slot);
         }
     }
 
@@ -265,7 +260,7 @@ public class AutoMace implements ClientModInitializer {
 
             switch (currentStage) {
                 case INACTIVE:
-                    startingSlotIndex = client.player.getInventory().getSelectedSlot();
+                    startingSlotIndex = client.player.getInventory().selected;
                     currentStage = shield ? State.AXE_PREP : State.MACE_PREP;
                     watchdogTimer = System.currentTimeMillis() + 1000L;
                     break;
@@ -284,7 +279,7 @@ public class AutoMace implements ClientModInitializer {
                 case AXE_HIT:
                     if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
                         RotationManager.smoothTo(client, auditor.extrapolatePosition(target, 0.2D), cfg.getHyperSnapSpeed());
-                        IntManager.simulateClickAttack(client);
+                        InteractionManager.simulateClickAttack(client);
                         ticksLeft = cfg.getZeroLatencyDelay();
                         currentStage = State.MACE_PREP;
                     }
@@ -305,7 +300,7 @@ public class AutoMace implements ClientModInitializer {
                     boolean ready = fall >= cfg.getMinFallDist() || diving || momentum.isStunned(target);
                     if (client.player.distanceTo(target) <= cfg.getMaxSwingRange() && ready && client.player.getAttackStrengthScale(0.0F) >= 0.9F) {
                         RotationManager.smoothTo(client, auditor.extrapolatePosition(target, 0.2D), cfg.getHyperSnapSpeed());
-                        IntManager.simulateClickAttack(client);
+                        InteractionManager.simulateClickAttack(client);
                         ticksLeft = cfg.getZeroLatencyDelay();
                         currentStage = State.COMPLETE;
                     }
@@ -324,9 +319,7 @@ public class AutoMace implements ClientModInitializer {
             currentStage = State.INACTIVE;
             ticksLeft = 0;
             if (startingSlotIndex >= 0 && startingSlotIndex < 9 && mc.player != null) {
-                mc.player.getInventory().setSelectedSlot(startingSlotIndex);
-                mc.options.keyHotbarSlots[startingSlotIndex].setDown(true);
-                mc.options.keyHotbarSlots[startingSlotIndex].setDown(false);
+                InventoryManager.selectSlot(mc, startingSlotIndex);
             }
             startingSlotIndex = -1;
             watchdogTimer = 0L;
