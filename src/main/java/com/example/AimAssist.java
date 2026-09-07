@@ -212,16 +212,16 @@ public class AimAssist extends ClientBase.Module {
         Entity bestEntity = null;
         double minDistanceSqr = (maximumReachBound * maximumReachBound) + 1.0D;
 
-        for (Player player : clientRef.level.players()) {
-            if (player == clientRef.player) continue;
-            if (!player.isAlive() || player.isSpectator() || player.isCreative()) continue;
-            double distSqr = clientRef.player.distanceToSqr(player);
+        for (Entity entity : clientRef.level.entitiesForRendering()) {
+            if (!(entity instanceof LivingEntity living) || living == clientRef.player || !living.isAlive()) continue;
+            if (living instanceof Player player && (player.isSpectator() || player.isCreative())) continue;
+            double distSqr = clientRef.player.distanceToSqr(living);
             if (distSqr > (maximumReachBound * maximumReachBound)) continue;
-            if (lineOfSightStrictCheck && !verifyLineOfSight(clientRef, player)) continue;
+            if (lineOfSightStrictCheck && !verifyLineOfSight(clientRef, living)) continue;
 
             if (distSqr < minDistanceSqr) {
                 minDistanceSqr = distSqr;
-                bestEntity = player;
+                bestEntity = living;
             }
         }
 
@@ -458,23 +458,4 @@ public class AimAssist extends ClientBase.Module {
         if (PITCH_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
             PITCH_HISTORY_QUEUE.clear();
         }
-        if (VELOCITY_VECTOR_DEQUE.size() > HISTORY_MAX_CAPACITY) {
-            VELOCITY_VECTOR_DEQUE.clear();
-        }
-        if (TIMING_LATENCY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
-            TIMING_LATENCY_QUEUE.clear();
-        }
-    }
-
-    public static double getWindOffsetX() {
-        return cumulativeWindX;
-    }
-
-    public static double getWindOffsetY() {
-        return cumulativeWindY;
-    }
-
-    public static UUID getSubsessionIdentity() {
-        return SUBSESSION_IDENTITY;
-    }
-}
+       
