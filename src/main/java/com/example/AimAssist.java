@@ -41,7 +41,6 @@ public class AimAssist extends ClientBase.Module {
     private static final Deque<Long> SESSION_HISTORY = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 8192;
 
-    // Parâmetros de mira
     private static double kinematicSmoothingRate = 0.45D;
     private static double stochasticJitterScale = 0.00005D;
     private static float maximumFovAngle = 100.0F;
@@ -54,7 +53,6 @@ public class AimAssist extends ClientBase.Module {
     private static double cumulativeWindY = 0.0D;
     private static int targetSwitchThrottleTicks = 0;
 
-    // Predição e contenção
     private static Vec3 previousTargetVelocity = Vec3.ZERO;
     private static Vec3 previousTargetAcceleration = Vec3.ZERO;
     private static final float PREDICTION_TICKS = 2.0f;
@@ -68,7 +66,6 @@ public class AimAssist extends ClientBase.Module {
     private static boolean errorInjectionActive = true;
     private static double randomMissProbability = 0.025D;
 
-    // Melhorias extras
     private static Vec3 lastKnownTargetPos = null;
     private static int memoryTicks = 0;
     private static float recoilYaw = 0.0f;
@@ -167,7 +164,7 @@ public class AimAssist extends ClientBase.Module {
             targetLockTicks = 0;
             return;
         }
-        if (ShieldBreaker.isShieldStunActive()) return; // CORRIGIDO
+        if (ShieldBreaker.isShieldStunActive()) return;
 
         globalExecutionCounter++;
         if (targetSwitchThrottleTicks > 0) targetSwitchThrottleTicks--;
@@ -191,7 +188,6 @@ public class AimAssist extends ClientBase.Module {
             memoryTicks = 0;
         }
 
-        // Recoil simulado
         if (recoilTicks > 0) {
             float yaw = client.player.getYRot();
             float pitch = client.player.getXRot();
@@ -284,7 +280,6 @@ public class AimAssist extends ClientBase.Module {
     private static Vec3 computeResolvedTargetPosition(Minecraft client, Entity target) {
         double dist = client.player.distanceTo(target);
 
-        // Smoothing adaptativo
         double baseSmooth = dist < 2.5D ? 0.55D : (dist > 5.0D ? 0.50D : 0.45D);
         if (client.player.getDeltaMovement().horizontalDistanceSqr() > 0.01D) baseSmooth = Math.min(0.70D, baseSmooth + 0.10D);
 
@@ -293,12 +288,10 @@ public class AimAssist extends ClientBase.Module {
         kinematicSmoothingRate = (0.35D + normalizedSens * 0.15D) + (baseSmooth - 0.45D);
         stochasticJitterScale = Math.max(0.00001D, 0.00008D - normalizedSens * 0.00005D);
 
-        // Estresse (vida baixa, alvo rápido)
         if (client.player.getHealth() <= 6.0D || target.getDeltaMovement().horizontalDistance() > 1.5D) {
             kinematicSmoothingRate *= 0.85D;
         }
 
-        // Overshoot com reflexo
         saccadeTimer++;
         float maxOvershootYaw = dist < 2.5D ? 0.05f : 0.15f;
         float maxOvershootPitch = dist < 2.5D ? 0.05f : 0.10f;
@@ -319,17 +312,14 @@ public class AimAssist extends ClientBase.Module {
             if (Math.abs(overshootPitchOffset) < 0.01f) overshootPitchOffset = 0.0f;
         }
 
-        // Predição com aceleração e jerk
         Vec3 vel = target.getDeltaMovement();
         Vec3 accel = vel.subtract(previousTargetVelocity);
         Vec3 jerk = accel.subtract(previousTargetAcceleration);
 
         long ping = 50L;
-        if (client.getConnection() != null) {
-            if (client.getCurrentServerInfo() != null) {
-    ping = client.getCurrentServerInfo().ping;
-}
-        
+        if (client.getCurrentServerInfo() != null) {
+            ping = client.getCurrentServerInfo().ping;
+        }
         double pingComp = (ping / 50.0) * 0.02D;
 
         Vec3 predicted = target.position()
@@ -340,7 +330,6 @@ public class AimAssist extends ClientBase.Module {
         previousTargetVelocity = vel;
         previousTargetAcceleration = accel;
 
-        // Variação do ponto de mira
         double roll = secureRandom.nextDouble();
         double chestOffsetY = target.getBbHeight() * 0.42D;
         if (roll < 0.15D && dist < 3.0D) chestOffsetY = target.getBbHeight() * 0.85D;
@@ -374,7 +363,6 @@ public class AimAssist extends ClientBase.Module {
         float distFromCenter = (float) Math.sqrt(rawYawDiff*rawYawDiff + rawPitchDiff*rawPitchDiff);
         if (distFromCenter < deadzone) return;
 
-        // Modo foco/periférico
         if (Math.abs(rawYawDiff) < 10.0D) {
             stochasticJitterScale = 0.00003D;
             randomMissProbability = 0.01D;
@@ -383,7 +371,6 @@ public class AimAssist extends ClientBase.Module {
             randomMissProbability = 0.04D;
         }
 
-        // Modo espectador
         long spectators = client.level.players().stream().filter(p -> p != client.player && p.isSpectator()).count();
         if (spectators > 0) {
             stochasticJitterScale *= 1.5D;
@@ -391,7 +378,6 @@ public class AimAssist extends ClientBase.Module {
             randomMissProbability *= 1.5D;
         }
 
-        // Zona de contenção
         if (distFromCenter > containmentRadius) {
             float pull = (distFromCenter - containmentRadius) * containmentStrength;
             float pullYaw = (rawYawDiff / distFromCenter) * pull;
@@ -407,19 +393,16 @@ public class AimAssist extends ClientBase.Module {
             finalPitchDiff += overshootPitchOffset;
         }
 
-        // Easing (aceleração/desaceleração)
         float t = Math.min(1.0f, distFromCenter / 10.0f);
         float eased = 1.0f - (1.0f - t) * (1.0f - t);
         finalYawDiff *= eased;
         finalPitchDiff *= eased;
 
-        // Erro proposital
         if (errorInjectionActive && secureRandom.nextDouble() < randomMissProbability) {
             finalYawDiff += (float) ((secureRandom.nextDouble() - 0.5) * 1.5D);
             finalPitchDiff += (float) ((secureRandom.nextDouble() - 0.5) * 1.0D);
         }
 
-        // Aplicar rotação com WindMouse ou smoothing puro
         if (windMouseEngineActive) {
             cumulativeWindX = cumulativeWindX * 0.95D + secureRandom.nextGaussian() * 0.1D;
             if (!horizontalAxisOnly) cumulativeWindY = cumulativeWindY * 0.95D + secureRandom.nextGaussian() * 0.1D * verticalSmoothingMultiplier;
@@ -450,7 +433,7 @@ public class AimAssist extends ClientBase.Module {
         }
     }
 
-        private static float applyGcdGridSnap(Minecraft client, float curYaw, float targetYaw) {
+    private static float applyGcdGridSnap(Minecraft client, float curYaw, float targetYaw) {
         if (client.options == null) return targetYaw;
         double sens = client.options.sensitivity().get() * 0.6D + 0.2D;
         double gcd = sens * sens * sens * 8.0D;
@@ -465,7 +448,7 @@ public class AimAssist extends ClientBase.Module {
         double sens = client.options.sensitivity().get() * 0.6D + 0.2D;
         double gcd = sens * sens * sens * 8.0D;
         if (gcd > 0.0D) {
-            double dY = (nextYaw - curYaw);
+                        double dY = (nextYaw - curYaw);
             client.player.turn(dY / (gcd * 0.15D), deltaPitch / (gcd * 0.15D));
         }
     }
