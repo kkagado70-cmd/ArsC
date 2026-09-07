@@ -244,19 +244,16 @@ public class TriggerBot extends ClientBase.Module {
         if (lineOfSightValidation && !hasLineOfSight(client, target)) return;
 
         double dist = Math.sqrt(distSqr);
-        int requiredDelay = dist > 5.0D ? (2 + secureRandom.nextInt(3)) : (1 + secureRandom.nextInt(2));
+int requiredDelay = dist > 5.0D ? (2 + secureRandom.nextInt(3)) : (1 + secureRandom.nextInt(2));
 
-        long ping = 50L;
-        if (client.getConnection() != null) {
-            try { ping = client.getConnection().getPing(); } catch (Exception ignored) {}
-        }
-        if (ping > 100) requiredDelay += 1;
+long ping = 50L; // compensação de ping fixa
+if (ping > 100) requiredDelay += 1; // essa condição nunca será verdadeira com ping=50, mas mantida
 
-        if (reactionCountdownTicks < requiredDelay && comboBufferTicks == 0) {
-            reactionCountdownTicks++;
-            return;
-        }
-        reactionCountdownTicks = 0;
+if (reactionCountdownTicks < requiredDelay && comboBufferTicks == 0) {
+    reactionCountdownTicks++;
+    return;
+}
+reactionCountdownTicks = 0;
 
         if (onlyCrits && client.player.onGround()) return;
         if (noCrits && !client.player.onGround()) return;
