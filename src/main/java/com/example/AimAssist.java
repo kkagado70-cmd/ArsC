@@ -29,7 +29,7 @@ public class AimAssist extends ClientBase.Module {
     private static int targetLockTicks = 0;
     private static int targetLostTicks = 0;
 
-    private static final Map<String, Object> ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, Object> SWIGHT_SEVEN_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static final Deque<Float> YAW_HISTORY_QUEUE = new ArrayDeque<>();
     private static final Deque<Float> PITCH_HISTORY_QUEUE = new ArrayDeque<>();
@@ -39,11 +39,10 @@ public class AimAssist extends ClientBase.Module {
     private static final Deque<Double> JERK_SAMPLE_DEQUE = new ArrayDeque<>();
     private static final Deque<Float> OVERSHOOT_ERROR_DEQUE = new ArrayDeque<>();
     private static final Deque<Long> SESSION_TIMESTAMP_DEQUE = new ArrayDeque<>();
-    private static final int HISTORY_MAX_CAPACITY = 4096;
+    private static final int HISTORY_MAX_CAPACITY = 8192;
 
-    // ===== PARÂMETROS OTIMIZADOS (MIRA SUAVE E FIRME) =====
     private static double kinematicSmoothingRate = 0.45D;
-    private static double stochasticJitterScale = 0.00008D;   // Jitter mínimo
+    private static double stochasticJitterScale = 0.00005D;
     private static float maximumFovAngle = 100.0F;
     private static double maximumReachBound = 4.5D;
     private static long globalExecutionCounter = 0L;
@@ -56,7 +55,7 @@ public class AimAssist extends ClientBase.Module {
 
     private static Vec3 previousTargetVelocity = Vec3.ZERO;
     private static Vec3 previousTargetAcceleration = Vec3.ZERO;
-    private static final float PREDICTION_TICKS = 3.0f;
+    private static final float PREDICTION_TICKS = 2.0f;
     private static float containmentStrength = 0.15f;
     private static float containmentRadius = 1.2f;
     private static float overshootYawOffset = 0.0f;
@@ -68,7 +67,15 @@ public class AimAssist extends ClientBase.Module {
     private static boolean errorInjectionActive = true;
     private static double randomMissProbability = 0.025D;
 
-    // ===== MÉTRICAS (mantidas para compatibilidade) =====
+    // ===== 12 MELHORIAS: NOVAS VARIÁVEIS =====
+    private static Vec3 lastKnownTargetPos = null;
+    private static int memoryTicks = 0;
+    private static float recoilYaw = 0.0f;
+    private static float recoilPitch = 0.0f;
+    private static int recoilTicks = 0;
+    private static int hitCount = 0;
+    private static int totalAttacks = 0;
+
     private static double sessionMetricAlpha = 0.5D;
     private static double sessionMetricBeta = 0.5D;
     private static double sessionMetricGamma = 0.5D;
@@ -92,33 +99,33 @@ public class AimAssist extends ClientBase.Module {
     private static double frictionCoefficient = 0.04D;
 
     static {
-        initializeEnterpriseRegistry();
+        initializeSwightRegistry();
     }
 
-    private static void initializeEnterpriseRegistry() {
-        ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        ENTERPRISE_REGISTRY.put("Profile", "Swight-Ultimate-AimAssist-500Lines");
-        ENTERPRISE_REGISTRY.put("BypassEngine", "Human-Mime-Fuzzy-Enterprise");
-        ENTERPRISE_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
-        ENTERPRISE_REGISTRY.put("BufferFlushCounter", 0);
-        ENTERPRISE_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
-        ENTERPRISE_REGISTRY.put("WindMouseState", windMouseEngineActive);
-        ENTERPRISE_REGISTRY.put("GcdCorrectionState", gcdCorrectionActive);
-        ENTERPRISE_REGISTRY.put("SmoothingFactor", kinematicSmoothingRate);
-        ENTERPRISE_REGISTRY.put("JitterScale", stochasticJitterScale);
-        ENTERPRISE_REGISTRY.put("MaxFov", maximumFovAngle);
-        ENTERPRISE_REGISTRY.put("MaxReach", maximumReachBound);
-        ENTERPRISE_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
-        ENTERPRISE_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
-        ENTERPRISE_REGISTRY.put("BetaMetric", sessionMetricBeta);
-        ENTERPRISE_REGISTRY.put("GammaMetric", sessionMetricGamma);
-        ENTERPRISE_REGISTRY.put("DeltaMetric", sessionMetricDelta);
+    private static void initializeSwightRegistry() {
+        SWIGHT_SEVEN_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        SWIGHT_SEVEN_REGISTRY.put("Profile", "Swight-12-Features-AimAssist-700Lines");
+        SWIGHT_SEVEN_REGISTRY.put("BypassEngine", "Human-Mime-Easing-Enterprise");
+        SWIGHT_SEVEN_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        SWIGHT_SEVEN_REGISTRY.put("BufferFlushCounter", 0);
+        SWIGHT_SEVEN_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
+        SWIGHT_SEVEN_REGISTRY.put("WindMouseState", windMouseEngineActive);
+        SWIGHT_SEVEN_REGISTRY.put("GcdCorrectionState", gcdCorrectionActive);
+        SWIGHT_SEVEN_REGISTRY.put("SmoothingFactor", kinematicSmoothingRate);
+        SWIGHT_SEVEN_REGISTRY.put("JitterScale", stochasticJitterScale);
+        SWIGHT_SEVEN_REGISTRY.put("MaxFov", maximumFovAngle);
+        SWIGHT_SEVEN_REGISTRY.put("MaxReach", maximumReachBound);
+        SWIGHT_SEVEN_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
+        SWIGHT_SEVEN_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
+        SWIGHT_SEVEN_REGISTRY.put("BetaMetric", sessionMetricBeta);
+        SWIGHT_SEVEN_REGISTRY.put("GammaMetric", sessionMetricGamma);
+        SWIGHT_SEVEN_REGISTRY.put("DeltaMetric", sessionMetricDelta);
     }
 
     public AimAssist() {
         super("AimAssist");
         AimAssist.enabled = true;
-        initializeEnterpriseRegistry();
+        initializeSwightRegistry();
     }
 
     @Override
@@ -145,6 +152,13 @@ public class AimAssist extends ClientBase.Module {
         saccadeTimer = 0;
         previousTargetVelocity = Vec3.ZERO;
         previousTargetAcceleration = Vec3.ZERO;
+        lastKnownTargetPos = null;
+        memoryTicks = 0;
+        recoilYaw = 0.0f;
+        recoilPitch = 0.0f;
+        recoilTicks = 0;
+        hitCount = 0;
+        totalAttacks = 0;
         YAW_HISTORY_QUEUE.clear();
         PITCH_HISTORY_QUEUE.clear();
         VELOCITY_VECTOR_DEQUE.clear();
@@ -154,11 +168,11 @@ public class AimAssist extends ClientBase.Module {
         OVERSHOOT_ERROR_DEQUE.clear();
         SESSION_TIMESTAMP_DEQUE.clear();
         purgeRegistry();
-        initializeEnterpriseRegistry();
+        initializeSwightRegistry();
     }
 
     private static void purgeRegistry() {
-        ENTERPRISE_REGISTRY.clear();
+        SWIGHT_SEVEN_REGISTRY.clear();
     }
 
     @Override
@@ -171,7 +185,7 @@ public class AimAssist extends ClientBase.Module {
         ItemStack stack = clientRef.player.getMainHandItem();
         if (stack.isEmpty()) return false;
         String name = stack.getItem().getDescriptionId().toLowerCase();
-        return name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace");
+        return name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace") || name.contains("bow") || name.contains("crossbow");
     }
 
     private static boolean verifyLineOfSight(Minecraft clientRef, Entity target) {
@@ -192,6 +206,9 @@ public class AimAssist extends ClientBase.Module {
             targetLockTicks = 0;
             return;
         }
+        if (ShieldBreaker.isShieldStunStatic() || ShieldBreaker.isShieldStunActive()) {
+            return;
+        }
 
         globalExecutionCounter++;
         if (targetSwitchThrottleTicks > 0) {
@@ -200,7 +217,12 @@ public class AimAssist extends ClientBase.Module {
 
         Entity target = evaluateSmartTarget(clientRef);
         if (target != null) {
+            lastKnownTargetPos = target.position();
+            memoryTicks = 0;
             smoothAimToTarget(clientRef, target);
+        } else if (lastKnownTargetPos != null && memoryTicks < 5) {
+            memoryTicks++;
+            smoothAimToPosition(clientRef, lastKnownTargetPos);
         } else {
             lockedTarget = null;
             targetLockTicks = 0;
@@ -208,7 +230,19 @@ public class AimAssist extends ClientBase.Module {
             cumulativeWindY = 0.0D;
             previousTargetVelocity = Vec3.ZERO;
             previousTargetAcceleration = Vec3.ZERO;
+            lastKnownTargetPos = null;
+            memoryTicks = 0;
         }
+
+        if (recoilTicks > 0) {
+            float currentYaw = clientRef.player.getYRot();
+            float currentPitch = clientRef.player.getXRot();
+            clientRef.player.setYRot(currentYaw + recoilYaw / recoilTicks);
+            clientRef.player.setXRot(Mth.clamp(currentPitch + recoilPitch / recoilTicks, -89.0F, 89.0F));
+            recoilTicks--;
+        }
+
+        executeAutoCalibrationLearning();
         refreshAimRegistryState();
     }
 
@@ -218,8 +252,12 @@ public class AimAssist extends ClientBase.Module {
             if (clientRef.player.distanceTo(lockedTarget) > 5.0D) {
                 effectiveReach = 7.0D;
             }
-            if (lockedTarget.isAlive() && clientRef.player.distanceToSqr(lockedTarget) <= (effectiveReach * effectiveReach)
-                    && computeFovCheck(clientRef, lockedTarget, maximumFovAngle)
+            double distSqr = clientRef.player.distanceToSqr(lockedTarget);
+            double dist = Math.sqrt(distSqr);
+            double effectiveFov = dist > 5.0D ? 60.0D : maximumFovAngle;
+
+            if (lockedTarget.isAlive() && distSqr <= (effectiveReach * effectiveReach)
+                    && computeFovCheck(clientRef, lockedTarget, effectiveFov)
                     && verifyLineOfSight(clientRef, lockedTarget)) {
                 targetLockTicks++;
                 targetLostTicks = 0;
@@ -290,41 +328,76 @@ public class AimAssist extends ClientBase.Module {
         return Math.abs(Mth.wrapDegrees(targetYaw - currentYaw)) <= maxAngle;
     }
 
-    // ===== MÉTODO PRINCIPAL DE MIRA (SUAVE E FIRME) =====
     public static void smoothAimToTarget(Minecraft clientRef, Entity target) {
-        saccadeTimer++;
+        Vec3 resolvedPos = computeResolvedTargetPosition(clientRef, target);
+        performAimInterpolation(clientRef, resolvedPos, target);
+    }
+
+    private static void smoothAimToPosition(Minecraft clientRef, Vec3 position) {
+        performAimInterpolation(clientRef, position, null);
+    }
+
+    private static Vec3 computeResolvedTargetPosition(Minecraft clientRef, Entity target) {
         double distanceToTarget = clientRef.player.distanceTo(target);
 
-        // Ajuste dinâmico de smoothing e erro
-        if (distanceToTarget > 5.0D) {
-            kinematicSmoothingRate = 0.55D;
-            randomMissProbability = 0.04D;
-        } else if (distanceToTarget < 2.5D) {
-            kinematicSmoothingRate = 0.35D;
-            randomMissProbability = 0.02D;
+        double baseSmooth = 0.45D;
+        if (distanceToTarget < 2.5D) {
+            baseSmooth = 0.55D;
+        } else if (distanceToTarget > 5.0D) {
+            baseSmooth = 0.50D;
         } else {
-            kinematicSmoothingRate = 0.45D;
-            randomMissProbability = 0.025D;
+            baseSmooth = 0.45D;
         }
 
-        // Overshoot controlado (pequeno e com decaimento rápido)
-        if (saccadeTimer > 25 + secureRandom.nextInt(15)) {
+        if (clientRef.player.getDeltaMovement().horizontalDistanceSqr() > 0.01D) {
+            baseSmooth = Math.min(0.70D, baseSmooth + 0.10D);
+        }
+
+        double sens = clientRef.options.sensitivity().get();
+        double normalizedSens = (sens - 0.0) / (1.0 - 0.0);
+        kinematicSmoothingRate = (0.35D + normalizedSens * 0.15D) + (baseSmooth - 0.45D);
+        stochasticJitterScale = Math.max(0.00001D, 0.00008D - normalizedSens * 0.00005D);
+
+        double healthScale = clientRef.player.getHealth();
+        double targetSpeed = target.getDeltaMovement().horizontalDistance();
+        if (healthScale <= 6.0D || targetSpeed > 1.5D) {
+            kinematicSmoothingRate *= 0.85D;
+        }
+
+        saccadeTimer++;
+        float maxOvershootYaw = distanceToTarget < 2.5D ? 0.05f : 0.15f;
+        float maxOvershootPitch = distanceToTarget < 2.5D ? 0.05f : 0.10f;
+        float decayRate = distanceToTarget < 2.5D ? 0.98f : 0.97f;
+
+        if (saccadeTimer == 0) {
+            overshootYawOffset = (float) ((secureRandom.nextDouble() - 0.5) * 1.2D);
+            overshootPitchOffset = (float) ((secureRandom.nextDouble() - 0.5) * 0.8D);
+        } else if (saccadeTimer == 1) {
+            overshootYawOffset *= 0.2f;
+            overshootPitchOffset *= 0.2f;
+        } else if (saccadeTimer > 18 + secureRandom.nextInt(12)) {
             saccadeTimer = 0;
-            overshootYawOffset = (float) ((secureRandom.nextDouble() - 0.5) * 0.2D);
-            overshootPitchOffset = (float) ((secureRandom.nextDouble() - 0.5) * 0.15D);
+            overshootYawOffset = (float) ((secureRandom.nextDouble() - 0.5) * maxOvershootYaw * 2.0f);
+            overshootPitchOffset = (float) ((secureRandom.nextDouble() - 0.5) * maxOvershootPitch * 2.0f);
         } else {
-            overshootYawOffset *= 0.97f;
-            overshootPitchOffset *= 0.97f;
-            if (Math.abs(overshootYawOffset) < 0.005f) overshootYawOffset = 0.0f;
-            if (Math.abs(overshootPitchOffset) < 0.005f) overshootPitchOffset = 0.0f;
+            overshootYawOffset *= decayRate;
+            overshootPitchOffset *= decayRate;
+            if (Math.abs(overshootYawOffset) < 0.01f) overshootYawOffset = 0.0f;
+            if (Math.abs(overshootPitchOffset) < 0.01f) overshootPitchOffset = 0.0f;
         }
 
-        // Predição com aceleração e jerk
         Vec3 currentVel = target.getDeltaMovement();
         Vec3 acceleration = currentVel.subtract(previousTargetVelocity);
         Vec3 jerk = acceleration.subtract(previousTargetAcceleration);
 
-        double pingCompensation = (averagePing / 50.0) * 0.02D;
+        long latency = 50L;
+        if (clientRef.getConnection() != null) {
+            try {
+                latency = clientRef.getConnection().getLatency();
+            } catch (Exception ignored) {}
+        }
+        double pingCompensation = (latency / 50.0) * 0.02D;
+
         Vec3 predictedPos = target.position()
                 .add(currentVel.scale(PREDICTION_TICKS * 0.05D + pingCompensation))
                 .add(acceleration.scale(0.5D * PREDICTION_TICKS * PREDICTION_TICKS * 0.0025D))
@@ -333,16 +406,27 @@ public class AimAssist extends ClientBase.Module {
         previousTargetVelocity = currentVel;
         previousTargetAcceleration = acceleration;
 
-        // Ponto de mira com pequena variação aleatória
-        Vec3 resolvedTargetPos = predictedPos.add(
-                (secureRandom.nextDouble() - 0.5) * 0.08D,
-                target.getBbHeight() * (0.42D + secureRandom.nextDouble() * 0.06D),
-                (secureRandom.nextDouble() - 0.5) * 0.08D
-        );
+        double hitpointRoll = secureRandom.nextDouble();
+        double chestOffsetY = target.getBbHeight() * 0.42D;
+        if (hitpointRoll < 0.15D && distanceToTarget < 3.0D) {
+            chestOffsetY = target.getBbHeight() * 0.85D;
+        } else if (hitpointRoll < 0.25D) {
+            chestOffsetY = target.getBbHeight() * 0.15D;
+        } else if (hitpointRoll < 0.30D) {
+            chestOffsetY = target.getBbHeight() * (secureRandom.nextDouble());
+        }
 
-        double deltaX = resolvedTargetPos.x - clientRef.player.getX();
-        double deltaY = resolvedTargetPos.y - clientRef.player.getEyeY();
-        double deltaZ = resolvedTargetPos.z - clientRef.player.getZ();
+        return predictedPos.add(
+                (secureRandom.nextDouble() - 0.5) * 0.06D,
+                chestOffsetY,
+                (secureRandom.nextDouble() - 0.5) * 0.06D
+        );
+    }
+
+    private static void performAimInterpolation(Minecraft clientRef, Vec3 resolvedPos, Entity target) {
+        double deltaX = resolvedPos.x - clientRef.player.getX();
+        double deltaY = resolvedPos.y - clientRef.player.getEyeY();
+        double deltaZ = resolvedPos.z - clientRef.player.getZ();
         double horizontalDistance = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
 
         float calculatedTargetYaw = (float) (Math.atan2(deltaZ, deltaX) * (180.0 / Math.PI)) - 90.0F;
@@ -354,13 +438,31 @@ public class AimAssist extends ClientBase.Module {
         float rawYawDiff = Mth.wrapDegrees(calculatedTargetYaw - currentYaw);
         float rawPitchDiff = calculatedTargetPitch - currentPitch;
 
-        // Deadzone – não corrige se já estiver muito próximo
+        double distanceToTarget = target != null ? clientRef.player.distanceTo(target) : 3.0D;
+        float deadzone = distanceToTarget < 2.5D ? 0.3f : 0.5f;
         float distanceFromCenter = (float) Math.sqrt(rawYawDiff * rawYawDiff + rawPitchDiff * rawPitchDiff);
-        if (distanceFromCenter < 0.8f) {
+        if (distanceFromCenter < deadzone) {
             return;
         }
 
-        // Zona de contenção (evita overshoot excessivo)
+        double angleToTarget = Math.abs(rawYawDiff);
+        if (angleToTarget < 10.0D) {
+            stochasticJitterScale = 0.00003D;
+            randomMissProbability = 0.01D;
+        } else {
+            stochasticJitterScale = 0.0001D;
+            randomMissProbability = 0.04D;
+        }
+
+        long spectatorCount = clientRef.level.players().stream()
+                .filter(p -> p != clientRef.player && p.isSpectator())
+                .count();
+        if (spectatorCount > 0) {
+            stochasticJitterScale *= 1.5D;
+                        kinematicSmoothingRate *= 0.9D;
+            randomMissProbability *= 1.5D;
+        }
+
         if (distanceFromCenter > containmentRadius) {
             float pullFactor = (distanceFromCenter - containmentRadius) * containmentStrength;
             float pullYaw = (rawYawDiff / distanceFromCenter) * pullFactor;
@@ -369,24 +471,37 @@ public class AimAssist extends ClientBase.Module {
             rawPitchDiff -= pullPitch;
         }
 
-        float finalYawDiff = rawYawDiff + overshootYawOffset;
-        float finalPitchDiff = rawPitchDiff + overshootPitchOffset;
+        float finalYawDiff = rawYawDiff;
+        float finalPitchDiff = rawPitchDiff;
+        if (distanceFromCenter > 1.0f) {
+            finalYawDiff += overshootYawOffset;
+            finalPitchDiff += overshootPitchOffset;
+        }
 
-        // WindMouse suavizado
+        float t = Math.min(1.0f, distanceFromCenter / 10.0f);
+        float eased = 1.0f - (1.0f - t) * (1.0f - t);
+        finalYawDiff *= eased;
+        finalPitchDiff *= eased;
+
+        if (errorInjectionActive && secureRandom.nextDouble() < randomMissProbability) {
+            finalYawDiff += (float) ((secureRandom.nextDouble() - 0.5) * 1.5D);
+            finalPitchDiff += (float) ((secureRandom.nextDouble() - 0.5) * 1.0D);
+        }
+
         if (windMouseEngineActive) {
-            cumulativeWindX = cumulativeWindX * 0.90 + (secureRandom.nextGaussian() * 0.15);
+            cumulativeWindX = cumulativeWindX * 0.95D + (secureRandom.nextGaussian() * 0.1D);
             if (!horizontalAxisOnly) {
-                cumulativeWindY = cumulativeWindY * 0.90 + (secureRandom.nextGaussian() * 0.15 * verticalSmoothingMultiplier);
+                cumulativeWindY = cumulativeWindY * 0.95D + (secureRandom.nextGaussian() * 0.1D * verticalSmoothingMultiplier);
             }
 
-            float curveStepYaw = (float) (finalYawDiff / 14.0D + cumulativeWindX * 0.004D);
-            float noiseYaw = (float) (secureRandom.nextGaussian() * stochasticJitterScale * 0.5);
+            float curveStepYaw = (float) (finalYawDiff / 14.0D + cumulativeWindX * 0.002D);
+            float noiseYaw = (float) (secureRandom.nextGaussian() * stochasticJitterScale);
             float nextEvaluatedYaw = currentYaw + curveStepYaw + noiseYaw;
 
             float nextEvaluatedPitch = currentPitch;
             if (!horizontalAxisOnly) {
-                float curveStepPitch = (float) (finalPitchDiff / 14.0D + cumulativeWindY * 0.004D);
-                float noisePitch = (float) (secureRandom.nextGaussian() * stochasticJitterScale * 0.5);
+                float curveStepPitch = (float) (finalPitchDiff / 14.0D + cumulativeWindY * 0.002D);
+                float noisePitch = (float) (secureRandom.nextGaussian() * stochasticJitterScale);
                 nextEvaluatedPitch = Mth.clamp(currentPitch + curveStepPitch + noisePitch, -89.0F, 89.0F);
             }
 
@@ -418,6 +533,33 @@ public class AimAssist extends ClientBase.Module {
         }
     }
 
+    private static void executeAutoCalibrationLearning() {
+        totalAttacks++;
+        if (totalAttacks >= 100) {
+            double hitRate = (double) hitCount / totalAttacks;
+            if (hitRate > 0.95D) {
+                stochasticJitterScale += 0.00001D;
+                randomMissProbability += 0.005D;
+            } else if (hitRate < 0.70D) {
+                stochasticJitterScale = Math.max(0.00001D, stochasticJitterScale - 0.00001D);
+                randomMissProbability = Math.max(0.005D, randomMissProbability - 0.005D);
+            }
+            hitCount = 0;
+            totalAttacks = 0;
+        }
+    }
+
+    public static void registerAttackResult(boolean hit) {
+        totalAttacks++;
+        if (hit) hitCount++;
+    }
+
+    public static void triggerSimulatedRecoil() {
+        recoilYaw = (float) ((secureRandom.nextDouble() - 0.5) * 0.3D);
+        recoilPitch = (float) ((secureRandom.nextDouble() - 0.5) * 0.2D);
+        recoilTicks = 3;
+    }
+
     private static float applyGcdGridSnap(Minecraft clientRef, float currentYaw, float targetYaw) {
         if (clientRef.options == null) return targetYaw;
         double sensitivity = clientRef.options.sensitivity().get() * 0.6D + 0.2D;
@@ -439,11 +581,11 @@ public class AimAssist extends ClientBase.Module {
         }
     }
 
-        private static void refreshAimRegistryState() {
-        ENTERPRISE_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
-        ENTERPRISE_REGISTRY.put("ActiveLockState", lockedTarget != null);
-        ENTERPRISE_REGISTRY.put("WindOffset", cumulativeWindX);
-        ENTERPRISE_REGISTRY.put("HistorySize", YAW_HISTORY_QUEUE.size());
+    private static void refreshAimRegistryState() {
+        SWIGHT_SEVEN_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
+        SWIGHT_SEVEN_REGISTRY.put("ActiveLockState", lockedTarget != null);
+        SWIGHT_SEVEN_REGISTRY.put("WindOffset", cumulativeWindX);
+        SWIGHT_SEVEN_REGISTRY.put("HistorySize", YAW_HISTORY_QUEUE.size());
     }
 
     public static UUID getSubsessionIdentity() {
@@ -496,7 +638,7 @@ public class AimAssist extends ClientBase.Module {
 
     public static void runBaselineCalibration() {
         kinematicSmoothingRate = 0.45D;
-        stochasticJitterScale = 0.00008D;
+        stochasticJitterScale = 0.00005D;
         maximumFovAngle = 100.0F;
         maximumReachBound = 4.5D;
         windMouseEngineActive = true;
