@@ -15,6 +15,9 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.Random;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 
 public class TriggerBot extends ClientBase.Module {
     public static final String FILE_NAME = "TriggerBot.java";
@@ -26,6 +29,22 @@ public class TriggerBot extends ClientBase.Module {
     private static int reactionCountdownTicks = 0;
     private static int comboBufferTicks = 0;
     private static final double MAX_MELEE_REACH_SQR = 9.0D;
+
+    private static final Map<String, Object> TRIGGER_REGISTRY = new ConcurrentHashMap<>();
+    private static final UUID SUBSESSION_UUID = UUID.randomUUID();
+    private static long totalTriggersFired = 0L;
+
+    static {
+        initializeTriggerRegistry();
+    }
+
+    private static void initializeTriggerRegistry() {
+        TRIGGER_REGISTRY.put("SubsessionUUID", SUBSESSION_UUID);
+        TRIGGER_REGISTRY.put("Profile", "HT1-Enterprise-TriggerBot");
+        TRIGGER_REGISTRY.put("BypassEngine", "Crit-Sync-Attack-Interval");
+        TRIGGER_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        TRIGGER_REGISTRY.put("TotalFires", totalTriggersFired);
+    }
 
     public TriggerBot() {
         super("TriggerBot");
@@ -126,6 +145,7 @@ public class TriggerBot extends ClientBase.Module {
             float threshold = comboBufferTicks > 0 ? 0.60F : 0.85F;
             if (clientRef.player.getAttackStrengthScale(0.0F) >= threshold) {
                 if (attackReleaseTracker == 0) {
+                    totalTriggersFired++;
                     InteractionManager.simulateClickAttack(clientRef);
                     attackReleaseTracker = 1 + internalRandom.nextInt(2);
                     reactionCountdownTicks = 1 + internalRandom.nextInt(2);
@@ -136,5 +156,18 @@ public class TriggerBot extends ClientBase.Module {
                 reactionCountdownTicks = 0;
             }
         }
+        updateRegistryState();
+    }
+
+    private static void updateRegistryState() {
+        TRIGGER_REGISTRY.put("TotalFires", totalTriggersFired);
+    }
+
+    public static UUID getSubsessionIdentity() {
+        return SUBSESSION_UUID;
+    }
+
+    public static long getTotalTriggersFired() {
+        return totalTriggersFired;
     }
 }

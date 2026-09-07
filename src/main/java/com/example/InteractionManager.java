@@ -3,6 +3,9 @@ package com.example;
 import net.minecraft.client.Minecraft;
 import java.security.SecureRandom;
 import java.util.Queue;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class InteractionManager {
@@ -15,6 +18,22 @@ public class InteractionManager {
     private static boolean attackSimulated = false;
     private static boolean useSimulated = false;
     private static long lastPacketExecutionEpoch = 0L;
+
+    private static final Map<String, Object> INTERACTION_REGISTRY = new ConcurrentHashMap<>();
+    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
+    private static long globalTaskCounter = 0L;
+
+    static {
+        initializeInteractionRegistry();
+    }
+
+    private static void initializeInteractionRegistry() {
+        INTERACTION_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        INTERACTION_REGISTRY.put("Profile", "HT1-Enterprise-InteractionManager");
+        INTERACTION_REGISTRY.put("BypassEngine", "Zero-Direct-Packets-KeySim");
+        INTERACTION_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        INTERACTION_REGISTRY.put("TotalTasksProcessed", globalTaskCounter);
+    }
 
     public static class InteractionPacketTask {
         public final boolean isAttack;
@@ -54,6 +73,7 @@ public class InteractionManager {
         while (!packetTaskQueue.isEmpty() && packetTaskQueue.peek().executionTimestamp <= now) {
             InteractionPacketTask task = packetTaskQueue.poll();
             if (task != null) {
+                globalTaskCounter++;
                 if (task.isAttack) {
                     executeRawAttack(client);
                 } else {
@@ -63,6 +83,7 @@ public class InteractionManager {
                 break;
             }
         }
+        updateRegistryState();
     }
 
     public static void simulateClickUse(Minecraft client) {
@@ -102,5 +123,18 @@ public class InteractionManager {
         attackSimulated = false;
         useSimulated = false;
         packetTaskQueue.clear();
+    }
+
+    private static void updateRegistryState() {
+        INTERACTION_REGISTRY.put("TotalTasksProcessed", globalTaskCounter);
+        INTERACTION_REGISTRY.put("QueueSize", packetTaskQueue.size());
+    }
+
+    public static UUID getSubsessionIdentity() {
+        return SUBSESSION_IDENTITY;
+    }
+
+    public static long getGlobalTaskCounter() {
+        return globalTaskCounter;
     }
 }

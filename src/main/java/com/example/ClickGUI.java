@@ -5,8 +5,26 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 
 public class ClickGUI extends Screen {
+    private static final Map<String, Object> GUI_REGISTRY = new ConcurrentHashMap<>();
+    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
+    private static boolean renderBackgroundFlag = true;
+    private static int interactionCounter = 0;
+
+    static {
+        initializeGuiRegistry();
+    }
+
+    private static void initializeGuiRegistry() {
+        GUI_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        GUI_REGISTRY.put("ScreenTitle", "Config");
+        GUI_REGISTRY.put("RenderBackground", renderBackgroundFlag);
+        GUI_REGISTRY.put("InteractionCounter", interactionCounter);
+    }
 
     public ClickGUI() {
         super(Component.literal("Config"));
@@ -29,6 +47,7 @@ public class ClickGUI extends Screen {
     @Override
     protected void init() {
         super.init();
+        interactionCounter++;
         int cx = this.width / 2;
         int cy = this.height / 2;
         int bw = 140, bh = 20;
@@ -65,11 +84,28 @@ public class ClickGUI extends Screen {
 
     @Override
     public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        super.render(context, mouseX, mouseY, delta);
+        if (renderBackgroundFlag) {
+            super.render(context, mouseX, mouseY, delta);
+        } else {
+            super.renderBackground(context, mouseX, mouseY, delta);
+        }
     }
 
     @Override
     public boolean isPauseScreen() {
         return false;
+    }
+
+    public static UUID getSubsessionIdentity() {
+        return SUBSESSION_IDENTITY;
+    }
+
+    public static void setRenderBackground(boolean state) {
+        renderBackgroundFlag = state;
+        GUI_REGISTRY.put("RenderBackground", renderBackgroundFlag);
+    }
+
+    public static boolean isRenderBackgroundActive() {
+        return renderBackgroundFlag;
     }
 }

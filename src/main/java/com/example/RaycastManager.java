@@ -186,10 +186,10 @@ public class RaycastManager {
     }
 
     private static void executeDiagnosticRoutine() {
-        if (totalRaycastsExecuted > 5000000L) {
+        if (totalRaycastsExecuted > 10000000L) {
             totalRaycastsExecuted = 0L;
         }
-        if (RAYCAST_REGISTRY.size() > 70) {
+        if (RAYCAST_REGISTRY.size() > 90) {
             purgeRegistry();
             initializeRaycastRegistry();
         }

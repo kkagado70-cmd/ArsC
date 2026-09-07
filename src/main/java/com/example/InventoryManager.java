@@ -23,7 +23,7 @@ public class InventoryManager {
     private static final Map<String, Object> INVENTORY_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_UUID = UUID.randomUUID();
     private static final Deque<Integer> SLOT_HISTORY_DEQUE = new ArrayDeque<>();
-    private static final int HISTORY_CAPACITY = 64;
+    private static final int HISTORY_CAPACITY = 128;
     private static long operationCounter = 0L;
     private static int slotSearchAttempts = 0;
     private static int inventoryScoreRegistry = 0;
@@ -173,10 +173,10 @@ public class InventoryManager {
     }
 
     private static void executeSubsystemDiagnostics() {
-        if (operationCounter > 5000000L) {
+        if (operationCounter > 10000000L) {
             operationCounter = 0L;
         }
-        if (INVENTORY_REGISTRY.size() > 80) {
+        if (INVENTORY_REGISTRY.size() > 100) {
             purgeRegistry();
             initializeInventoryRegistry();
         }

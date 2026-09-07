@@ -97,10 +97,10 @@ public class PacketBufferManager {
     }
 
     private static void executeSubsystemDiagnostics() {
-        if (totalPacketsProcessed > 5000000L) {
+        if (totalPacketsProcessed > 10000000L) {
             totalPacketsProcessed = 0L;
         }
-        if (NETWORK_REGISTRY.size() > 80) {
+        if (NETWORK_REGISTRY.size() > 90) {
             purgeRegistry();
             initializeNetworkRegistry();
         }

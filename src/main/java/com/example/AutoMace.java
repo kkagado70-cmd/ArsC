@@ -1,19 +1,15 @@
 package com.example;
 
-import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.MaceItem;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
-import com.mojang.blaze3d.platform.InputConstants;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.Random;
 import java.util.UUID;
@@ -181,10 +177,10 @@ public class AutoMace extends ClientBase.Module {
     }
 
     private static void executeSubsystemSanitation() {
-        if (executionTickCounter > 5000000L) {
+        if (executionTickCounter > 10000000L) {
             executionTickCounter = 0L;
         }
-        if (MACE_ENTERPRISE_REGISTRY.size() > 80) {
+        if (MACE_ENTERPRISE_REGISTRY.size() > 90) {
             purgeRegistry();
             initializeMaceEnterpriseRegistry();
         }

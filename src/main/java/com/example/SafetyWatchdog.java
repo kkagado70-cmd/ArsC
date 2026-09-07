@@ -207,10 +207,10 @@ public class SafetyWatchdog {
     }
 
     private static void executeSubsystemDiagnostics() {
-        if (globalWatchdogInvocations > 5000000L) {
+        if (globalWatchdogInvocations > 10000000L) {
             globalWatchdogInvocations = 0L;
         }
-        if (WATCHDOG_ENTERPRISE_REGISTRY.size() > 80) {
+        if (WATCHDOG_ENTERPRISE_REGISTRY.size() > 90) {
             purgeRegistry();
             initializeWatchdogEnterpriseRegistry();
         }
@@ -238,7 +238,7 @@ public class SafetyWatchdog {
 
     public static void executeExtendedDiagnosticFlush() {
         executeSubsystemDiagnostics();
-        if (HEARTBEAT_HISTORY_QUEUE.size() > HISTORY_CAPACITY) {
+        if (HEARTBEAT_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
             HEARTBEAT_HISTORY_QUEUE.clear();
         }
     }

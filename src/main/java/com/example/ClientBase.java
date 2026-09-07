@@ -4,10 +4,29 @@ import net.fabricmc.api.ClientModInitializer;
 import net.minecraft.client.Minecraft;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 
 public class ClientBase implements ClientModInitializer {
     private static ClientBase INSTANCE;
     private ModuleManager moduleManager;
+    private static final Map<String, Object> BASE_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
+    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
+    private static long globalInitializationTimestamp = 0L;
+    private static boolean diagnosticModeActive = false;
+
+    static {
+        initializeBaseRegistry();
+    }
+
+    private static void initializeBaseRegistry() {
+        globalInitializationTimestamp = System.currentTimeMillis();
+        BASE_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        BASE_ENTERPRISE_REGISTRY.put("Architecture", "Fabric-1.21.11-Mojmap");
+        BASE_ENTERPRISE_REGISTRY.put("InitializationEpoch", globalInitializationTimestamp);
+        BASE_ENTERPRISE_REGISTRY.put("DiagnosticState", diagnosticModeActive);
+    }
 
     @Override
     public void onInitializeClient() {
@@ -93,7 +112,20 @@ public class ClientBase implements ClientModInitializer {
 
         @Override
         public void tick(Minecraft client) {
-            AutoMace.HT1CombatController.onTick(client);
+            AutoMace.onTick(client);
         }
+    }
+
+    public static UUID getSubsessionIdentity() {
+        return SUBSESSION_IDENTITY;
+    }
+
+    public static boolean isDiagnosticModeActive() {
+        return diagnosticModeActive;
+    }
+
+    public static void setDiagnosticMode(boolean state) {
+        diagnosticModeActive = state;
+        BASE_ENTERPRISE_REGISTRY.put("DiagnosticState", diagnosticModeActive);
     }
 }

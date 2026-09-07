@@ -113,10 +113,10 @@ public class RotationManager {
     }
 
     private static void executeSubsystemDiagnostics() {
-        if (totalRotationsExecuted > 5000000L) {
+        if (totalRotationsExecuted > 10000000L) {
             totalRotationsExecuted = 0L;
         }
-        if (ROTATION_REGISTRY.size() > 70) {
+        if (ROTATION_REGISTRY.size() > 90) {
             purgeRegistry();
             initializeRotationRegistry();
         }

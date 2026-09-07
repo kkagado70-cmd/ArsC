@@ -94,6 +94,10 @@ public class AimAssist extends ClientBase.Module {
         initializeGigachadRegistry();
     }
 
+    private static void purgeGigachadRegistry() {
+        AIM_GIGACHAD_REGISTRY.clear();
+    }
+
     @Override
     public void tick(Minecraft clientRef) {
         onTick(clientRef);
@@ -245,7 +249,8 @@ public class AimAssist extends ClientBase.Module {
             float nextEvaluatedYaw = playerCurrentYaw + yawDifference * dynamicSmooth + (float)(internalRandom.nextGaussian() * stochasticJitterScale);
             float nextEvaluatedPitch = playerCurrentPitch;
             if (!horizontalAxisOnly) {
-                nextEvaluatedPitch = Mth.clamp(playerCurrentPitch + pitchDifference * dynamicSmooth + (float)(internalRandom.nextGaussian() * stochasticJitterScale), -89.0F, 89.0F);
+                float nextEvaluatedPitchComputed = Mth.clamp(playerCurrentPitch + pitchDifference * dynamicSmooth + (float)(internalRandom.nextGaussian() * stochasticJitterScale), -89.0F, 89.0F);
+                nextEvaluatedPitch = nextEvaluatedPitchComputed;
             }
 
             if (gcdCorrectionActive) {
@@ -274,15 +279,15 @@ public class AimAssist extends ClientBase.Module {
     }
 
     private static void pushHistoryBuffers(float yawVal, float pitchVal) {
-        if (YAW_HISTORY_BUFFER.size() >= HISTORY_CAPACITY) {
-            YAW_HISTORY_BUFFER.pollFirst();
+        if (YAW_HISTORY_QUEUE.size() >= HISTORY_CAPACITY) {
+            YAW_HISTORY_QUEUE.pollFirst();
         }
-        YAW_HISTORY_BUFFER.offerLast(yawVal);
+        YAW_HISTORY_QUEUE.offerLast(yawVal);
 
-        if (PITCH_HISTORY_BUFFER.size() >= HISTORY_CAPACITY) {
-            PITCH_HISTORY_BUFFER.pollFirst();
+        if (PITCH_HISTORY_QUEUE.size() >= HISTORY_CAPACITY) {
+            PITCH_HISTORY_QUEUE.pollFirst();
         }
-        PITCH_HISTORY_BUFFER.offerLast(pitchVal);
+        PITCH_HISTORY_QUEUE.offerLast(pitchVal);
     }
 
     private static void applyGcdHardwareTurnSimulation(Minecraft clientRef, float currentYaw, float nextYaw, double deltaPitch) {
@@ -297,24 +302,20 @@ public class AimAssist extends ClientBase.Module {
     }
 
     private static void refreshAimRegistryState() {
-        AIM_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
-        AIM_REGISTRY.put("ActiveLockState", lockedTarget != null);
-        AIM_REGISTRY.put("WindOffset", cumulativeWindX);
-        AIM_REGISTRY.put("HistoryQueueSize", YAW_HISTORY_BUFFER.size());
+        AIM_GIGACHAD_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
+        AIM_GIGACHAD_REGISTRY.put("ActiveLockState", lockedTarget != null);
+        AIM_GIGACHAD_REGISTRY.put("WindOffset", cumulativeWindX);
+        AIM_GIGACHAD_REGISTRY.put("HistoryQueueSize", YAW_HISTORY_QUEUE.size());
     }
 
     private static void executeSubsystemDiagnostics() {
-        if (globalExecutionCounter > 5000000L) {
+        if (globalExecutionCounter > 10000000L) {
             globalExecutionCounter = 0L;
         }
-        if (AIM_REGISTRY.size() > 90) {
-            purgeAimRegistry();
-            initializeAimSubsystemRegistry();
+        if (AIM_GIGACHAD_REGISTRY.size() > 90) {
+            purgeGigachadRegistry();
+            initializeGigachadRegistry();
         }
-    }
-
-    private static void purgeAimRegistry() {
-        AIM_REGISTRY.clear();
     }
 
     public static boolean verifySubsystemHealth() {
@@ -358,11 +359,11 @@ public class AimAssist extends ClientBase.Module {
     }
 
     public static int getYawHistorySize() {
-        return YAW_HISTORY_BUFFER.size();
+        return YAW_HISTORY_QUEUE.size();
     }
 
     public static int getPitchHistorySize() {
-        return PITCH_HISTORY_BUFFER.size();
+        return PITCH_HISTORY_QUEUE.size();
     }
 
     public static void runBaselineCalibration() {
@@ -379,11 +380,11 @@ public class AimAssist extends ClientBase.Module {
 
     public static void executeExtendedDiagnosticFlush() {
         executeSubsystemDiagnostics();
-        if (YAW_HISTORY_BUFFER.size() > HISTORY_CAPACITY) {
-            YAW_HISTORY_BUFFER.clear();
+        if (YAW_HISTORY_QUEUE.size() > HISTORY_CAPACITY) {
+            YAW_HISTORY_QUEUE.clear();
         }
-        if (PITCH_HISTORY_BUFFER.size() > HISTORY_CAPACITY) {
-            PITCH_HISTORY_BUFFER.clear();
+        if (PITCH_HISTORY_QUEUE.size() > HISTORY_CAPACITY) {
+            PITCH_HISTORY_QUEUE.clear();
         }
     }
 
