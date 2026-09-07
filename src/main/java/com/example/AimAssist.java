@@ -326,8 +326,10 @@ public class AimAssist extends ClientBase.Module {
 
         long ping = 50L;
         if (client.getConnection() != null) {
-            try { ping = client.getConnection().getLatency(); } catch (Exception ignored) {}
-        }
+            if (client.getCurrentServerInfo() != null) {
+    ping = client.getCurrentServerInfo().ping;
+}
+        
         double pingComp = (ping / 50.0) * 0.02D;
 
         Vec3 predicted = target.position()
