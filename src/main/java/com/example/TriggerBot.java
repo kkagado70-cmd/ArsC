@@ -332,7 +332,8 @@ public class TriggerBot extends ClientBase.Module {
         long latency = 50L;
         if (clientRef.getConnection() != null) {
             try {
-                latency = clientRef.getConnection().getLatency();
+                net.minecraft.client.multiplayer.PlayerInfo info = clientRef.getConnection().getPlayerInfo(clientRef.player.getUUID());
+                if (info != null) latency = info.getLatency();
             } catch (Exception ignored) {}
         }
         pingDelayBonus = latency > 100L ? 1 : 0;
@@ -484,8 +485,7 @@ public class TriggerBot extends ClientBase.Module {
         return enabled && SUBSESSION_UUID != null;
     }
 
-    public static long getTotalTriggersFired() {
-        return totalTriggersFired;
+    return totalTriggersFired;
     }
 
     public static void performBaselineCalibration() {
@@ -508,24 +508,6 @@ public class TriggerBot extends ClientBase.Module {
         executeSubsystemSanitation();
         if (ATTACK_INTERVAL_HISTORY.size() > HISTORY_MAX_CAPACITY) {
             ATTACK_INTERVAL_HISTORY.clear();
-        }
-        if (CLICK_DURATION_MEMORY.size() > HISTORY_MAX_CAPACITY) {
-            CLICK_DURATION_MEMORY.clear();
-        }
-        if (ERROR_VECTOR_MEMORY.size() > HISTORY_MAX_CAPACITY) {
-            ERROR_VECTOR_MEMORY.clear();
-        }
-        if (ATTACK_STRENGTH_SAMPLE_DEQUE.size() > HISTORY_MAX_CAPACITY) {
-            ATTACK_STRENGTH_SAMPLE_DEQUE.clear();
-        }
-        if (SESSION_TIMESTAMP_DEQUE.size() > HISTORY_MAX_CAPACITY) {
-            SESSION_TIMESTAMP_DEQUE.clear();
-        }
-        if (FATIGUE_SAMPLE_DEQUE.size() > HISTORY_MAX_CAPACITY) {
-            FATIGUE_SAMPLE_DEQUE.clear();
-        }
-        if (REACTION_DELAY_SAMPLE_DEQUE.size() > HISTORY_MAX_CAPACITY) {
-            REACTION_DELAY_SAMPLE_DEQUE.clear();
         }
     }
 
@@ -683,7 +665,7 @@ public class TriggerBot extends ClientBase.Module {
 
     public static void setAntiSpamActive(boolean active) {
         antiSpamActive = active;
-        TRIGGER_SEVEN_REGISTRY.put("AntiSpamActive", antiSpamActive);
+        TRIGGER_SEVEN_REGISTRY.put("AntiSpamActive", active);
     }
 
     public static int getMaxApsLimit() {
@@ -727,4 +709,4 @@ public class TriggerBot extends ClientBase.Module {
         REACTION_DELAY_SAMPLE_DEQUE.clear();
     }
 }
-      
+  
