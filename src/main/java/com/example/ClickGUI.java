@@ -6,25 +6,10 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.Map;
 
 public class ClickGUI extends Screen {
-    private static final Map<String, Object> GUI_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static boolean renderBackgroundFlag = true;
-    private static int interactionCounter = 0;
-
-    static {
-        initializeGuiRegistry();
-    }
-
-    private static void initializeGuiRegistry() {
-        GUI_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        GUI_REGISTRY.put("ScreenTitle", "Config");
-        GUI_REGISTRY.put("RenderBackground", renderBackgroundFlag);
-        GUI_REGISTRY.put("InteractionCounter", interactionCounter);
-    }
 
     public ClickGUI() {
         super(Component.literal("Config"));
@@ -47,50 +32,29 @@ public class ClickGUI extends Screen {
     @Override
     protected void init() {
         super.init();
-        interactionCounter++;
         int cx = this.width / 2;
         int cy = this.height / 2;
-        int bw = 150, bh = 20;
+        int bw = 160, bh = 20;
 
-        this.addRenderableWidget(Button.builder(
-                Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")),
-                btn -> {
-                    XbowCart.enabled = !XbowCart.enabled;
-                    btn.setMessage(Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")));
-                }
-        ).bounds(cx - bw / 2, cy - 70, bw, bh).build());
+        ClientBase base = ClientBase.getInstance();
+        if (base == null || base.getModuleManager() == null) return;
 
-        this.addRenderableWidget(Button.builder(
-                Component.literal("AimAssist: " + (AimAssist.enabled ? "§aON" : "§cOFF")),
-                btn -> {
-                    AimAssist.enabled = !AimAssist.enabled;
-                    btn.setMessage(Component.literal("AimAssist: " + (AimAssist.enabled ? "§aON" : "§cOFF")));
-                }
-        ).bounds(cx - bw / 2, cy - 45, bw, bh).build());
+        for (ClientBase.Module module : base.getModuleManager().getModules()) {
+            int offset = 0;
+            if (module.getName().equals("XbowCart")) offset = -70;
+            else if (module.getName().equals("AimAssist")) offset = -45;
+            else if (module.getName().equals("TriggerBot")) offset = -20;
+            else if (module.getName().equals("ShieldBreaker")) offset = 5;
+            else if (module.getName().equals("AutoMace")) offset = 30;
 
-        this.addRenderableWidget(Button.builder(
-                Component.literal("TriggerBot: " + (TriggerBot.enabled ? "§aON" : "§cOFF")),
-                btn -> {
-                    TriggerBot.enabled = !TriggerBot.enabled;
-                    btn.setMessage(Component.literal("TriggerBot: " + (TriggerBot.enabled ? "§aON" : "§cOFF")));
-                }
-        ).bounds(cx - bw / 2, cy - 20, bw, bh).build());
-
-        this.addRenderableWidget(Button.builder(
-                Component.literal("ShieldBreaker: " + (ShieldBreaker.enabled ? "§aON" : "§cOFF")),
-                btn -> {
-                    ShieldBreaker.enabled = !ShieldBreaker.enabled;
-                    btn.setMessage(Component.literal("ShieldBreaker: " + (ShieldBreaker.enabled ? "§aON" : "§cOFF")));
-                }
-        ).bounds(cx - bw / 2, cy + 5, bw, bh).build());
-
-        this.addRenderableWidget(Button.builder(
-                Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")),
-                btn -> {
-                    AutoMace.enabled = !AutoMace.enabled;
-                    btn.setMessage(Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")));
-                }
-        ).bounds(cx - bw / 2, cy + 30, bw, bh).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.literal(module.getName() + ": " + (module.isEnabled() ? "§aON" : "§cOFF")),
+                    btn -> {
+                        module.toggle();
+                        btn.setMessage(Component.literal(module.getName() + ": " + (module.isEnabled() ? "§aON" : "§cOFF")));
+                    }
+            ).bounds(cx - bw / 2, cy + offset, bw, bh).build());
+        }
 
         this.addRenderableWidget(Button.builder(
                 Component.literal("Fechar"),
@@ -114,14 +78,5 @@ public class ClickGUI extends Screen {
 
     public static UUID getSubsessionIdentity() {
         return SUBSESSION_IDENTITY;
-    }
-
-    public static void setRenderBackground(boolean state) {
-        renderBackgroundFlag = state;
-        GUI_REGISTRY.put("RenderBackground", renderBackgroundFlag);
-    }
-
-    public static boolean isRenderBackgroundActive() {
-        return renderBackgroundFlag;
     }
 }
