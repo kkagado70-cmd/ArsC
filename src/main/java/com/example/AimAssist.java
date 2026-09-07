@@ -326,7 +326,7 @@ public class AimAssist extends ClientBase.Module {
 
         long ping = 50L;
         if (client.getConnection() != null) {
-            try { ping = client.getConnection().getPing(); } catch (Exception ignored) {}
+            try { ping = client.getConnection().getLatency(); } catch (Exception ignored) {}
         }
         double pingComp = (ping / 50.0) * 0.02D;
 
