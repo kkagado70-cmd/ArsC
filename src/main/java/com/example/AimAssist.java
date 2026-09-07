@@ -29,18 +29,19 @@ public class AimAssist extends ClientBase.Module {
     private static int targetLockTicks = 0;
     private static int targetLostTicks = 0;
 
-    private static final Map<String, Object> SWIGHT_SEVEN_REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, Object> SWIGHT_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
-    private static final Deque<Float> YAW_HISTORY_QUEUE = new ArrayDeque<>();
-    private static final Deque<Float> PITCH_HISTORY_QUEUE = new ArrayDeque<>();
-    private static final Deque<Vec3> VELOCITY_VECTOR_DEQUE = new ArrayDeque<>();
-    private static final Deque<Long> TIMING_LATENCY_QUEUE = new ArrayDeque<>();
-    private static final Deque<Double> ACCELERATION_SAMPLE_DEQUE = new ArrayDeque<>();
-    private static final Deque<Double> JERK_SAMPLE_DEQUE = new ArrayDeque<>();
-    private static final Deque<Float> OVERSHOOT_ERROR_DEQUE = new ArrayDeque<>();
-    private static final Deque<Long> SESSION_TIMESTAMP_DEQUE = new ArrayDeque<>();
+    private static final Deque<Float> YAW_HISTORY = new ArrayDeque<>();
+    private static final Deque<Float> PITCH_HISTORY = new ArrayDeque<>();
+    private static final Deque<Vec3> VELOCITY_HISTORY = new ArrayDeque<>();
+    private static final Deque<Long> TIMING_HISTORY = new ArrayDeque<>();
+    private static final Deque<Double> ACCELERATION_HISTORY = new ArrayDeque<>();
+    private static final Deque<Double> JERK_HISTORY = new ArrayDeque<>();
+    private static final Deque<Float> OVERSHOOT_HISTORY = new ArrayDeque<>();
+    private static final Deque<Long> SESSION_HISTORY = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 8192;
 
+    // Parâmetros de mira
     private static double kinematicSmoothingRate = 0.45D;
     private static double stochasticJitterScale = 0.00005D;
     private static float maximumFovAngle = 100.0F;
@@ -53,6 +54,7 @@ public class AimAssist extends ClientBase.Module {
     private static double cumulativeWindY = 0.0D;
     private static int targetSwitchThrottleTicks = 0;
 
+    // Predição e contenção
     private static Vec3 previousTargetVelocity = Vec3.ZERO;
     private static Vec3 previousTargetAcceleration = Vec3.ZERO;
     private static final float PREDICTION_TICKS = 2.0f;
@@ -62,12 +64,11 @@ public class AimAssist extends ClientBase.Module {
     private static float overshootPitchOffset = 0.0f;
     private static int saccadeTimer = 0;
     private static double targetPredictionScalar = 1.15D;
-    private static long averagePing = 50L;
     private static double verticalSmoothingMultiplier = 1.1D;
     private static boolean errorInjectionActive = true;
     private static double randomMissProbability = 0.025D;
 
-    // ===== 12 MELHORIAS: NOVAS VARIÁVEIS =====
+    // Melhorias extras
     private static Vec3 lastKnownTargetPos = null;
     private static int memoryTicks = 0;
     private static float recoilYaw = 0.0f;
@@ -76,71 +77,37 @@ public class AimAssist extends ClientBase.Module {
     private static int hitCount = 0;
     private static int totalAttacks = 0;
 
-    private static double sessionMetricAlpha = 0.5D;
-    private static double sessionMetricBeta = 0.5D;
-    private static double sessionMetricGamma = 0.5D;
-    private static double sessionMetricDelta = 0.5D;
-    private static double sessionMetricEpsilon = 0.5D;
-    private static double sessionMetricZeta = 0.5D;
-    private static double sessionMetricEta = 0.5D;
-    private static double sessionMetricTheta = 0.5D;
-    private static double sessionMetricIota = 0.5D;
-    private static double sessionMetricKappa = 0.5D;
-    private static boolean deepTelemetryAuditActive = true;
-    private static int telemetryFlushIntervalTicks = 300;
-    private static long lastTelemetryFlushEpoch = 0L;
-    private static boolean adaptiveFovScalingActive = true;
-    private static double fovExpansionRate = 0.05D;
-    private static boolean strictRaycastVerification = true;
-    private static double raycastStepPrecision = 0.1D;
-    private static boolean kineticInertiaModelActive = true;
-    private static double massSimulatedDrag = 0.02D;
-    private static boolean rotationalFrictionActive = true;
-    private static double frictionCoefficient = 0.04D;
-
     static {
-        initializeSwightRegistry();
+        initializeRegistry();
     }
 
-    private static void initializeSwightRegistry() {
-        SWIGHT_SEVEN_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        SWIGHT_SEVEN_REGISTRY.put("Profile", "Swight-12-Features-AimAssist-700Lines");
-        SWIGHT_SEVEN_REGISTRY.put("BypassEngine", "Human-Mime-Easing-Enterprise");
-        SWIGHT_SEVEN_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
-        SWIGHT_SEVEN_REGISTRY.put("BufferFlushCounter", 0);
-        SWIGHT_SEVEN_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
-        SWIGHT_SEVEN_REGISTRY.put("WindMouseState", windMouseEngineActive);
-        SWIGHT_SEVEN_REGISTRY.put("GcdCorrectionState", gcdCorrectionActive);
-        SWIGHT_SEVEN_REGISTRY.put("SmoothingFactor", kinematicSmoothingRate);
-        SWIGHT_SEVEN_REGISTRY.put("JitterScale", stochasticJitterScale);
-        SWIGHT_SEVEN_REGISTRY.put("MaxFov", maximumFovAngle);
-        SWIGHT_SEVEN_REGISTRY.put("MaxReach", maximumReachBound);
-        SWIGHT_SEVEN_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
-        SWIGHT_SEVEN_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
-        SWIGHT_SEVEN_REGISTRY.put("BetaMetric", sessionMetricBeta);
-        SWIGHT_SEVEN_REGISTRY.put("GammaMetric", sessionMetricGamma);
-        SWIGHT_SEVEN_REGISTRY.put("DeltaMetric", sessionMetricDelta);
+    private static void initializeRegistry() {
+        SWIGHT_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        SWIGHT_REGISTRY.put("Profile", "Swight-Elite-AimAssist-800L");
+        SWIGHT_REGISTRY.put("BypassEngine", "Human-Mime-Easing-Enterprise");
+        SWIGHT_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        SWIGHT_REGISTRY.put("SmoothingFactor", kinematicSmoothingRate);
+        SWIGHT_REGISTRY.put("JitterScale", stochasticJitterScale);
+        SWIGHT_REGISTRY.put("ContainmentRadius", containmentRadius);
     }
 
     public AimAssist() {
         super("AimAssist");
         AimAssist.enabled = true;
-        initializeSwightRegistry();
+        initializeRegistry();
     }
 
     @Override
-    public boolean isEnabled() {
-        return enabled;
-    }
+    public boolean isEnabled() { return enabled; }
 
     @Override
     public void toggle() {
         enabled = !enabled;
         super.enabled = enabled;
-        hardResetAimSubsystem();
+        hardReset();
     }
 
-    private static void hardResetAimSubsystem() {
+    private static void hardReset() {
         lockedTarget = null;
         targetLockTicks = 0;
         targetLostTicks = 0;
@@ -159,70 +126,60 @@ public class AimAssist extends ClientBase.Module {
         recoilTicks = 0;
         hitCount = 0;
         totalAttacks = 0;
-        YAW_HISTORY_QUEUE.clear();
-        PITCH_HISTORY_QUEUE.clear();
-        VELOCITY_VECTOR_DEQUE.clear();
-        TIMING_LATENCY_QUEUE.clear();
-        ACCELERATION_SAMPLE_DEQUE.clear();
-        JERK_SAMPLE_DEQUE.clear();
-        OVERSHOOT_ERROR_DEQUE.clear();
-        SESSION_TIMESTAMP_DEQUE.clear();
+        YAW_HISTORY.clear();
+        PITCH_HISTORY.clear();
+        VELOCITY_HISTORY.clear();
+        TIMING_HISTORY.clear();
+        ACCELERATION_HISTORY.clear();
+        JERK_HISTORY.clear();
+        OVERSHOOT_HISTORY.clear();
+        SESSION_HISTORY.clear();
         purgeRegistry();
-        initializeSwightRegistry();
+        initializeRegistry();
     }
 
-    private static void purgeRegistry() {
-        SWIGHT_SEVEN_REGISTRY.clear();
-    }
+    private static void purgeRegistry() { SWIGHT_REGISTRY.clear(); }
 
     @Override
-    public void tick(Minecraft clientRef) {
-        onTick(clientRef);
-    }
+    public void tick(Minecraft client) { onTick(client); }
 
-    private static boolean isHoldingWeapon(Minecraft clientRef) {
-        if (clientRef.player == null) return false;
-        ItemStack stack = clientRef.player.getMainHandItem();
+    private static boolean isHoldingWeapon(Minecraft client) {
+        if (client.player == null) return false;
+        ItemStack stack = client.player.getMainHandItem();
         if (stack.isEmpty()) return false;
         String name = stack.getItem().getDescriptionId().toLowerCase();
         return name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace") || name.contains("bow") || name.contains("crossbow");
     }
 
-    private static boolean verifyLineOfSight(Minecraft clientRef, Entity target) {
-        if (clientRef.player == null || target == null) return false;
-        Vec3 start = clientRef.player.getEyePosition();
+    private static boolean verifyLineOfSight(Minecraft client, Entity target) {
+        if (client.player == null || target == null) return false;
+        Vec3 start = client.player.getEyePosition();
         Vec3 end = target.getEyePosition();
-        BlockHitResult hit = clientRef.level.clip(
-                new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, clientRef.player)
-        );
+        BlockHitResult hit = client.level.clip(new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, client.player));
         return hit.getType() == HitResult.Type.MISS;
     }
 
-    public static void onTick(Minecraft clientRef) {
-        if (!enabled || clientRef.player == null || clientRef.level == null) return;
-        if (!clientRef.player.isAlive()) return;
-        if (!isHoldingWeapon(clientRef)) {
+    public static void onTick(Minecraft client) {
+        if (!enabled || client.player == null || client.level == null) return;
+        if (!client.player.isAlive()) return;
+        if (!isHoldingWeapon(client)) {
             lockedTarget = null;
             targetLockTicks = 0;
             return;
         }
-        if (ShieldBreaker.isShieldStunStatic() || ShieldBreaker.isShieldStunActive()) {
-            return;
-        }
+        if (ShieldBreaker.isShieldStunActive()) return; // CORRIGIDO
 
         globalExecutionCounter++;
-        if (targetSwitchThrottleTicks > 0) {
-            targetSwitchThrottleTicks--;
-        }
+        if (targetSwitchThrottleTicks > 0) targetSwitchThrottleTicks--;
 
-        Entity target = evaluateSmartTarget(clientRef);
+        Entity target = evaluateSmartTarget(client);
         if (target != null) {
             lastKnownTargetPos = target.position();
             memoryTicks = 0;
-            smoothAimToTarget(clientRef, target);
+            smoothAimToTarget(client, target);
         } else if (lastKnownTargetPos != null && memoryTicks < 5) {
             memoryTicks++;
-            smoothAimToPosition(clientRef, lastKnownTargetPos);
+            smoothAimToPosition(client, lastKnownTargetPos);
         } else {
             lockedTarget = null;
             targetLockTicks = 0;
@@ -234,41 +191,35 @@ public class AimAssist extends ClientBase.Module {
             memoryTicks = 0;
         }
 
+        // Recoil simulado
         if (recoilTicks > 0) {
-            float currentYaw = clientRef.player.getYRot();
-            float currentPitch = clientRef.player.getXRot();
-            clientRef.player.setYRot(currentYaw + recoilYaw / recoilTicks);
-            clientRef.player.setXRot(Mth.clamp(currentPitch + recoilPitch / recoilTicks, -89.0F, 89.0F));
+            float yaw = client.player.getYRot();
+            float pitch = client.player.getXRot();
+            client.player.setYRot(yaw + recoilYaw / recoilTicks);
+            client.player.setXRot(Mth.clamp(pitch + recoilPitch / recoilTicks, -89.0F, 89.0F));
             recoilTicks--;
         }
 
         executeAutoCalibrationLearning();
-        refreshAimRegistryState();
+        refreshRegistryState();
     }
 
-    private static Entity evaluateSmartTarget(Minecraft clientRef) {
+    private static Entity evaluateSmartTarget(Minecraft client) {
         if (lockedTarget != null) {
             double effectiveReach = maximumReachBound;
-            if (clientRef.player.distanceTo(lockedTarget) > 5.0D) {
-                effectiveReach = 7.0D;
-            }
-            double distSqr = clientRef.player.distanceToSqr(lockedTarget);
+            if (client.player.distanceTo(lockedTarget) > 5.0D) effectiveReach = 7.0D;
+            double distSqr = client.player.distanceToSqr(lockedTarget);
             double dist = Math.sqrt(distSqr);
             double effectiveFov = dist > 5.0D ? 60.0D : maximumFovAngle;
-
-            if (lockedTarget.isAlive() && distSqr <= (effectiveReach * effectiveReach)
-                    && computeFovCheck(clientRef, lockedTarget, effectiveFov)
-                    && verifyLineOfSight(clientRef, lockedTarget)) {
+            if (lockedTarget.isAlive() && distSqr <= effectiveReach * effectiveReach
+                    && computeFovCheck(client, lockedTarget, effectiveFov)
+                    && verifyLineOfSight(client, lockedTarget)) {
                 targetLockTicks++;
                 targetLostTicks = 0;
-                if (targetLockTicks < 5000) {
-                    return lockedTarget;
-                }
+                if (targetLockTicks < 5000) return lockedTarget;
             }
             targetLostTicks++;
-            if (targetLostTicks < 5) {
-                return lockedTarget;
-            }
+            if (targetLostTicks < 5) return lockedTarget;
             lockedTarget = null;
             targetLockTicks = 0;
             targetLostTicks = 0;
@@ -277,98 +228,80 @@ public class AimAssist extends ClientBase.Module {
 
         if (targetSwitchThrottleTicks > 0) return null;
 
-        Entity bestEntity = null;
-        double minDistanceSqr = (7.0D * 7.0D) + 1.0D;
+        Entity best = null;
+        double minDistSqr = (7.0D * 7.0D) + 1.0D;
 
-        for (Entity entity : clientRef.level.entitiesForRendering()) {
-            if (!(entity instanceof LivingEntity living) || living == clientRef.player || !living.isAlive()) continue;
-            if (living instanceof Player player && (player.isSpectator() || player.isCreative())) continue;
+        for (Entity entity : client.level.entitiesForRendering()) {
+            if (!(entity instanceof LivingEntity living) || living == client.player || !living.isAlive()) continue;
+            if (living instanceof Player p && (p.isSpectator() || p.isCreative())) continue;
 
-            double distSqr = clientRef.player.distanceToSqr(living);
+            double distSqr = client.player.distanceToSqr(living);
             double currentReach = maximumReachBound;
-
-            ItemStack hand = clientRef.player.getMainHandItem();
+            ItemStack hand = client.player.getMainHandItem();
             boolean isLongRange = hand.getItem() instanceof BowItem || hand.getItem() instanceof CrossbowItem;
             boolean targetStatic = living.getDeltaMovement().horizontalDistanceSqr() < 0.001D;
-
-            if (isLongRange || targetStatic || distSqr > (4.5D * 4.5D)) {
-                currentReach = 7.0D;
-            } else {
-                currentReach = 4.5D;
-            }
-
-            if (distSqr > (currentReach * currentReach)) continue;
+            if (isLongRange || targetStatic || distSqr > 4.5D * 4.5D) currentReach = 7.0D;
+            else currentReach = 4.5D;
+            if (distSqr > currentReach * currentReach) continue;
 
             double dist = Math.sqrt(distSqr);
             double effectiveFov = dist > 5.0D ? 60.0D : maximumFovAngle;
+            if (!computeFovCheck(client, living, effectiveFov)) continue;
+            if (!verifyLineOfSight(client, living)) continue;
 
-            if (!computeFovCheck(clientRef, living, effectiveFov)) continue;
-            if (!verifyLineOfSight(clientRef, living)) continue;
-
-            if (distSqr < minDistanceSqr) {
-                minDistanceSqr = distSqr;
-                bestEntity = living;
+            if (distSqr < minDistSqr) {
+                minDistSqr = distSqr;
+                best = living;
             }
         }
 
-        if (bestEntity != null && bestEntity != lockedTarget) {
-            lockedTarget = bestEntity;
+        if (best != null && best != lockedTarget) {
+            lockedTarget = best;
             targetLockTicks = 0;
             targetLostTicks = 0;
         }
         return lockedTarget;
     }
 
-    private static boolean computeFovCheck(Minecraft clientRef, Entity entity, double maxAngle) {
-        Vec3 targetPos = entity.position();
-        double deltaX = targetPos.x - clientRef.player.getX();
-        double deltaZ = targetPos.z - clientRef.player.getZ();
-        float targetYaw = (float) (Math.atan2(deltaZ, deltaX) * (180.0 / Math.PI)) - 90.0F;
-        float currentYaw = clientRef.player.getYRot();
+    private static boolean computeFovCheck(Minecraft client, Entity entity, double maxAngle) {
+        Vec3 pos = entity.position();
+        double dx = pos.x - client.player.getX();
+        double dz = pos.z - client.player.getZ();
+        float targetYaw = (float) (Math.atan2(dz, dx) * (180.0 / Math.PI)) - 90.0F;
+        float currentYaw = client.player.getYRot();
         return Math.abs(Mth.wrapDegrees(targetYaw - currentYaw)) <= maxAngle;
     }
 
-    public static void smoothAimToTarget(Minecraft clientRef, Entity target) {
-        Vec3 resolvedPos = computeResolvedTargetPosition(clientRef, target);
-        performAimInterpolation(clientRef, resolvedPos, target);
+    public static void smoothAimToTarget(Minecraft client, Entity target) {
+        Vec3 resolved = computeResolvedTargetPosition(client, target);
+        performAimInterpolation(client, resolved, target);
     }
 
-    private static void smoothAimToPosition(Minecraft clientRef, Vec3 position) {
-        performAimInterpolation(clientRef, position, null);
+    private static void smoothAimToPosition(Minecraft client, Vec3 pos) {
+        performAimInterpolation(client, pos, null);
     }
 
-    private static Vec3 computeResolvedTargetPosition(Minecraft clientRef, Entity target) {
-        double distanceToTarget = clientRef.player.distanceTo(target);
+    private static Vec3 computeResolvedTargetPosition(Minecraft client, Entity target) {
+        double dist = client.player.distanceTo(target);
 
-        double baseSmooth = 0.45D;
-        if (distanceToTarget < 2.5D) {
-            baseSmooth = 0.55D;
-        } else if (distanceToTarget > 5.0D) {
-            baseSmooth = 0.50D;
-        } else {
-            baseSmooth = 0.45D;
-        }
+        // Smoothing adaptativo
+        double baseSmooth = dist < 2.5D ? 0.55D : (dist > 5.0D ? 0.50D : 0.45D);
+        if (client.player.getDeltaMovement().horizontalDistanceSqr() > 0.01D) baseSmooth = Math.min(0.70D, baseSmooth + 0.10D);
 
-        if (clientRef.player.getDeltaMovement().horizontalDistanceSqr() > 0.01D) {
-            baseSmooth = Math.min(0.70D, baseSmooth + 0.10D);
-        }
-
-        double sens = clientRef.options.sensitivity().get();
+        double sens = client.options.sensitivity().get();
         double normalizedSens = (sens - 0.0) / (1.0 - 0.0);
         kinematicSmoothingRate = (0.35D + normalizedSens * 0.15D) + (baseSmooth - 0.45D);
         stochasticJitterScale = Math.max(0.00001D, 0.00008D - normalizedSens * 0.00005D);
 
-        double healthScale = clientRef.player.getHealth();
-        double targetSpeed = target.getDeltaMovement().horizontalDistance();
-        if (healthScale <= 6.0D || targetSpeed > 1.5D) {
+        // Estresse (vida baixa, alvo rápido)
+        if (client.player.getHealth() <= 6.0D || target.getDeltaMovement().horizontalDistance() > 1.5D) {
             kinematicSmoothingRate *= 0.85D;
         }
 
+        // Overshoot com reflexo
         saccadeTimer++;
-        float maxOvershootYaw = distanceToTarget < 2.5D ? 0.05f : 0.15f;
-        float maxOvershootPitch = distanceToTarget < 2.5D ? 0.05f : 0.10f;
-        float decayRate = distanceToTarget < 2.5D ? 0.98f : 0.97f;
-
+        float maxOvershootYaw = dist < 2.5D ? 0.05f : 0.15f;
+        float maxOvershootPitch = dist < 2.5D ? 0.05f : 0.10f;
         if (saccadeTimer == 0) {
             overshootYawOffset = (float) ((secureRandom.nextDouble() - 0.5) * 1.2D);
             overshootPitchOffset = (float) ((secureRandom.nextDouble() - 0.5) * 0.8D);
@@ -380,73 +313,67 @@ public class AimAssist extends ClientBase.Module {
             overshootYawOffset = (float) ((secureRandom.nextDouble() - 0.5) * maxOvershootYaw * 2.0f);
             overshootPitchOffset = (float) ((secureRandom.nextDouble() - 0.5) * maxOvershootPitch * 2.0f);
         } else {
-            overshootYawOffset *= decayRate;
-            overshootPitchOffset *= decayRate;
+            overshootYawOffset *= 0.97f;
+            overshootPitchOffset *= 0.97f;
             if (Math.abs(overshootYawOffset) < 0.01f) overshootYawOffset = 0.0f;
             if (Math.abs(overshootPitchOffset) < 0.01f) overshootPitchOffset = 0.0f;
         }
 
-        Vec3 currentVel = target.getDeltaMovement();
-        Vec3 acceleration = currentVel.subtract(previousTargetVelocity);
-        Vec3 jerk = acceleration.subtract(previousTargetAcceleration);
+        // Predição com aceleração e jerk
+        Vec3 vel = target.getDeltaMovement();
+        Vec3 accel = vel.subtract(previousTargetVelocity);
+        Vec3 jerk = accel.subtract(previousTargetAcceleration);
 
-        long latency = 50L;
-        if (clientRef.getConnection() != null) {
-            try {
-                latency = clientRef.getConnection().getLatency();
-            } catch (Exception ignored) {}
+        long ping = 50L;
+        if (client.getConnection() != null) {
+            try { ping = client.getConnection().getPing(); } catch (Exception ignored) {}
         }
-        double pingCompensation = (latency / 50.0) * 0.02D;
+        double pingComp = (ping / 50.0) * 0.02D;
 
-        Vec3 predictedPos = target.position()
-                .add(currentVel.scale(PREDICTION_TICKS * 0.05D + pingCompensation))
-                .add(acceleration.scale(0.5D * PREDICTION_TICKS * PREDICTION_TICKS * 0.0025D))
-                .add(jerk.scale((1.0 / 6.0) * PREDICTION_TICKS * PREDICTION_TICKS * PREDICTION_TICKS * 0.000125D));
+        Vec3 predicted = target.position()
+                .add(vel.scale(PREDICTION_TICKS * 0.05D + pingComp))
+                .add(accel.scale(0.5D * PREDICTION_TICKS * PREDICTION_TICKS * 0.0025D))
+                .add(jerk.scale((1.0/6.0) * PREDICTION_TICKS * PREDICTION_TICKS * PREDICTION_TICKS * 0.000125D));
 
-        previousTargetVelocity = currentVel;
-        previousTargetAcceleration = acceleration;
+        previousTargetVelocity = vel;
+        previousTargetAcceleration = accel;
 
-        double hitpointRoll = secureRandom.nextDouble();
+        // Variação do ponto de mira
+        double roll = secureRandom.nextDouble();
         double chestOffsetY = target.getBbHeight() * 0.42D;
-        if (hitpointRoll < 0.15D && distanceToTarget < 3.0D) {
-            chestOffsetY = target.getBbHeight() * 0.85D;
-        } else if (hitpointRoll < 0.25D) {
-            chestOffsetY = target.getBbHeight() * 0.15D;
-        } else if (hitpointRoll < 0.30D) {
-            chestOffsetY = target.getBbHeight() * (secureRandom.nextDouble());
-        }
+        if (roll < 0.15D && dist < 3.0D) chestOffsetY = target.getBbHeight() * 0.85D;
+        else if (roll < 0.25D) chestOffsetY = target.getBbHeight() * 0.15D;
+        else if (roll < 0.30D) chestOffsetY = target.getBbHeight() * secureRandom.nextDouble();
 
-        return predictedPos.add(
+        return predicted.add(
                 (secureRandom.nextDouble() - 0.5) * 0.06D,
                 chestOffsetY,
                 (secureRandom.nextDouble() - 0.5) * 0.06D
         );
     }
 
-    private static void performAimInterpolation(Minecraft clientRef, Vec3 resolvedPos, Entity target) {
-        double deltaX = resolvedPos.x - clientRef.player.getX();
-        double deltaY = resolvedPos.y - clientRef.player.getEyeY();
-        double deltaZ = resolvedPos.z - clientRef.player.getZ();
-        double horizontalDistance = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
+    private static void performAimInterpolation(Minecraft client, Vec3 targetPos, Entity target) {
+        double dx = targetPos.x - client.player.getX();
+        double dy = targetPos.y - client.player.getEyeY();
+        double dz = targetPos.z - client.player.getZ();
+        double hDist = Math.sqrt(dx*dx + dz*dz);
 
-        float calculatedTargetYaw = (float) (Math.atan2(deltaZ, deltaX) * (180.0 / Math.PI)) - 90.0F;
-        float calculatedTargetPitch = (float) (-(Math.atan2(deltaY, horizontalDistance) * (180.0 / Math.PI)));
-        calculatedTargetPitch = Mth.clamp(calculatedTargetPitch, -89.0F, 89.0F);
+        float calcYaw = (float) (Math.atan2(dz, dx) * (180.0/Math.PI)) - 90.0F;
+        float calcPitch = (float) (-Math.atan2(dy, hDist) * (180.0/Math.PI));
+        calcPitch = Mth.clamp(calcPitch, -89.0F, 89.0F);
 
-        float currentYaw = clientRef.player.getYRot();
-        float currentPitch = clientRef.player.getXRot();
-        float rawYawDiff = Mth.wrapDegrees(calculatedTargetYaw - currentYaw);
-        float rawPitchDiff = calculatedTargetPitch - currentPitch;
+        float curYaw = client.player.getYRot();
+        float curPitch = client.player.getXRot();
+        float rawYawDiff = Mth.wrapDegrees(calcYaw - curYaw);
+        float rawPitchDiff = calcPitch - curPitch;
 
-        double distanceToTarget = target != null ? clientRef.player.distanceTo(target) : 3.0D;
-        float deadzone = distanceToTarget < 2.5D ? 0.3f : 0.5f;
-        float distanceFromCenter = (float) Math.sqrt(rawYawDiff * rawYawDiff + rawPitchDiff * rawPitchDiff);
-        if (distanceFromCenter < deadzone) {
-            return;
-        }
+        double dist = target != null ? client.player.distanceTo(target) : 3.0D;
+        float deadzone = dist < 2.5D ? 0.3f : 0.5f;
+        float distFromCenter = (float) Math.sqrt(rawYawDiff*rawYawDiff + rawPitchDiff*rawPitchDiff);
+        if (distFromCenter < deadzone) return;
 
-        double angleToTarget = Math.abs(rawYawDiff);
-        if (angleToTarget < 10.0D) {
+        // Modo foco/periférico
+        if (Math.abs(rawYawDiff) < 10.0D) {
             stochasticJitterScale = 0.00003D;
             randomMissProbability = 0.01D;
         } else {
@@ -454,82 +381,90 @@ public class AimAssist extends ClientBase.Module {
             randomMissProbability = 0.04D;
         }
 
-        long spectatorCount = clientRef.level.players().stream()
-                .filter(p -> p != clientRef.player && p.isSpectator())
-                .count();
-        if (spectatorCount > 0) {
+        // Modo espectador
+        long spectators = client.level.players().stream().filter(p -> p != client.player && p.isSpectator()).count();
+        if (spectators > 0) {
             stochasticJitterScale *= 1.5D;
-                        kinematicSmoothingRate *= 0.9D;
+            kinematicSmoothingRate *= 0.9D;
             randomMissProbability *= 1.5D;
         }
 
-        if (distanceFromCenter > containmentRadius) {
-            float pullFactor = (distanceFromCenter - containmentRadius) * containmentStrength;
-            float pullYaw = (rawYawDiff / distanceFromCenter) * pullFactor;
-            float pullPitch = (rawPitchDiff / distanceFromCenter) * pullFactor;
+        // Zona de contenção
+        if (distFromCenter > containmentRadius) {
+            float pull = (distFromCenter - containmentRadius) * containmentStrength;
+            float pullYaw = (rawYawDiff / distFromCenter) * pull;
+            float pullPitch = (rawPitchDiff / distFromCenter) * pull;
             rawYawDiff -= pullYaw;
             rawPitchDiff -= pullPitch;
         }
 
         float finalYawDiff = rawYawDiff;
         float finalPitchDiff = rawPitchDiff;
-        if (distanceFromCenter > 1.0f) {
+        if (distFromCenter > 1.0f) {
             finalYawDiff += overshootYawOffset;
             finalPitchDiff += overshootPitchOffset;
         }
 
-        float t = Math.min(1.0f, distanceFromCenter / 10.0f);
+        // Easing (aceleração/desaceleração)
+        float t = Math.min(1.0f, distFromCenter / 10.0f);
         float eased = 1.0f - (1.0f - t) * (1.0f - t);
         finalYawDiff *= eased;
         finalPitchDiff *= eased;
 
+        // Erro proposital
         if (errorInjectionActive && secureRandom.nextDouble() < randomMissProbability) {
             finalYawDiff += (float) ((secureRandom.nextDouble() - 0.5) * 1.5D);
             finalPitchDiff += (float) ((secureRandom.nextDouble() - 0.5) * 1.0D);
         }
 
+        // Aplicar rotação com WindMouse ou smoothing puro
         if (windMouseEngineActive) {
-            cumulativeWindX = cumulativeWindX * 0.95D + (secureRandom.nextGaussian() * 0.1D);
-            if (!horizontalAxisOnly) {
-                cumulativeWindY = cumulativeWindY * 0.95D + (secureRandom.nextGaussian() * 0.1D * verticalSmoothingMultiplier);
-            }
+            cumulativeWindX = cumulativeWindX * 0.95D + secureRandom.nextGaussian() * 0.1D;
+            if (!horizontalAxisOnly) cumulativeWindY = cumulativeWindY * 0.95D + secureRandom.nextGaussian() * 0.1D * verticalSmoothingMultiplier;
 
-            float curveStepYaw = (float) (finalYawDiff / 14.0D + cumulativeWindX * 0.002D);
+            float stepYaw = (float) (finalYawDiff / 14.0D + cumulativeWindX * 0.002D);
             float noiseYaw = (float) (secureRandom.nextGaussian() * stochasticJitterScale);
-            float nextEvaluatedYaw = currentYaw + curveStepYaw + noiseYaw;
+            float nextYaw = curYaw + stepYaw + noiseYaw;
 
-            float nextEvaluatedPitch = currentPitch;
+            float nextPitch = curPitch;
             if (!horizontalAxisOnly) {
-                float curveStepPitch = (float) (finalPitchDiff / 14.0D + cumulativeWindY * 0.002D);
+                float stepPitch = (float) (finalPitchDiff / 14.0D + cumulativeWindY * 0.002D);
                 float noisePitch = (float) (secureRandom.nextGaussian() * stochasticJitterScale);
-                nextEvaluatedPitch = Mth.clamp(currentPitch + curveStepPitch + noisePitch, -89.0F, 89.0F);
+                nextPitch = Mth.clamp(curPitch + stepPitch + noisePitch, -89.0F, 89.0F);
             }
 
-            if (gcdCorrectionActive) {
-                nextEvaluatedYaw = applyGcdGridSnap(clientRef, currentYaw, nextEvaluatedYaw);
-            }
-
-            clientRef.player.setYRot(nextEvaluatedYaw);
-            if (!horizontalAxisOnly) {
-                clientRef.player.setXRot(nextEvaluatedPitch);
-            }
-            applyGcdHardwareTurnSimulation(clientRef, currentYaw, nextEvaluatedYaw, horizontalAxisOnly ? 0.0D : (nextEvaluatedPitch - currentPitch));
+            if (gcdCorrectionActive) nextYaw = applyGcdGridSnap(client, curYaw, nextYaw);
+            client.player.setYRot(nextYaw);
+            if (!horizontalAxisOnly) client.player.setXRot(nextPitch);
+            applyGcdHardwareTurnSimulation(client, curYaw, nextYaw, horizontalAxisOnly ? 0.0D : (nextPitch - curPitch));
         } else {
-            float nextEvaluatedYaw = currentYaw + finalYawDiff * (float) kinematicSmoothingRate;
-            float nextEvaluatedPitch = currentPitch;
-            if (!horizontalAxisOnly) {
-                nextEvaluatedPitch = Mth.clamp(currentPitch + finalPitchDiff * (float) kinematicSmoothingRate, -89.0F, 89.0F);
-            }
+            float nextYaw = curYaw + finalYawDiff * (float) kinematicSmoothingRate;
+            float nextPitch = curPitch;
+            if (!horizontalAxisOnly) nextPitch = Mth.clamp(curPitch + finalPitchDiff * (float) kinematicSmoothingRate, -89.0F, 89.0F);
+            if (gcdCorrectionActive) nextYaw = applyGcdGridSnap(client, curYaw, nextYaw);
+            client.player.setYRot(nextYaw);
+            if (!horizontalAxisOnly) client.player.setXRot(nextPitch);
+            applyGcdHardwareTurnSimulation(client, curYaw, nextYaw, horizontalAxisOnly ? 0.0D : (nextPitch - curPitch));
+        }
+    }
 
-            if (gcdCorrectionActive) {
-                nextEvaluatedYaw = applyGcdGridSnap(clientRef, currentYaw, nextEvaluatedYaw);
-            }
+        private static float applyGcdGridSnap(Minecraft client, float curYaw, float targetYaw) {
+        if (client.options == null) return targetYaw;
+        double sens = client.options.sensitivity().get() * 0.6D + 0.2D;
+        double gcd = sens * sens * sens * 8.0D;
+        if (gcd <= 0.0D) return targetYaw;
+        double delta = targetYaw - curYaw;
+        double clamped = Math.round(delta / (gcd * 0.15D)) * (gcd * 0.15D);
+        return curYaw + (float) clamped;
+    }
 
-            clientRef.player.setYRot(nextEvaluatedYaw);
-            if (!horizontalAxisOnly) {
-                clientRef.player.setXRot(nextEvaluatedPitch);
-            }
-            applyGcdHardwareTurnSimulation(clientRef, currentYaw, nextEvaluatedYaw, horizontalAxisOnly ? 0.0D : (nextEvaluatedPitch - currentPitch));
+    private static void applyGcdHardwareTurnSimulation(Minecraft client, float curYaw, float nextYaw, double deltaPitch) {
+        if (client.options == null) return;
+        double sens = client.options.sensitivity().get() * 0.6D + 0.2D;
+        double gcd = sens * sens * sens * 8.0D;
+        if (gcd > 0.0D) {
+            double dY = (nextYaw - curYaw);
+            client.player.turn(dY / (gcd * 0.15D), deltaPitch / (gcd * 0.15D));
         }
     }
 
@@ -555,87 +490,31 @@ public class AimAssist extends ClientBase.Module {
     }
 
     public static void triggerSimulatedRecoil() {
-        recoilYaw = (float) ((secureRandom.nextDouble() - 0.5) * 0.3D);
-        recoilPitch = (float) ((secureRandom.nextDouble() - 0.5) * 0.2D);
+        recoilYaw = (float) ((secureRandom.nextDouble() - 0.5) * 0.4D);
+        recoilPitch = (float) ((secureRandom.nextDouble() - 0.3) * 0.3D);
         recoilTicks = 3;
     }
 
-    private static float applyGcdGridSnap(Minecraft clientRef, float currentYaw, float targetYaw) {
-        if (clientRef.options == null) return targetYaw;
-        double sensitivity = clientRef.options.sensitivity().get() * 0.6D + 0.2D;
-        double gcd = sensitivity * sensitivity * sensitivity * 8.0D;
-        if (gcd <= 0.0D) return targetYaw;
-        double deltaYaw = targetYaw - currentYaw;
-        double clampedDelta = Math.round(deltaYaw / (gcd * 0.15D)) * (gcd * 0.15D);
-        return currentYaw + (float) clampedDelta;
+    private static void refreshRegistryState() {
+        SWIGHT_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
+        SWIGHT_REGISTRY.put("ActiveLockState", lockedTarget != null);
+        SWIGHT_REGISTRY.put("WindOffset", cumulativeWindX);
+        SWIGHT_REGISTRY.put("HistorySize", YAW_HISTORY.size());
     }
 
-    private static void applyGcdHardwareTurnSimulation(Minecraft clientRef, float currentYaw, float nextYaw, double deltaPitch) {
-        if (clientRef.options != null) {
-            double sensitivity = clientRef.options.sensitivity().get() * 0.6D + 0.2D;
-            double gcd = sensitivity * sensitivity * sensitivity * 8.0D;
-            if (gcd > 0.0D) {
-                double deltaYawAngle = (nextYaw - currentYaw);
-                clientRef.player.turn(deltaYawAngle / (gcd * 0.15D), deltaPitch / (gcd * 0.15D));
-            }
-        }
-    }
-
-    private static void refreshAimRegistryState() {
-        SWIGHT_SEVEN_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
-        SWIGHT_SEVEN_REGISTRY.put("ActiveLockState", lockedTarget != null);
-        SWIGHT_SEVEN_REGISTRY.put("WindOffset", cumulativeWindX);
-        SWIGHT_SEVEN_REGISTRY.put("HistorySize", YAW_HISTORY_QUEUE.size());
-    }
-
-    public static UUID getSubsessionIdentity() {
-        return SUBSESSION_IDENTITY;
-    }
-
-    public static long getGlobalExecutionCounter() {
-        return globalExecutionCounter;
-    }
-
-    public static void setKinematicSmoothing(double value) {
-        kinematicSmoothingRate = value;
-    }
-
-    public static double getKinematicSmoothing() {
-        return kinematicSmoothingRate;
-    }
-
-    public static void toggleWindMouseEngine(boolean state) {
-        windMouseEngineActive = state;
-    }
-
-    public static boolean isWindMouseEngineActive() {
-        return windMouseEngineActive;
-    }
-
-    public static void toggleHorizontalAxisOnly(boolean state) {
-        horizontalAxisOnly = state;
-    }
-
-    public static boolean isHorizontalAxisOnly() {
-        return horizontalAxisOnly;
-    }
-
-    public static void toggleGcdCorrection(boolean state) {
-        gcdCorrectionActive = state;
-    }
-
-    public static boolean isGcdCorrectionActive() {
-        return gcdCorrectionActive;
-    }
-
-    public static int getYawHistorySize() {
-        return YAW_HISTORY_QUEUE.size();
-    }
-
-    public static int getPitchHistorySize() {
-        return PITCH_HISTORY_QUEUE.size();
-    }
-
+    public static UUID getSubsessionIdentity() { return SUBSESSION_IDENTITY; }
+    public static long getGlobalExecutionCounter() { return globalExecutionCounter; }
+    public static void setKinematicSmoothing(double v) { kinematicSmoothingRate = v; }
+    public static double getKinematicSmoothing() { return kinematicSmoothingRate; }
+    public static void toggleWindMouseEngine(boolean state) { windMouseEngineActive = state; }
+    public static boolean isWindMouseEngineActive() { return windMouseEngineActive; }
+    public static void toggleHorizontalAxisOnly(boolean state) { horizontalAxisOnly = state; }
+    public static boolean isHorizontalAxisOnly() { return horizontalAxisOnly; }
+    public static void toggleGcdCorrection(boolean state) { gcdCorrectionActive = state; }
+    public static boolean isGcdCorrectionActive() { return gcdCorrectionActive; }
+    public static int getYawHistorySize() { return YAW_HISTORY.size(); }
+    public static int getPitchHistorySize() { return PITCH_HISTORY.size(); }
+    
     public static void runBaselineCalibration() {
         kinematicSmoothingRate = 0.45D;
         stochasticJitterScale = 0.00005D;
@@ -648,11 +527,6 @@ public class AimAssist extends ClientBase.Module {
         cumulativeWindY = 0.0D;
     }
 
-    public static double getWindOffsetX() {
-        return cumulativeWindX;
-    }
-
-    public static double getWindOffsetY() {
-        return cumulativeWindY;
-    }
+    public static double getWindOffsetX() { return cumulativeWindX; }
+    public static double getWindOffsetY() { return cumulativeWindY; }
 }
