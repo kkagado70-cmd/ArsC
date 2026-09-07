@@ -33,7 +33,7 @@ public class TriggerBot extends ClientBase.Module {
     private static final Deque<Long> ATTACK_INTERVAL_HISTORY = new ArrayDeque<>();
     private static final Deque<Integer> CLICK_DURATION_MEMORY = new ArrayDeque<>();
     private static final Deque<Double> ERROR_VECTOR_MEMORY = new ArrayDeque<>();
-    private static final Deque<Float> ATTACK_STRENGTH_SAMPLE_DEQUE = new ArrayDeque<>();
+    privpublicate static final Deque<Float> ATTACK_STRENGTH_SAMPLE_DEQUE = new ArrayDeque<>();
     private static final Deque<Long> SESSION_TIMESTAMP_DEQUE = new ArrayDeque<>();
     private static final Deque<Double> FATIGUE_SAMPLE_DEQUE = new ArrayDeque<>();
     private static final Deque<Integer> REACTION_DELAY_SAMPLE_DEQUE = new ArrayDeque<>();
@@ -346,12 +346,7 @@ public class TriggerBot extends ClientBase.Module {
         }
         reactionCountdownTicks = 0;
 
-        if (onlyCritMode) {
-            boolean isFalling = clientRef.player.getDeltaMovement().y < verticalFallingTolerance;
-            if (clientRef.player.onGround() || !isFalling) return;
-        } else if (noCritMode) {
-            if (!clientRef.player.onGround()) return;
-        } else if (consistentCritsEnabled && !clientRef.player.onGround()) {
+        if (consistentCritsEnabled && !clientRef.player.onGround()) {
             boolean isFalling = clientRef.player.getDeltaMovement().y < verticalFallingTolerance;
             if (!isFalling && comboBufferTicks == 0) {
                 return;
@@ -485,10 +480,11 @@ public class TriggerBot extends ClientBase.Module {
         return enabled && SUBSESSION_UUID != null;
     }
 
-    return totalTriggersFired;
+    public static long getTotalTriggersFired() {
+        return totalTriggersFired;
     }
 
-    public static void performBaselineCalibration() {
+     public static void performBaselineCalibration() {
         totalTriggersFired = 0L;
         sessionAttackCounter = 0;
         reactionCountdownTicks = 0;
@@ -508,6 +504,24 @@ public class TriggerBot extends ClientBase.Module {
         executeSubsystemSanitation();
         if (ATTACK_INTERVAL_HISTORY.size() > HISTORY_MAX_CAPACITY) {
             ATTACK_INTERVAL_HISTORY.clear();
+        }
+        if (CLICK_DURATION_MEMORY.size() > HISTORY_MAX_CAPACITY) {
+            CLICK_DURATION_MEMORY.clear();
+        }
+        if (ERROR_VECTOR_MEMORY.size() > HISTORY_MAX_CAPACITY) {
+            ERROR_VECTOR_MEMORY.clear();
+        }
+        if (ATTACK_STRENGTH_SAMPLE_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            ATTACK_STRENGTH_SAMPLE_DEQUE.clear();
+        }
+        if (SESSION_TIMESTAMP_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            SESSION_TIMESTAMP_DEQUE.clear();
+        }
+        if (FATIGUE_SAMPLE_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            FATIGUE_SAMPLE_DEQUE.clear();
+        }
+        if (REACTION_DELAY_SAMPLE_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            REACTION_DELAY_SAMPLE_DEQUE.clear();
         }
     }
 
@@ -709,4 +723,3 @@ public class TriggerBot extends ClientBase.Module {
         REACTION_DELAY_SAMPLE_DEQUE.clear();
     }
 }
-  
