@@ -49,10 +49,7 @@ public class ClickGUI extends Screen {
         this.addRenderableWidget(Button.builder(
                 Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")),
                 btn -> {
-                    ClientBase.getInstance().getModuleManager().getModules().stream()
-                            .filter(m -> m instanceof XbowCart)
-                            .findFirst()
-                            .ifPresent(ClientBase.Module::toggle);
+                    XbowCart.enabled = !XbowCart.enabled;
                     btn.setMessage(Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")));
                 }
         ).bounds(cx - bw / 2, cy - 70, bw, bh).build());
@@ -60,10 +57,7 @@ public class ClickGUI extends Screen {
         this.addRenderableWidget(Button.builder(
                 Component.literal("AimAssist: " + (AimAssist.enabled ? "§aON" : "§cOFF")),
                 btn -> {
-                    ClientBase.getInstance().getModuleManager().getModules().stream()
-                            .filter(m -> m instanceof AimAssist)
-                            .findFirst()
-                            .ifPresent(ClientBase.Module::toggle);
+                    AimAssist.enabled = !AimAssist.enabled;
                     btn.setMessage(Component.literal("AimAssist: " + (AimAssist.enabled ? "§aON" : "§cOFF")));
                 }
         ).bounds(cx - bw / 2, cy - 45, bw, bh).build());
@@ -71,10 +65,7 @@ public class ClickGUI extends Screen {
         this.addRenderableWidget(Button.builder(
                 Component.literal("TriggerBot: " + (TriggerBot.enabled ? "§aON" : "§cOFF")),
                 btn -> {
-                    ClientBase.getInstance().getModuleManager().getModules().stream()
-                            .filter(m -> m instanceof TriggerBot)
-                            .findFirst()
-                            .ifPresent(ClientBase.Module::toggle);
+                    TriggerBot.enabled = !TriggerBot.enabled;
                     btn.setMessage(Component.literal("TriggerBot: " + (TriggerBot.enabled ? "§aON" : "§cOFF")));
                 }
         ).bounds(cx - bw / 2, cy - 20, bw, bh).build());
@@ -82,10 +73,7 @@ public class ClickGUI extends Screen {
         this.addRenderableWidget(Button.builder(
                 Component.literal("ShieldBreaker: " + (ShieldBreaker.enabled ? "§aON" : "§cOFF")),
                 btn -> {
-                    ClientBase.getInstance().getModuleManager().getModules().stream()
-                            .filter(m -> m instanceof ShieldBreaker)
-                            .findFirst()
-                            .ifPresent(ClientBase.Module::toggle);
+                    ShieldBreaker.enabled = !ShieldBreaker.enabled;
                     btn.setMessage(Component.literal("ShieldBreaker: " + (ShieldBreaker.enabled ? "§aON" : "§cOFF")));
                 }
         ).bounds(cx - bw / 2, cy + 5, bw, bh).build());
@@ -93,10 +81,7 @@ public class ClickGUI extends Screen {
         this.addRenderableWidget(Button.builder(
                 Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")),
                 btn -> {
-                    ClientBase.getInstance().getModuleManager().getModules().stream()
-                            .filter(m -> m instanceof AutoMace)
-                            .findFirst()
-                            .ifPresent(ClientBase.Module::toggle);
+                    AutoMace.enabled = !AutoMace.enabled;
                     btn.setMessage(Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")));
                 }
         ).bounds(cx - bw / 2, cy + 30, bw, bh).build());
