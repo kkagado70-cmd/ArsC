@@ -461,11 +461,12 @@ public class XbowCart extends ClientBase.Module {
         stochasticDelayModifier = modifier;
     }
 
-    public static long getGlobalWatchdogTimeoutMs() {
-    return globalWatchdogTimeoutMs;
-}
+        public static long getGlobalWatchdogTimeoutMs() {
+        return globalWatchdogTimeoutMs;
+    }
 
-public static void setGlobalWatchdogTimeoutMs(long timeout) {
-    globalWatchdogTimeoutMs = timeout;
-    XBOW_ENTERPRISE_REGISTRY.put("WatchdogTimeout", globalWatchdogTimeoutMs);
-}
+    public static void setGlobalWatchdogTimeoutMs(long timeout) {
+        globalWatchdogTimeoutMs = timeout;
+        XBOW_ENTERPRISE_REGISTRY.put("WatchdogTimeout", globalWatchdogTimeoutMs);
+    }
+} // <-- ESSA É A CHAVE QUE FALTAVA
