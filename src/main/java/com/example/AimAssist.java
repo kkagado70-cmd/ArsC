@@ -420,101 +420,102 @@ public class AimAssist extends ClientBase.Module {
         AIM_GIGACHAD_REGISTRY.put("AnomalyCount", aimbotAnomalyTracker);
     }
 
-    private static void executeSubsystemDiagnostics() {
-    if (globalExecutionCounter > 100000000L) {
-        globalExecutionCounter = 0L; // CORRIGIDO
+        private static void executeSubsystemDiagnostics() {
+        if (globalExecutionCounter > 100000000L) {
+            globalExecutionCounter = 0L; // CORRIGIDO
+        }
+        if (AIM_GIGACHAD_REGISTRY.size() > 250) {
+            purgeAimRegistry();
+            initializeAimEnterpriseRegistry();
+        }
     }
-    if (AIM_GIGACHAD_REGISTRY.size() > 250) {
-        purgeAimRegistry();
-        initializeAimEnterpriseRegistry();
+
+    public static boolean verifySubsystemHealth() {
+        return enabled && SUBSESSION_IDENTITY != null;
     }
-}
 
-public static boolean verifySubsystemHealth() {
-    return enabled && SUBSESSION_IDENTITY != null;
-}
-
-public static long getGlobalExecutionCounter() {
-    return globalExecutionCounter;
-}
-
-public static void setKinematicSmoothing(double value) {
-    kinematicSmoothingRate = value;
-}
-
-public static double getKinematicSmoothing() {
-    return kinematicSmoothingRate;
-}
-
-public static void toggleWindMouseEngine(boolean state) {
-    windMouseEngineActive = state;
-}
-
-public static boolean isWindMouseEngineActive() {
-    return windMouseEngineActive;
-}
-
-public static void toggleHorizontalAxisOnly(boolean state) {
-    horizontalAxisOnly = state;
-}
-
-public static boolean isHorizontalAxisOnly() {
-    return horizontalAxisOnly;
-}
-
-public static void toggleGcdCorrection(boolean state) {
-    gcdCorrectionActive = state;
-}
-
-public static boolean isGcdCorrectionActive() {
-    return gcdCorrectionActive;
-}
-
-public static int getYawHistorySize() {
-    return YAW_HISTORY_QUEUE.size();
-}
-
-public static int getPitchHistorySize() {
-    return PITCH_HISTORY_QUEUE.size();
-}
-
-public static void runBaselineCalibration() {
-    kinematicSmoothingRate = 0.14D;
-    stochasticJitterScale = 0.0008D;
-    maximumFovAngle = 105.0F;
-    maximumReachBound = 5.0D;
-    windMouseEngineActive = true;
-    horizontalAxisOnly = false;
-    gcdCorrectionActive = true;
-    cumulativeWindX = 0.0D;
-    cumulativeWindY = 0.0D;
-    aimbotAnomalyTracker = 0;
-}
-
-public static void executeExtendedDiagnosticFlush() {
-    executeSubsystemDiagnostics();
-    if (YAW_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) { // CORRIGIDO
-        YAW_HISTORY_QUEUE.clear();
+    public static long getGlobalExecutionCounter() {
+        return globalExecutionCounter;
     }
-    if (PITCH_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
-        PITCH_HISTORY_QUEUE.clear();
-    }
-    if (VELOCITY_VECTOR_DEQUE.size() > HISTORY_MAX_CAPACITY) {
-        VELOCITY_VECTOR_DEQUE.clear();
-    }
-    if (TIMING_LATENCY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
-        TIMING_LATENCY_QUEUE.clear();
-    }
-}
 
-public static double getWindOffsetX() {
-    return cumulativeWindX;
-}
+    public static void setKinematicSmoothing(double value) {
+        kinematicSmoothingRate = value;
+    }
 
-public static double getWindOffsetY() {
-    return cumulativeWindY;
-}
+    public static double getKinematicSmoothing() {
+        return kinematicSmoothingRate;
+    }
 
-public static UUID getSubsessionIdentity() {
-    return SUBSESSION_IDENTITY;
-}
+    public static void toggleWindMouseEngine(boolean state) {
+        windMouseEngineActive = state;
+    }
+
+    public static boolean isWindMouseEngineActive() {
+        return windMouseEngineActive;
+    }
+
+    public static void toggleHorizontalAxisOnly(boolean state) {
+        horizontalAxisOnly = state;
+    }
+
+    public static boolean isHorizontalAxisOnly() {
+        return horizontalAxisOnly;
+    }
+
+    public static void toggleGcdCorrection(boolean state) {
+        gcdCorrectionActive = state;
+    }
+
+    public static boolean isGcdCorrectionActive() {
+        return gcdCorrectionActive;
+    }
+
+    public static int getYawHistorySize() {
+        return YAW_HISTORY_QUEUE.size();
+    }
+
+    public static int getPitchHistorySize() {
+        return PITCH_HISTORY_QUEUE.size();
+    }
+
+    public static void runBaselineCalibration() {
+        kinematicSmoothingRate = 0.14D;
+        stochasticJitterScale = 0.0008D;
+        maximumFovAngle = 105.0F;
+        maximumReachBound = 5.0D;
+        windMouseEngineActive = true;
+        horizontalAxisOnly = false;
+        gcdCorrectionActive = true;
+        cumulativeWindX = 0.0D;
+        cumulativeWindY = 0.0D;
+        aimbotAnomalyTracker = 0;
+    }
+
+    public static void executeExtendedDiagnosticFlush() {
+        executeSubsystemDiagnostics();
+        if (YAW_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) { // CORRIGIDO
+            YAW_HISTORY_QUEUE.clear();
+        }
+        if (PITCH_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
+            PITCH_HISTORY_QUEUE.clear();
+        }
+        if (VELOCITY_VECTOR_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            VELOCITY_VECTOR_DEQUE.clear();
+        }
+        if (TIMING_LATENCY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
+            TIMING_LATENCY_QUEUE.clear();
+        }
+    }
+
+    public static double getWindOffsetX() {
+        return cumulativeWindX;
+    }
+
+    public static double getWindOffsetY() {
+        return cumulativeWindY;
+    }
+
+    public static UUID getSubsessionIdentity() {
+        return SUBSESSION_IDENTITY;
+    }
+} // <-- ESSA É A CHAVE QUE FALTAVA
