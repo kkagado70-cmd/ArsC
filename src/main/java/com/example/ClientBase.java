@@ -35,11 +35,11 @@ public class ClientBase implements ClientModInitializer {
         INSTANCE = this;
         this.moduleManager = new ModuleManager();
         
-        this.moduleManager.register(new XbowCartModule());
-        this.moduleManager.register(new AimAssistModule());
-        this.moduleManager.register(new TriggerBotModule());
-        this.moduleManager.register(new ShieldBreakerModule());
-        this.moduleManager.register(new AutoMaceModule());
+        this.moduleManager.register(new XbowCart());
+        this.moduleManager.register(new AimAssist());
+        this.moduleManager.register(new TriggerBot());
+        this.moduleManager.register(new ShieldBreaker());
+        this.moduleManager.register(new AutoMace());
 
         guiKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.example.clickgui",
@@ -128,66 +128,6 @@ public class ClientBase implements ClientModInitializer {
                     m.executeTickWrapper(client);
                 }
             }
-        }
-    }
-
-    public static class XbowCartModule extends Module {
-        public XbowCartModule() {
-            super("XbowCart");
-            this.enabled = false;
-        }
-
-        @Override
-        public void tick(Minecraft client) {
-            XbowCart.onTick(client);
-        }
-    }
-
-    public static class AimAssistModule extends Module {
-        public AimAssistModule() {
-            super("AimAssist");
-            this.enabled = true;
-        }
-
-        @Override
-        public void tick(Minecraft client) {
-            AimAssist.onTick(client);
-        }
-    }
-
-    public static class TriggerBotModule extends Module {
-        public TriggerBotModule() {
-            super("TriggerBot");
-            this.enabled = true;
-        }
-
-        @Override
-        public void tick(Minecraft client) {
-            TriggerBot.onTick(client);
-        }
-    }
-
-    public static class ShieldBreakerModule extends Module {
-        public ShieldBreakerModule() {
-            super("ShieldBreaker");
-            this.enabled = true;
-        }
-
-        @Override
-        public void tick(Minecraft client) {
-            ShieldBreaker.onTick(client);
-        }
-    }
-
-    public static class AutoMaceModule extends Module {
-        public AutoMaceModule() {
-            super("AutoMace");
-            this.enabled = false;
-        }
-
-        @Override
-        public void tick(Minecraft client) {
-            AutoMace.onTick(client);
         }
     }
 
