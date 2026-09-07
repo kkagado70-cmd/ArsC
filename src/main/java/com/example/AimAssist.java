@@ -44,8 +44,8 @@ public class AimAssist extends ClientBase.Module {
     private static final Deque<Double> RECOIL_BUFFER_DEQUE = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 8192;
 
-    private static double kinematicSmoothingRate = 0.45D;
-    private static double stochasticJitterScale = 0.00002D;
+    private static double kinematicSmoothingRate = 0.42D;
+    private static double stochasticJitterScale = 0.000015D;
     private static float maximumFovAngle = 100.0F;
     private static double maximumReachBound = 4.5D;
     private static long globalExecutionCounter = 0L;
@@ -58,17 +58,16 @@ public class AimAssist extends ClientBase.Module {
 
     private static Vec3 previousTargetVelocity = Vec3.ZERO;
     private static Vec3 previousTargetAcceleration = Vec3.ZERO;
-    private static final float PREDICTION_TICKS = 3.0f;
-    private static float containmentStrength = 0.15f;
-    private static float containmentRadius = 1.2f;
+    private static final float PREDICTION_TICKS = 2.5f;
+    private static float containmentStrength = 0.12f;
+    private static float containmentRadius = 1.0f;
     private static float overshootYawOffset = 0.0f;
     private static float overshootPitchOffset = 0.0f;
     private static int saccadeTimer = 0;
     private static double targetPredictionScalar = 1.15D;
-    private static long averagePing = 50L;
-    private static double verticalSmoothingMultiplier = 1.1D;
+    private static double verticalSmoothingMultiplier = 1.0D;
     private static boolean errorInjectionActive = true;
-    private static double randomMissProbability = 0.025D;
+    private static double randomMissProbability = 0.02D;
 
     private static Vec3 lastKnownTargetPos = null;
     private static int memoryTicks = 0;
@@ -161,19 +160,19 @@ public class AimAssist extends ClientBase.Module {
     }
 
     private static void initializeWeaponProfiles() {
-        WEAPON_SMOOTHING_PROFILES.put("sword", 0.45D);
-        WEAPON_SMOOTHING_PROFILES.put("axe", 0.50D);
-        WEAPON_SMOOTHING_PROFILES.put("bow", 0.65D);
-        WEAPON_SMOOTHING_PROFILES.put("crossbow", 0.65D);
-        WEAPON_SMOOTHING_PROFILES.put("mace", 0.55D);
-        WEAPON_SMOOTHING_PROFILES.put("trident", 0.48D);
+        WEAPON_SMOOTHING_PROFILES.put("sword", 0.42D);
+        WEAPON_SMOOTHING_PROFILES.put("axe", 0.48D);
+        WEAPON_SMOOTHING_PROFILES.put("bow", 0.60D);
+        WEAPON_SMOOTHING_PROFILES.put("crossbow", 0.60D);
+        WEAPON_SMOOTHING_PROFILES.put("mace", 0.50D);
+        WEAPON_SMOOTHING_PROFILES.put("trident", 0.44D);
 
-        WEAPON_JITTER_PROFILES.put("sword", 0.00002D);
-        WEAPON_JITTER_PROFILES.put("axe", 0.00003D);
+        WEAPON_JITTER_PROFILES.put("sword", 0.000015D);
+        WEAPON_JITTER_PROFILES.put("axe", 0.00002D);
         WEAPON_JITTER_PROFILES.put("bow", 0.00001D);
         WEAPON_JITTER_PROFILES.put("crossbow", 0.00001D);
-        WEAPON_JITTER_PROFILES.put("mace", 0.00004D);
-        WEAPON_JITTER_PROFILES.put("trident", 0.00002D);
+        WEAPON_JITTER_PROFILES.put("mace", 0.00003D);
+        WEAPON_JITTER_PROFILES.put("trident", 0.000015D);
 
         WEAPON_REACH_PROFILES.put("sword", 4.5D);
         WEAPON_REACH_PROFILES.put("axe", 4.5D);
@@ -352,8 +351,8 @@ public class AimAssist extends ClientBase.Module {
         }
 
         if (parameterRandomization && ticksSinceLastReset % 100 == 0) {
-            stochasticJitterScale += (secureRandom.nextDouble() - 0.5) * 0.00001D;
-            stochasticJitterScale = Math.max(0.00001D, Math.min(0.0005D, stochasticJitterScale));
+            stochasticJitterScale += (secureRandom.nextDouble() - 0.5) * 0.000005D;
+            stochasticJitterScale = Math.max(0.000005D, Math.min(0.0001D, stochasticJitterScale));
         }
 
         executeAutoCalibrationLearning();
@@ -474,59 +473,59 @@ public class AimAssist extends ClientBase.Module {
     }
 
     private static Vec3 computeResolvedTargetPosition(Minecraft clientRef, Entity target) {
-        double profileSmooth = WEAPON_SMOOTHING_PROFILES.getOrDefault(currentWeaponProfile, 0.45D);
+        double profileSmooth = WEAPON_SMOOTHING_PROFILES.getOrDefault(currentWeaponProfile, 0.42D);
         double distanceToTarget = clientRef.player.distanceTo(target);
 
         double baseSmooth = profileSmooth;
-        if (distanceToTarget < 2.5D) baseSmooth = 0.40D;
-        else if (distanceToTarget > 5.0D) baseSmooth = 0.50D;
+        if (distanceToTarget < 2.5D) baseSmooth = 0.35D;
+        else if (distanceToTarget > 5.0D) baseSmooth = 0.48D;
         else baseSmooth = profileSmooth;
 
         if (clientRef.player.getDeltaMovement().horizontalDistanceSqr() > 0.01D) {
-            baseSmooth = Math.min(0.70D, baseSmooth + 0.10D);
+            baseSmooth = Math.min(0.65D, baseSmooth + 0.10D);
         }
 
-        if (lowHealthBoost) baseSmooth = Math.min(0.75D, baseSmooth + 0.15D);
+        if (lowHealthBoost) baseSmooth = Math.min(0.70D, baseSmooth + 0.15D);
         if (highHealthDefense) baseSmooth = Math.max(0.30D, baseSmooth - 0.05D);
-        if (closeQuartersMode) baseSmooth = 0.35D;
-        if (precisionMode) baseSmooth = 0.60D;
+        if (closeQuartersMode) baseSmooth = 0.30D;
+        if (precisionMode) baseSmooth = 0.55D;
 
         Vec3 targetVel = target.getDeltaMovement();
         Vec3 targetLook = target.getLookAngle();
         double strafeAngle = Math.abs(Math.atan2(targetVel.z, targetVel.x) - Math.atan2(targetLook.z, targetLook.x));
         boolean isStrafing = strafeAngle > 0.5D && targetVel.horizontalDistanceSqr() > 0.1D;
-        if (isStrafing) baseSmooth = Math.min(0.75D, baseSmooth + 0.15D);
+        if (isStrafing) baseSmooth = Math.min(0.70D, baseSmooth + 0.15D);
 
         boolean isAirborne = !clientRef.player.onGround();
         double playerVelY = clientRef.player.getDeltaMovement().y;
-        if (isAirborne && playerVelY > 0.0D) stochasticJitterScale *= 1.25D;
-        else if (isAirborne && playerVelY < -0.1D) baseSmooth = 0.40D;
+        if (isAirborne && playerVelY > 0.0D) stochasticJitterScale *= 1.2D;
+        else if (isAirborne && playerVelY < -0.1D) baseSmooth = 0.35D;
 
         if (sneakTimer > 10) stochasticJitterScale *= 0.8D;
-        if (panicMode) stochasticJitterScale *= 1.4D;
+        if (panicMode) stochasticJitterScale *= 1.3D;
 
         kinematicSmoothingRate = baseSmooth;
 
         saccadeTimer++;
-        float maxOvershootYaw = distanceToTarget < 2.5D ? 0.02f : 0.15f;
-        float maxOvershootPitch = distanceToTarget < 2.5D ? 0.02f : 0.10f;
+        float maxOvershootYaw = distanceToTarget < 2.5D ? 0.02f : 0.12f;
+        float maxOvershootPitch = distanceToTarget < 2.5D ? 0.02f : 0.08f;
         float decayRate = distanceToTarget < 2.5D ? 0.98f : 0.97f;
 
         if (saccadeTimer == 0) {
-            overshootYawOffset = (float) ((secureRandom.nextDouble() - 0.5) * 1.2D);
-            overshootPitchOffset = (float) ((secureRandom.nextDouble() - 0.5) * 0.5D);
+            overshootYawOffset = (float) ((secureRandom.nextDouble() - 0.5) * 0.8D);
+            overshootPitchOffset = (float) ((secureRandom.nextDouble() - 0.5) * 0.4D);
         } else if (saccadeTimer == 1) {
             overshootYawOffset *= 0.2f;
             overshootPitchOffset *= 0.2f;
-        } else if (saccadeTimer > 18 + secureRandom.nextInt(12)) {
+        } else if (saccadeTimer > 20 + secureRandom.nextInt(12)) {
             saccadeTimer = 0;
             overshootYawOffset = (float) ((secureRandom.nextDouble() - 0.5) * maxOvershootYaw * 2.0f);
             overshootPitchOffset = (float) ((secureRandom.nextDouble() - 0.5) * maxOvershootPitch * 2.0f);
         } else {
             overshootYawOffset *= decayRate;
             overshootPitchOffset *= decayRate;
-            if (Math.abs(overshootYawOffset) < 0.01f) overshootYawOffset = 0.0f;
-            if (Math.abs(overshootPitchOffset) < 0.01f) overshootPitchOffset = 0.0f;
+            if (Math.abs(overshootYawOffset) < 0.005f) overshootYawOffset = 0.0f;
+            if (Math.abs(overshootPitchOffset) < 0.005f) overshootPitchOffset = 0.0f;
         }
 
         Vec3 currentVel = target.getDeltaMovement();
@@ -534,11 +533,6 @@ public class AimAssist extends ClientBase.Module {
         Vec3 jerk = acceleration.subtract(previousTargetAcceleration);
 
         long latency = 50L;
-        if (clientRef.getConnection() != null) {
-            try {
-                latency = clientRef.getConnection().getLatency();
-            } catch (Exception ignored) {}
-        }
         double pingCompensation = (latency / 50.0) * 0.02D;
 
         Vec3 predictedPos = target.position()
@@ -572,7 +566,7 @@ public class AimAssist extends ClientBase.Module {
         float rawPitchDiff = calcPitch - curPitch;
 
         double distToTarget = target != null ? clientRef.player.distanceTo(target) : 3.0D;
-        float deadzone = distToTarget < 2.5D ? 0.3f : 0.8f;
+        float deadzone = distToTarget < 2.5D ? 0.4f : 0.7f;
         float distFromCenter = (float) Math.sqrt(rawYawDiff * rawYawDiff + rawPitchDiff * rawPitchDiff);
         if (distFromCenter < deadzone) return;
 
@@ -597,9 +591,9 @@ public class AimAssist extends ClientBase.Module {
         finalPitchDiff *= eased;
 
         if (windMouseEngineActive) {
-            cumulativeWindX = cumulativeWindX * 0.98D + (secureRandom.nextGaussian() * 0.05D);
+            cumulativeWindX = cumulativeWindX * 0.96D + (secureRandom.nextGaussian() * 0.04D);
             if (!horizontalAxisOnly) {
-                cumulativeWindY = cumulativeWindY * 0.98D + (secureRandom.nextGaussian() * 0.05D * verticalSmoothingMultiplier);
+                cumulativeWindY = cumulativeWindY * 0.96D + (secureRandom.nextGaussian() * 0.04D * verticalSmoothingMultiplier);
             }
 
             float stepYaw = (float) (finalYawDiff / 14.0D + cumulativeWindX * 0.001D);
@@ -653,12 +647,12 @@ public class AimAssist extends ClientBase.Module {
         if (totalAttacks >= 100) {
             double hitRate = (double) hitCount / totalAttacks;
             if (hitRate > 0.95D) {
-                stochasticJitterScale += 0.00001D;
-                randomMissProbability += 0.005D;
+                stochasticJitterScale += 0.000002D;
+                randomMissProbability += 0.003D;
                 if (comboActive) comboCounter++;
             } else if (hitRate < 0.70D) {
-                stochasticJitterScale = Math.max(0.00001D, stochasticJitterScale - 0.00001D);
-                randomMissProbability = Math.max(0.005D, randomMissProbability - 0.005D);
+                stochasticJitterScale = Math.max(0.000005D, stochasticJitterScale - 0.000002D);
+                randomMissProbability = Math.max(0.005D, randomMissProbability - 0.003D);
                 comboCounter = 0;
                 comboActive = false;
             }
@@ -674,7 +668,7 @@ public class AimAssist extends ClientBase.Module {
             comboCounter++;
             if (comboCounter >= 3) {
                 comboActive = true;
-                kinematicSmoothingRate *= 0.95D;
+                kinematicSmoothingRate *= 0.97D;
             }
         } else {
             comboCounter = 0;
@@ -683,9 +677,9 @@ public class AimAssist extends ClientBase.Module {
     }
 
     public static void triggerSimulatedRecoil() {
-        recoilYaw = (float) ((secureRandom.nextDouble() - 0.5) * 0.3D);
-        recoilPitch = (float) ((secureRandom.nextDouble() - 0.5) * 0.2D);
-        recoilTicks = 3;
+        recoilYaw = (float) ((secureRandom.nextDouble() - 0.5) * 0.25D);
+        recoilPitch = (float) ((secureRandom.nextDouble() - 0.5) * 0.15D);
+        recoilTicks = 2;
     }
 
     private static void refreshAimRegistryState() {
@@ -746,8 +740,8 @@ public class AimAssist extends ClientBase.Module {
     }
 
     public static void runBaselineCalibration() {
-        kinematicSmoothingRate = 0.45D;
-        stochasticJitterScale = 0.00002D;
+        kinematicSmoothingRate = 0.42D;
+        stochasticJitterScale = 0.000015D;
         maximumFovAngle = 100.0F;
         maximumReachBound = 4.5D;
         windMouseEngineActive = true;
@@ -772,4 +766,4 @@ public class AimAssist extends ClientBase.Module {
     public static boolean isComboActive() {
         return comboActive;
     }
-                }
+                                          }
