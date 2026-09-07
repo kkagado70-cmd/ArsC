@@ -1,7 +1,6 @@
 package com.example;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.KeyMapping;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -10,7 +9,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
 
-import java.util.Random;
+import java.security.SecureRandom;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
@@ -20,243 +19,168 @@ import java.util.Deque;
 public class AutoMace extends ClientBase.Module {
     public static final String FILE_NAME = "AutoMace.java";
     public static boolean enabled = false;
-    private static KeyMapping toggleKey;
-    private static final Random internalRandom = new Random();
+    private static final SecureRandom secureRandom = new SecureRandom();
 
-    private static final Map<String, Object> MACE_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
-    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
-    private static final Deque<Double> FALL_VELOCITY_HISTORY = new ArrayDeque<>();
-    private static final int HISTORY_MAX_CAPACITY = 128;
+    private static final Map<String, Object> MACE_REGISTRY = new ConcurrentHashMap<>();
+    private static final UUID SUBSESSION_ID = UUID.randomUUID();
+    private static final Deque<Double> VELOCITY_QUEUE = new ArrayDeque<>();
+    private static final int HISTORY_CAP = 512;
 
-    private static double maxSwingRange = 4.5D;
-    private static double maxAimDistance = 20.0D;
-    private static double minimumFallDistance = 1.5D;
-    private static float hyperSnapSpeed = 0.99F;
-    private static long executionTickCounter = 0L;
-    private static boolean windChargeBoostDetection = true;
+    private static double maxSwingRange = 4.75D;
+    private static double maxAimDistance = 22.0D;
+    private static double minFallDistance = 1.2D;
+    private static float hyperSnapSpeed = 0.98F;
+    private static long executionTicks = 0L;
+    private static boolean windChargeDetection = true;
     private static boolean elytraDiveCheck = true;
     private static LivingEntity lockedMaceTarget = null;
-    private static int smashCooldownTracker = 0;
+    private static int smashCooldown = 0;
+    private static boolean antiHeuristicActive = true;
+    private static int anomalyCount = 0;
+    private static boolean stealthMode = true;
+    private static double jitterFactor = 0.008D;
+    private static boolean instantSlotSwitch = true;
+    private static int sessionSmashCount = 0;
+    private static boolean packetOrderSync = true;
+    private static long lastSmashEpoch = 0L;
+    private static boolean targetPredictionActive = true;
+    private static double predictionScalar = 1.2D;
+    private static boolean hardwareBypass = true;
+    private static boolean profileLocked = false;
+    private static double stochasticVariance = 0.04D;
+    private static int emergencyResetThreshold = 100;
+
+    static {
+        initializeRegistry();
+    }
+
+    private static void initializeRegistry() {
+        MACE_REGISTRY.put("SubsessionUUID", SUBSESSION_ID);
+        MACE_REGISTRY.put("Profile", "Swight-Tier1-AutoMace-FullEnterprise");
+        MACE_REGISTRY.put("WindChargeDetection", windChargeDetection);
+        MACE_REGISTRY.put("ElytraDiveCheck", elytraDiveCheck);
+        MACE_REGISTRY.put("ExecutionTicks", executionTicks);
+    }
 
     public AutoMace() {
         super("AutoMace");
         AutoMace.enabled = false;
-        initializeMaceEnterpriseRegistry();
-    }
-
-    private static void initializeMaceEnterpriseRegistry() {
-        MACE_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        MACE_ENTERPRISE_REGISTRY.put("ModuleState", "HT1-Enterprise-AutoMace-Smash-Engine");
-        MACE_ENTERPRISE_REGISTRY.put("BypassEngine", "GrimAC-Motion-Sync-Full");
-        MACE_ENTERPRISE_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
-        MACE_ENTERPRISE_REGISTRY.put("BufferFlushCounter", 0);
-        MACE_ENTERPRISE_REGISTRY.put("WindChargeDetection", windChargeBoostDetection);
-        MACE_ENTERPRISE_REGISTRY.put("ElytraDiveCheck", elytraDiveCheck);
-        MACE_ENTERPRISE_REGISTRY.put("MaxSwingRange", maxSwingRange);
-        MACE_ENTERPRISE_REGISTRY.put("MinFallDistance", minimumFallDistance);
     }
 
     @Override
-    public boolean isEnabled() {
-        return enabled;
-    }
+    public boolean isEnabled() { return enabled; }
 
     @Override
     public void toggle() {
         enabled = !enabled;
         super.enabled = enabled;
-        resetMaceEnterpriseState();
+        resetState();
     }
 
-    private static void resetMaceEnterpriseState() {
+    private static void resetState() {
         lockedMaceTarget = null;
-        smashCooldownTracker = 0;
-        FALL_VELOCITY_HISTORY.clear();
-        purgeRegistry();
-        initializeMaceEnterpriseRegistry();
+        smashCooldown = 0;
+        anomalyCount = 0;
+        sessionSmashCount = 0;
+        VELOCITY_QUEUE.clear();
+        MACE_REGISTRY.clear();
+        initializeRegistry();
     }
 
     @Override
-    public void tick(Minecraft clientRef) {
-        onTick(clientRef);
-    }
+    public void tick(Minecraft client) { onTick(client); }
 
-    public static void onTick(Minecraft clientRef) {
-        if (!enabled || clientRef.player == null || clientRef.level == null) return;
-        if (!clientRef.player.isAlive()) return;
+    public static void onTick(Minecraft client) {
+        if (!enabled || client.player == null || client.level == null || !client.player.isAlive()) return;
 
-        executionTickCounter++;
-        executeSubsystemSanitation();
+        executionTicks++;
+        if (smashCooldown > 0) smashCooldown--;
 
-        if (smashCooldownTracker > 0) {
-            smashCooldownTracker--;
-        }
+        double vY = client.player.getDeltaMovement().y;
+        VELOCITY_QUEUE.offerLast(vY);
+        if (VELOCITY_QUEUE.size() > HISTORY_CAP) VELOCITY_QUEUE.pollFirst();
 
-        double currentVerticalVelocity = clientRef.player.getDeltaMovement().y;
-        pushFallVelocityHistory(currentVerticalVelocity);
-
-        LivingEntity target = resolveOptimalMaceTarget(clientRef);
+        LivingEntity target = evaluateTarget(client);
         if (target != null) {
-            evaluateSmashConditions(clientRef, target);
+            evaluateSmash(client, target);
         } else {
             lockedMaceTarget = null;
         }
-
-        updateRegistryState();
+        updateRegistry();
     }
 
-    private static LivingEntity resolveOptimalMaceTarget(Minecraft clientRef) {
+    private static LivingEntity evaluateTarget(Minecraft client) {
         if (lockedMaceTarget != null) {
-            if (lockedMaceTarget.isAlive() && clientRef.player.distanceToSqr(lockedMaceTarget) <= (maxAimDistance * maxAimDistance)) {
+            if (lockedMaceTarget.isAlive() && client.player.distanceToSqr(lockedMaceTarget) <= (maxAimDistance * maxAimDistance)) {
                 return lockedMaceTarget;
             }
             lockedMaceTarget = null;
         }
 
-        LivingEntity bestTarget = null;
-        double minDistanceSqr = (maxAimDistance * maxAimDistance) + 1.0D;
-
-        for (Player player : clientRef.level.players()) {
-            if (player == clientRef.player) continue;
-            if (!player.isAlive() || player.isSpectator() || player.isCreative()) continue;
-            double distSqr = clientRef.player.distanceToSqr(player);
-            if (distSqr > (maxAimDistance * maxAimDistance)) continue;
-
-            if (distSqr < minDistanceSqr) {
-                minDistanceSqr = distSqr;
-                bestTarget = player;
-            }
+        LivingEntity best = null;
+        double minDst = (maxAimDistance * maxAimDistance) + 1.0D;
+        for (Player p : client.level.players()) {
+            if (p == client.player || !p.isAlive() || p.isSpectator() || p.isCreative()) continue;
+            double dst = client.player.distanceToSqr(p);
+            if (dst > (maxAimDistance * maxAimDistance)) continue;
+            if (dst < minDst) { minDst = dst; best = p; }
         }
-
-        if (bestTarget != null) {
-            lockedMaceTarget = bestTarget;
-        }
+        if (best != null) lockedMaceTarget = best;
         return lockedMaceTarget;
     }
 
-    private static void evaluateSmashConditions(Minecraft clientRef, LivingEntity target) {
-        double playerFallDistance = clientRef.player.fallDistance;
-        boolean isElytraActive = clientRef.player.isFallFlying();
-        double verticalVelocityY = clientRef.player.getDeltaMovement().y;
+    private static void evaluateSmash(Minecraft client, LivingEntity target) {
+        double fallDist = client.player.fallDistance;
+        boolean elytra = client.player.isFallFlying();
+        double vY = client.player.getDeltaMovement().y;
         
-        boolean windChargeMomentum = windChargeBoostDetection && verticalVelocityY > 0.8D;
-        boolean diveTriggerCondition = playerFallDistance >= minimumFallDistance || (elytraDiveCheck && isElytraActive) || verticalVelocityY < -0.3D || windChargeMomentum;
+        boolean windMomentum = windChargeDetection && vY > 0.75D;
+        boolean trigger = fallDist >= minFallDistance || (elytraDiveCheck && elytra) || vY < -0.25D || windMomentum;
 
-        if (diveTriggerCondition) {
-            int maceSlot = InventoryManager.findItem(clientRef, Items.MACE);
-            if (maceSlot != -1) {
-                InventoryManager.selectSlot(clientRef, maceSlot);
-                
-                Vec3 targetCenter = target.position().add(0.0D, target.getBbHeight() * 0.5D, 0.0D);
-                RotationManager.smoothTo(clientRef, targetCenter, hyperSnapSpeed);
+        if (trigger) {
+            int mSlot = findItem(client, Items.MACE);
+            if (mSlot != -1) {
+                selectSlot(client, mSlot);
+                Vec3 center = target.position().add(0.0D, target.getBbHeight() * 0.5D, 0.0D);
+                RotationManager.smoothTo(client, center.add(secureRandom.nextDouble() * jitterFactor, secureRandom.nextDouble() * jitterFactor, secureRandom.nextDouble() * jitterFactor), hyperSnapSpeed);
 
-                double distanceToTarget = clientRef.player.distanceTo(target);
-                float attackScale = clientRef.player.getAttackStrengthScale(0.0F);
+                double dist = client.player.distanceTo(target);
+                float scale = client.player.getAttackStrengthScale(0.0F);
 
-                if (distanceToTarget <= maxSwingRange && attackScale >= 0.7F && smashCooldownTracker == 0) {
-                    InteractionManager.simulateClickAttack(clientRef);
-                    smashCooldownTracker = 4 + internalRandom.nextInt(3);
+                if (dist <= maxSwingRange && scale >= 0.65F && smashCooldown == 0) {
+                    sessionSmashCount++;
+                    lastSmashEpoch = System.currentTimeMillis();
+                    InteractionManager.simulateClickAttack(client);
+                    smashCooldown = 3 + secureRandom.nextInt(3);
                 }
             }
         }
     }
 
-    private static void pushFallVelocityHistory(double velocity) {
-        if (FALL_VELOCITY_HISTORY.size() >= HISTORY_MAX_CAPACITY) {
-            FALL_VELOCITY_HISTORY.pollFirst();
+    private static int findItem(Minecraft client, Item item) {
+        if (client.player == null) return -1;
+        for (int i = 0; i < 9; i++) {
+            if (client.player.getInventory().getItem(i).getItem() == item) return i;
         }
-        FALL_VELOCITY_HISTORY.offerLast(velocity);
+        return -1;
     }
 
-    private static void updateRegistryState() {
-        MACE_ENTERPRISE_REGISTRY.put("ExecutionTicks", executionTickCounter);
-        MACE_ENTERPRISE_REGISTRY.put("LockedTargetState", lockedMaceTarget != null);
-        MACE_ENTERPRISE_REGISTRY.put("HistoryQueueSize", FALL_VELOCITY_HISTORY.size());
-        MACE_ENTERPRISE_REGISTRY.put("SmashCooldown", smashCooldownTracker);
-    }
-
-    private static void executeSubsystemSanitation() {
-        if (executionTickCounter > 10000000L) {
-            executionTickCounter = 0L;
-        }
-        if (MACE_ENTERPRISE_REGISTRY.size() > 90) {
-            purgeRegistry();
-            initializeMaceEnterpriseRegistry();
+    private static void selectSlot(Minecraft client, int slot) {
+        if (client.player == null || slot < 0 || slot > 8) return;
+        client.player.getInventory().setSelectedSlot(slot);
+        if (client.options.keyHotbarSlots[slot] != null) {
+            client.options.keyHotbarSlots[slot].setDown(true);
+            client.options.keyHotbarSlots[slot].setDown(false);
         }
     }
 
-    private static void purgeRegistry() {
-        MACE_ENTERPRISE_REGISTRY.clear();
+    private static void updateRegistry() {
+        MACE_REGISTRY.put("ExecutionTicks", executionTicks);
+        MACE_REGISTRY.put("Locked", lockedMaceTarget != null);
+        MACE_REGISTRY.put("SessionSmashes", sessionSmashCount);
     }
 
-    public static boolean verifyAutoMaceSubsystemHealth() {
-        return enabled && SUBSESSION_IDENTITY != null;
-    }
-
-    public static long getExecutionTickCounter() {
-        return executionTickCounter;
-    }
-
-    public static void setMaxSwingRange(double range) {
-        maxSwingRange = range;
-        MACE_ENTERPRISE_REGISTRY.put("MaxSwingRange", maxSwingRange);
-    }
-
-    public static double getMaxSwingRange() {
-        return maxSwingRange;
-    }
-
-    public static void setMinimumFallDistance(double dist) {
-        minimumFallDistance = dist;
-        MACE_ENTERPRISE_REGISTRY.put("MinFallDistance", minimumFallDistance);
-    }
-
-    public static double getMinimumFallDistance() {
-        return minimumFallDistance;
-    }
-
-    public static void toggleWindChargeDetection(boolean state) {
-        windChargeBoostDetection = state;
-        MACE_ENTERPRISE_REGISTRY.put("WindChargeDetection", windChargeBoostDetection);
-    }
-
-    public static boolean isWindChargeDetectionActive() {
-        return windChargeBoostDetection;
-    }
-
-    public static void toggleElytraDiveCheck(boolean state) {
-        elytraDiveCheck = state;
-        MACE_ENTERPRISE_REGISTRY.put("ElytraDiveCheck", elytraDiveCheck);
-    }
-
-    public static boolean isElytraDiveCheckActive() {
-        return elytraDiveCheck;
-    }
-
-    public static int getVelocityHistorySize() {
-        return FALL_VELOCITY_HISTORY.size();
-    }
-
-    public static void performBaselineCalibration() {
-        maxSwingRange = 4.5D;
-        maxAimDistance = 20.0D;
-        minimumFallDistance = 1.5D;
-        hyperSnapSpeed = 0.99F;
-        windChargeBoostDetection = true;
-        elytraDiveCheck = true;
-        smashCooldownTracker = 0;
-        executionTickCounter = 0L;
-        FALL_VELOCITY_HISTORY.clear();
-    }
-
-    public static void executeExtendedDiagnosticFlush() {
-        executeSubsystemSanitation();
-        if (FALL_VELOCITY_HISTORY.size() > HISTORY_MAX_CAPACITY) {
-            FALL_VELOCITY_HISTORY.clear();
-        }
-    }
-
-    public static UUID getSubsessionIdentity() {
-        return SUBSESSION_IDENTITY;
-    }
+    public static boolean verifySubsystemHealth() { return enabled && SUBSESSION_ID != null; }
+    public static long getExecutionTicks() { return executionTicks; }
+    public static UUID getSubsessionIdentity() { return SUBSESSION_ID; }
 }

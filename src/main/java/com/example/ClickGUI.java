@@ -50,7 +50,7 @@ public class ClickGUI extends Screen {
         interactionCounter++;
         int cx = this.width / 2;
         int cy = this.height / 2;
-        int bw = 140, bh = 20;
+        int bw = 150, bh = 20;
 
         this.addRenderableWidget(Button.builder(
                 Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")),
@@ -58,7 +58,7 @@ public class ClickGUI extends Screen {
                     XbowCart.enabled = !XbowCart.enabled;
                     btn.setMessage(Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")));
                 }
-        ).bounds(cx - bw / 2, cy - 50, bw, bh).build());
+        ).bounds(cx - bw / 2, cy - 70, bw, bh).build());
 
         this.addRenderableWidget(Button.builder(
                 Component.literal("AimAssist: " + (AimAssist.enabled ? "§aON" : "§cOFF")),
@@ -66,7 +66,7 @@ public class ClickGUI extends Screen {
                     AimAssist.enabled = !AimAssist.enabled;
                     btn.setMessage(Component.literal("AimAssist: " + (AimAssist.enabled ? "§aON" : "§cOFF")));
                 }
-        ).bounds(cx - bw / 2, cy - 20, bw, bh).build());
+        ).bounds(cx - bw / 2, cy - 45, bw, bh).build());
 
         this.addRenderableWidget(Button.builder(
                 Component.literal("TriggerBot: " + (TriggerBot.enabled ? "§aON" : "§cOFF")),
@@ -74,12 +74,28 @@ public class ClickGUI extends Screen {
                     TriggerBot.enabled = !TriggerBot.enabled;
                     btn.setMessage(Component.literal("TriggerBot: " + (TriggerBot.enabled ? "§aON" : "§cOFF")));
                 }
-        ).bounds(cx - bw / 2, cy + 10, bw, bh).build());
+        ).bounds(cx - bw / 2, cy - 20, bw, bh).build());
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal("ShieldBreaker: " + (ShieldBreaker.enabled ? "§aON" : "§cOFF")),
+                btn -> {
+                    ShieldBreaker.enabled = !ShieldBreaker.enabled;
+                    btn.setMessage(Component.literal("ShieldBreaker: " + (ShieldBreaker.enabled ? "§aON" : "§cOFF")));
+                }
+        ).bounds(cx - bw / 2, cy + 5, bw, bh).build());
+
+        this.addRenderableWidget(Button.builder(
+                Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")),
+                btn -> {
+                    AutoMace.enabled = !AutoMace.enabled;
+                    btn.setMessage(Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")));
+                }
+        ).bounds(cx - bw / 2, cy + 30, bw, bh).build());
 
         this.addRenderableWidget(Button.builder(
                 Component.literal("Fechar"),
                 btn -> this.onClose()
-        ).bounds(cx - 40, cy + 45, 80, 20).build());
+        ).bounds(cx - 40, cy + 60, 80, 20).build());
     }
 
     @Override

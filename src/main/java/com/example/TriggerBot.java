@@ -21,49 +21,65 @@ import java.util.Deque;
 public class TriggerBot extends ClientBase.Module {
     public static final String FILE_NAME = "TriggerBot.java";
     public static boolean enabled = true;
-    public static boolean consistentCritsEnabled = true;
+    public static boolean critsEnabled = true;
     private static final SecureRandom secureRandom = new SecureRandom();
 
-    private static int attackReleaseTracker = 0;
-    private static int reactionCountdownTicks = 0;
-    private static int comboBufferTicks = 0;
-    private static final double MAX_MELEE_REACH_SQR = 16.0D;
+    private static int attackTracker = 0;
+    private static int reactionTicks = 0;
+    private static int comboBuffer = 0;
+    private static final double REACH_SQR = 16.0D;
 
-    private static final Map<String, Object> TRIGGER_REGISTRY = new ConcurrentHashMap<>();
-    private static final UUID SUBSESSION_UUID = UUID.randomUUID();
-    private static final Deque<Long> ATTACK_INTERVAL_HISTORY = new ArrayDeque<>();
-    private static final int HISTORY_CAPACITY = 256;
+    private static final Map<String, Object> TBOT_REGISTRY = new ConcurrentHashMap<>();
+    private static final UUID SUBSESSION_ID = UUID.randomUUID();
+    private static final Deque<Long> INTERVAL_QUEUE = new ArrayDeque<>();
+    private static final int HISTORY_CAP = 512;
 
-    private static long totalTriggersFired = 0L;
-    private static boolean adaptiveCritSyncActive = true;
-    private static double attackStrengthThresholdNormal = 0.82D;
-    private static double attackStrengthThresholdCombo = 0.55D;
-    private static boolean humanReactionStochasticity = true;
-    private static long subsessionEpochTracker = System.currentTimeMillis();
-    private static boolean antiReplayShieldActive = true;
-    private static int triggerAnomalyCounter = 0;
-    private static boolean stealthProfileMode = true;
-    private static int minReactionDelayTicks = 1;
-    private static int maxReactionDelayTicks = 3;
-    private static boolean packetOrderStrictSync = true;
-    private static double verticalFallingTolerance = -0.04D;
-    private static boolean lineOfSightValidation = true;
-    private static int sessionAttackCounter = 0;
-    private static boolean dynamicThresholdAdjustment = true;
+    private static long totalFires = 0L;
+    private static boolean adaptiveCritSync = true;
+    private static double normThreshold = 0.82D;
+    private static double comboThreshold = 0.52D;
+    private static boolean stochasticityActive = true;
+    private static int minDelay = 1;
+    private static int maxDelay = 3;
+    private static boolean antiReplay = true;
+    private static int anomalyCount = 0;
+    private static boolean stealthMode = true;
+    private static boolean losCheck = true;
+    private static int sessionFires = 0;
+    private static boolean jumpResetSync = true;
+    private static double verticalVelocityTrigger = -0.04D;
+    private static boolean wTapRhythmActive = true;
+    private static int wTapDurationTicks = 2;
+    private static boolean hitregBypass = true;
+    private static double attackStrengthMinimum = 0.75D;
+    private static boolean dynamicScaleAdjustment = true;
+    private static boolean packetOrderStrict = true;
+    private static long lastFireEpoch = 0L;
+    private static boolean telemetryActive = true;
+    private static int consecutiveCrits = 0;
+    private static boolean targetLockValidation = true;
+    private static double spacingBuffer = 2.8D;
+    private static boolean autoBlockReset = false;
+    private static boolean shieldIgnoreHit = true;
+    private static boolean weaponSwitchPacing = true;
+    private static int weaponSwapBuffer = 0;
+    private static boolean mouseHardwareBypass = true;
+    private static boolean profileLocked = false;
+    private static double stochasticVariance = 0.04D;
+    private static int emergencyResetThreshold = 100;
+    private static boolean combatSyncEnabled = true;
 
     static {
-        initializeTriggerRegistry();
+        initializeRegistry();
     }
 
-    private static void initializeTriggerRegistry() {
-        TRIGGER_REGISTRY.put("SubsessionUUID", SUBSESSION_UUID);
-        TRIGGER_REGISTRY.put("Profile", "HT1-Enterprise-TriggerBot-V12");
-        TRIGGER_REGISTRY.put("BypassEngine", "Crit-Sync-Attack-Interval-Stochastic");
-        TRIGGER_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
-        TRIGGER_REGISTRY.put("TotalFires", totalTriggersFired);
-        TRIGGER_REGISTRY.put("AdaptiveCritSync", adaptiveCritSyncActive);
-        TRIGGER_REGISTRY.put("AntiReplayShield", antiReplayShieldActive);
-        TRIGGER_REGISTRY.put("StealthProfile", stealthProfileMode);
+    private static void initializeRegistry() {
+        TBOT_REGISTRY.put("SubsessionUUID", SUBSESSION_ID);
+        TBOT_REGISTRY.put("Profile", "Swight-Tier1-TriggerBot-FullEnterprise");
+        TBOT_REGISTRY.put("AdaptiveCrits", adaptiveCritSync);
+        TBOT_REGISTRY.put("CombatSync", combatSyncEnabled);
+        TBOT_REGISTRY.put("TotalFires", totalFires);
+        TBOT_REGISTRY.put("Telemetry", telemetryActive);
     }
 
     public TriggerBot() {
@@ -72,9 +88,7 @@ public class TriggerBot extends ClientBase.Module {
     }
 
     @Override
-    public boolean isEnabled() {
-        return enabled;
-    }
+    public boolean isEnabled() { return enabled; }
 
     @Override
     public void toggle() {
@@ -83,54 +97,47 @@ public class TriggerBot extends ClientBase.Module {
     }
 
     @Override
-    public void tick(Minecraft clientRef) {
-        onTick(clientRef);
-    }
+    public void tick(Minecraft client) { onTick(client); }
 
-    private static boolean isHoldingWeapon(Minecraft clientRef) {
-        if (clientRef.player == null) return false;
-        ItemStack stack = clientRef.player.getMainHandItem();
+    private static boolean validateWeapon(Minecraft client) {
+        if (client.player == null) return false;
+        ItemStack stack = client.player.getMainHandItem();
         if (stack.isEmpty()) return false;
         String name = stack.getItem().getDescriptionId().toLowerCase();
         return name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace");
     }
 
-    private static boolean hasLineOfSight(Minecraft clientRef, Entity target) {
-        if (clientRef.player == null || target == null) return false;
-        Vec3 start = clientRef.player.getEyePosition();
+    private static boolean verifyLos(Minecraft client, Entity target) {
+        if (client.player == null || target == null) return false;
+        Vec3 start = client.player.getEyePosition();
         Vec3 end = target.getEyePosition();
-        BlockHitResult hit = clientRef.level.clip(new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, clientRef.player));
+        BlockHitResult hit = client.level.clip(new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, client.player));
         return hit.getType() == HitResult.Type.MISS;
     }
 
-    public static void onTick(Minecraft clientRef) {
-        if (!enabled || clientRef.player == null || clientRef.level == null) return;
-        if (!clientRef.player.isAlive()) return;
-        if (!isHoldingWeapon(clientRef)) {
-            comboBufferTicks = 0;
-            return;
+    public static void onTick(Minecraft client) {
+        if (!enabled || client.player == null || client.level == null || !client.player.isAlive()) return;
+        if (!validateWeapon(client)) { comboBuffer = 0; return; }
+        if (ShieldBreaker.isShieldStunActive()) return;
+
+        if (attackTracker > 0) {
+            attackTracker--;
+            if (attackTracker == 0) client.options.keyAttack.setDown(false);
         }
 
-        if (attackReleaseTracker > 0) {
-            attackReleaseTracker--;
-            if (attackReleaseTracker == 0) {
-                clientRef.options.keyAttack.setDown(false);
-            }
-        }
-
-        if (clientRef.player.hurtTime > 0) {
-            comboBufferTicks = 15;
-        } else if (comboBufferTicks > 0) {
-            comboBufferTicks--;
+        if (client.player.hurtTime > 0) {
+            comboBuffer = 15;
+        } else if (comboBuffer > 0) {
+            comboBuffer--;
         }
 
         boolean shouldAttack = false;
-        HitResult hit = clientRef.hitResult;
+        HitResult hit = client.hitResult;
         if (hit != null && hit.getType() == HitResult.Type.ENTITY) {
-            if (hit instanceof EntityHitResult entityHit && entityHit.getEntity() instanceof LivingEntity living) {
-                if (living.isAlive() && living != clientRef.player) {
-                    if (!(living instanceof Player player && (player.isSpectator() || player.isCreative()))) {
-                        if (clientRef.player.distanceToSqr(living) <= MAX_MELEE_REACH_SQR && (!lineOfSightValidation || hasLineOfSight(clientRef, living))) {
+            if (hit instanceof EntityHitResult eHit && eHit.getEntity() instanceof LivingEntity living) {
+                if (living.isAlive() && living != client.player) {
+                    if (!(living instanceof Player p && (p.isSpectator() || p.isCreative()))) {
+                        if (client.player.distanceToSqr(living) <= REACH_SQR && (!losCheck || verifyLos(client, living))) {
                             shouldAttack = true;
                         }
                     }
@@ -139,10 +146,9 @@ public class TriggerBot extends ClientBase.Module {
         }
 
         if (!shouldAttack) {
-            for (Player player : clientRef.level.players()) {
-                if (player == clientRef.player) continue;
-                if (!player.isAlive() || player.isSpectator() || player.isCreative()) continue;
-                if (clientRef.player.distanceToSqr(player) <= MAX_MELEE_REACH_SQR && (!lineOfSightValidation || hasLineOfSight(clientRef, player))) {
+            for (Player p : client.level.players()) {
+                if (p == client.player || !p.isAlive() || p.isSpectator() || p.isCreative()) continue;
+                if (client.player.distanceToSqr(p) <= REACH_SQR && (!losCheck || verifyLos(client, p))) {
                     shouldAttack = true;
                     break;
                 }
@@ -150,75 +156,45 @@ public class TriggerBot extends ClientBase.Module {
         }
 
         if (shouldAttack) {
-            if (reactionCountdownTicks > 0 && comboBufferTicks == 0) {
-                reactionCountdownTicks--;
+            if (reactionTicks > 0 && comboBuffer == 0) {
+                reactionTicks--;
                 return;
             }
 
-            if (consistentCritsEnabled && !clientRef.player.onGround()) {
-                boolean isFalling = clientRef.player.getDeltaMovement().y < verticalFallingTolerance;
-                if (!isFalling && comboBufferTicks == 0) {
-                    return;
-                }
+            if (critsEnabled && !client.player.onGround()) {
+                boolean falling = client.player.getDeltaMovement().y < verticalVelocityTrigger;
+                if (!falling && comboBuffer == 0) return;
             }
 
-            double activeThreshold = comboBufferTicks > 0 ? attackStrengthThresholdCombo : attackStrengthThresholdNormal;
-            if (clientRef.player.getAttackStrengthScale(0.0F) >= activeThreshold) {
-                if (attackReleaseTracker == 0) {
-                    totalTriggersFired++;
-                    sessionAttackCounter++;
-                    pushAttackInterval(System.currentTimeMillis());
-                    InteractionManager.simulateClickAttack(clientRef);
-                    attackReleaseTracker = minReactionDelayTicks + secureRandom.nextInt(maxReactionDelayTicks);
-                    reactionCountdownTicks = minReactionDelayTicks + secureRandom.nextInt(maxReactionDelayTicks);
+            double threshold = comboBuffer > 0 ? comboThreshold : normThreshold;
+            if (client.player.getAttackStrengthScale(0.0F) >= threshold) {
+                if (attackTracker == 0) {
+                    totalFires++;
+                    sessionFires++;
+                    lastFireEpoch = System.currentTimeMillis();
+                    pushInterval(lastFireEpoch);
+                    InteractionManager.simulateClickAttack(client);
+                    attackTracker = minDelay + secureRandom.nextInt(maxDelay);
+                    reactionTicks = minDelay + secureRandom.nextInt(maxDelay);
                 }
             }
         } else {
-            if (comboBufferTicks == 0) {
-                reactionCountdownTicks = 0;
-            }
+            if (comboBuffer == 0) reactionTicks = 0;
         }
-        updateRegistryState();
+        updateRegistry();
     }
 
-    private static void pushAttackInterval(long timestamp) {
-        if (ATTACK_INTERVAL_HISTORY.size() >= HISTORY_CAPACITY) {
-            ATTACK_INTERVAL_HISTORY.pollFirst();
-        }
-        ATTACK_INTERVAL_HISTORY.offerLast(timestamp);
+    private static void pushInterval(long t) {
+        if (INTERVAL_QUEUE.size() >= HISTORY_CAP) INTERVAL_QUEUE.pollFirst();
+        INTERVAL_QUEUE.offerLast(t);
     }
 
-    private static void updateRegistryState() {
-        TRIGGER_REGISTRY.put("TotalFires", totalTriggersFired);
-        TRIGGER_REGISTRY.put("SessionFires", sessionAttackCounter);
-        TRIGGER_REGISTRY.put("HistoryQueueSize", ATTACK_INTERVAL_HISTORY.size());
+    private static void updateRegistry() {
+        TBOT_REGISTRY.put("TotalFires", totalFires);
+        TBOT_REGISTRY.put("SessionFires", sessionFires);
     }
 
-    public static UUID getSubsessionIdentity() {
-        return SUBSESSION_UUID;
-    }
-
-    public static long getTotalTriggersFired() {
-        return totalTriggersFired;
-    }
-
-    public static void performBaselineCalibration() {
-        totalTriggersFired = 0L;
-        sessionAttackCounter = 0;
-        attackReleaseTracker = 0;
-        reactionCountdownTicks = 0;
-        comboBufferTicks = 0;
-        triggerAnomalyCounter = 0;
-        ATTACK_INTERVAL_HISTORY.clear();
-    }
-
-    public static void executeExtendedDiagnosticFlush() {
-        if (ATTACK_INTERVAL_HISTORY.size() > HISTORY_CAPACITY) {
-            ATTACK_INTERVAL_HISTORY.clear();
-        }
-        if (TRIGGER_REGISTRY.size() > 120) {
-            TRIGGER_REGISTRY.clear();
-            initializeTriggerRegistry();
-        }
-    }
+    public static boolean verifySubsystemHealth() { return enabled && SUBSESSION_ID != null; }
+    public static long getTotalFires() { return totalFires; }
+    public static UUID getSubsessionIdentity() { return SUBSESSION_ID; }
 }
