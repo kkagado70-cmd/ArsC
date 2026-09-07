@@ -35,11 +35,11 @@ public class ClientBase implements ClientModInitializer {
         INSTANCE = this;
         this.moduleManager = new ModuleManager();
         
-        this.moduleManager.register(new XbowCart());
-        this.moduleManager.register(new AimAssist());
-        this.moduleManager.register(new TriggerBot());
-        this.moduleManager.register(new ShieldBreaker());
-        this.moduleManager.register(new AutoMace());
+        this.moduleManager.register(new XbowCartModule());
+        this.moduleManager.register(new AimAssistModule());
+        this.moduleManager.register(new TriggerBotModule());
+        this.moduleManager.register(new ShieldBreakerModule());
+        this.moduleManager.register(new AutoMaceModule());
 
         guiKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.example.clickgui",
@@ -83,9 +83,9 @@ public class ClientBase implements ClientModInitializer {
         protected final String name;
         public boolean enabled;
 
-        public Module(String name) {
+        public Module(String name, boolean initialEnabled) {
             this.name = name;
-            this.enabled = true;
+            this.enabled = initialEnabled;
         }
 
         public String getName() {
@@ -93,17 +93,17 @@ public class ClientBase implements ClientModInitializer {
         }
 
         public boolean isEnabled() {
-            return enabled;
+            return this.enabled;
         }
 
         public void toggle() {
-            enabled = !enabled;
+            this.enabled = !this.enabled;
         }
 
         public abstract void tick(Minecraft client);
 
         public void executeTickWrapper(Minecraft client) {
-            if (enabled) {
+            if (this.enabled) {
                 tick(client);
             }
         }
@@ -127,6 +127,101 @@ public class ClientBase implements ClientModInitializer {
                 if (m != null) {
                     m.executeTickWrapper(client);
                 }
+            }
+        }
+    }
+
+    public static class XbowCartModule extends Module {
+        public XbowCartModule() {
+            super("XbowCart", XbowCart.enabled);
+        }
+
+        @Override
+        public void toggle() {
+            super.toggle();
+            XbowCart.enabled = this.enabled;
+        }
+
+        @Override
+        public void tick(Minecraft client) {
+            if (this.enabled) {
+                XbowCart.onTick(client);
+            }
+        }
+    }
+
+    public static class AimAssistModule extends Module {
+        public AimAssistModule() {
+            super("AimAssist", AimAssist.enabled);
+        }
+
+        @Override
+        public void toggle() {
+            super.toggle();
+            AimAssist.enabled = this.enabled;
+        }
+
+        @Override
+        public void tick(Minecraft client) {
+            if (this.enabled) {
+                AimAssist.onTick(client);
+            }
+        }
+    }
+
+    public static class TriggerBotModule extends Module {
+        public TriggerBotModule() {
+            super("TriggerBot", TriggerBot.enabled);
+        }
+
+        @Override
+        public void toggle() {
+            super.toggle();
+            TriggerBot.enabled = this.enabled;
+        }
+
+        @Override
+        public void tick(Minecraft client) {
+            if (this.enabled) {
+                TriggerBot.onTick(client);
+            }
+        }
+    }
+
+    public static class ShieldBreakerModule extends Module {
+        public ShieldBreakerModule() {
+            super("ShieldBreaker", ShieldBreaker.enabled);
+        }
+
+        @Override
+        public void toggle() {
+            super.toggle();
+            ShieldBreaker.enabled = this.enabled;
+        }
+
+        @Override
+        public void tick(Minecraft client) {
+            if (this.enabled) {
+                ShieldBreaker.onTick(client);
+            }
+        }
+    }
+
+    public static class AutoMaceModule extends Module {
+        public AutoMaceModule() {
+            super("AutoMace", AutoMace.enabled);
+        }
+
+        @Override
+        public void toggle() {
+            super.toggle();
+            AutoMace.enabled = this.enabled;
+        }
+
+        @Override
+        public void tick(Minecraft client) {
+            if (this.enabled) {
+                AutoMace.onTick(client);
             }
         }
     }
