@@ -66,6 +66,7 @@ public class ShieldBreaker extends ClientBase.Module {
     private static double randomMissChance = 0.01D;
     private static boolean selfOptimizationActive = true;
     private static int autoCalibrationCounter = 0;
+    private static int sessionStunCount = 0;   // <-- NOVA VARIÁVEL
 
     static {
         initializeRegistry();
@@ -108,6 +109,7 @@ public class ShieldBreaker extends ClientBase.Module {
         momentumReset = false;
         shieldStunActiveSync = false;
         autoCalibrationCounter = 0;
+        sessionStunCount = 0;   // <-- REINICIALIZAÇÃO
         STUN_HISTORY.clear();
         VELOCITY_HISTORY.clear();
         RECOVERY_MEMORY.clear();

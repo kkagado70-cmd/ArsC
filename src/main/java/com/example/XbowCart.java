@@ -1,14 +1,15 @@
 package com.example;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.CrossbowItem;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.util.Mth;
 
 import java.security.SecureRandom;
 import java.util.UUID;
@@ -17,73 +18,108 @@ import java.util.Map;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
-public class AutoMace extends ClientBase.Module {
-    public static final String FILE_NAME = "AutoMace.java";
+public class XbowCart extends ClientBase.Module {
+    public static final String FILE_NAME = "XbowCart.java";
     public static boolean enabled = false;
+
+    private enum PipelinePhase { VOID, RAIL_ACTION, CART_ACTION, FLINT_ACTION, XBOW_ACTION, CLEANUP }
+
+    private static PipelinePhase currentPhase = PipelinePhase.VOID;
+    private static int actionTickCounter = 0;
+    private static BlockPos vectorReferencePos = null;
+    private static Direction vectorReferenceFace = Direction.UP;
+    private static Vec3 vectorHitRegistry = null;
+    private static final SafetyWatchdog safetyWatchdog = new SafetyWatchdog();
     private static final SecureRandom secureRandom = new SecureRandom();
 
-    private static final Map<String, Object> MACE_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, Object> XBOW_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
-    private static final Deque<Double> VERTICAL_VELOCITY_HISTORY = new ArrayDeque<>();
-    private static final Deque<Long> SMASH_EXECUTION_TIMESTAMPS = new ArrayDeque<>();
-    private static final Deque<Vec3> TARGET_MOMENTUM_BUFFER = new ArrayDeque<>();
-    private static final int HISTORY_CAPACITY = 2048;
+    private static final Deque<Long> EXECUTION_TIMESTAMP_QUEUE = new ArrayDeque<>();
+    private static final Deque<Double> STOCHASTIC_LATENCY_DEQUE = new ArrayDeque<>();
+    private static final Deque<Vec3> VECTOR_TRAJECTORY_HISTORY = new ArrayDeque<>();
+    private static final Deque<Integer> PIPELINE_ERROR_DEQUE = new ArrayDeque<>();
+    private static final Deque<Long> STAGE_DURATION_DEQUE = new ArrayDeque<>();
+    private static final int HISTORY_MAX_CAPACITY = 4096;
 
-    private static double maxSwingRange = 4.75D;
-    private static double maxAimDistance = 24.0D;
-    private static double minimumFallDistance = 1.15D;
-    private static float hyperSnapSpeed = 0.99F;
-    private static long executionTickCounter = 0L;
-    private static boolean windChargeBoostDetection = true;
-    private static boolean elytraDiveCheck = true;
-    private static LivingEntity lockedMaceTarget = null;
-    private static int smashCooldownTracker = 0;
-    private static boolean antiHeuristicBypassActive = true;
-    private static int anomalyCounter = 0;
+    private static long pipelineExecutionCounter = 0L;
+    private static boolean strictComplianceFlag = true;
+    private static int maxPipelineRetries = 7;
+    private static int currentRetryAttempt = 0;
+    private static double stochasticDelayModifier = 1.25D;
+    private static boolean towerCartingModeActive = true;
+    private static boolean divebombBypassActive = true;
+    private static long globalWatchdogTimeoutMs = 1800L;
+    private static int internalSlotCacheIndex = -1;
+    private static boolean emergencyHaltFlag = false;
+    private static double humanMimeJitterFactor = 0.015D;
+    private static int packetThrottlingCounter = 0;
+    private static boolean adaptivePacingActive = true;
+    private static long subsessionEpochTracker = System.currentTimeMillis();
+    private static double spatialPrecisionTolerance = 0.05D;
+    private static boolean antiReplayHeuristicShield = true;
+    private static int pipelineAnomalyCounter = 0;
+    private static boolean tacticalRetreatMode = false;
+    private static double targetElevationOffset = 0.2D;
+    private static boolean dynamicAngleCorrection = true;
+    private static int successiveExecutionCount = 0;
     private static boolean stealthProfileActive = true;
-    private static double stochasticJitterFactor = 0.005D;
-    private static boolean instantSlotSwitchActive = true;
-    private static int sessionSmashCounter = 0;
+    private static long lastPipelineInvocationEpoch = 0L;
+    private static double mouseInertiaWeight = 0.85D;
     private static boolean packetOrderStrictSync = true;
-    private static long lastSmashEpoch = 0L;
-    private static boolean targetPredictionEngine = true;
-    private static double predictionMultiplier = 1.25D;
-    private static boolean hardwareTurnSimulation = true;
-    private static boolean profileLockState = false;
-    private static double stochasticVarianceScalar = 0.03D;
-    private static int emergencyResetLimit = 100;
-    private static boolean biologicalFatigueSimulation = true;
-    private static double fatigueIncrementRate = 0.001D;
-    private static double currentFatigueAccumulator = 0.0D;
-    private static boolean errorInjectionActive = true;
-    private static double randomMissProbabilityRate = 0.008D;
-    private static boolean selfOptimizationLoop = true;
-    private static int autoCalibrationTickTimer = 0;
-    private static double attackStrengthScaleLock = 0.70D;
-    private static boolean windChargeMomentumStacking = true;
-    private static double verticalBoostThreshold = 0.70D;
-    private static boolean hitregBypassEngine = true;
-    private static double hitboxExpansionScalar = 0.15D;
+    private static int serverTickOffsetCalibration = 2;
+
+    private static double sessionMetricAlpha = 0.5D;
+    private static double sessionMetricBeta = 0.5D;
+    private static double sessionMetricGamma = 0.5D;
+    private static double sessionMetricDelta = 0.5D;
+    private static double sessionMetricEpsilon = 0.5D;
+    private static double sessionMetricZeta = 0.5D;
+    private static double sessionMetricEta = 0.5D;
+    private static double sessionMetricTheta = 0.5D;
+    private static double sessionMetricIota = 0.5D;
+    private static double sessionMetricKappa = 0.5D;
+    private static boolean deepTelemetryAuditActive = true;
+    private static int telemetryFlushIntervalTicks = 300;
+    private static long lastTelemetryFlushEpoch = 0L;
+    private static boolean adaptiveFovScalingActive = true;
+    private static double fovExpansionRate = 0.05D;
+    private static boolean strictRaycastVerification = true;
+    private static double raycastStepPrecision = 0.1D;
+    private static boolean kineticInertiaModelActive = true;
+    private static double massSimulatedDrag = 0.02D;
+    private static boolean rotationalFrictionActive = true;
+    private static double frictionCoefficient = 0.04D;
 
     static {
-        initializeMaceEnterpriseRegistry();
+        initializeXbowEnterpriseRegistry();
     }
 
-    private static void initializeMaceEnterpriseRegistry() {
-        MACE_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        MACE_ENTERPRISE_REGISTRY.put("ModuleState", "Pro-Tier1-AutoMace-400Lines");
-        MACE_ENTERPRISE_REGISTRY.put("BypassEngine", "GrimAC-Motion-Sync-Pro");
-        MACE_ENTERPRISE_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
-        MACE_ENTERPRISE_REGISTRY.put("WindChargeDetection", windChargeBoostDetection);
-        MACE_ENTERPRISE_REGISTRY.put("ElytraDiveCheck", elytraDiveCheck);
-        MACE_ENTERPRISE_REGISTRY.put("MaxSwingRange", maxSwingRange);
-        MACE_ENTERPRISE_REGISTRY.put("MinFallDistance", minimumFallDistance);
+    private static void initializeXbowEnterpriseRegistry() {
+        XBOW_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        XBOW_ENTERPRISE_REGISTRY.put("ModuleState", "HT1-Enterprise-XbowCart-Engine-V12");
+        XBOW_ENTERPRISE_REGISTRY.put("StrictCompliance", strictComplianceFlag);
+        XBOW_ENTERPRISE_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
+        XBOW_ENTERPRISE_REGISTRY.put("ExecutionHistorySize", 0);
+        XBOW_ENTERPRISE_REGISTRY.put("MaxRetries", maxPipelineRetries);
+        XBOW_ENTERPRISE_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
+        XBOW_ENTERPRISE_REGISTRY.put("TowerMode", towerCartingModeActive);
+        XBOW_ENTERPRISE_REGISTRY.put("DivebombMode", divebombBypassActive);
+        XBOW_ENTERPRISE_REGISTRY.put("JitterFactor", humanMimeJitterFactor);
+        XBOW_ENTERPRISE_REGISTRY.put("AdaptivePacing", adaptivePacingActive);
+        XBOW_ENTERPRISE_REGISTRY.put("AntiReplayShield", antiReplayHeuristicShield);
+        XBOW_ENTERPRISE_REGISTRY.put("StealthProfile", stealthProfileActive);
+        XBOW_ENTERPRISE_REGISTRY.put("MouseInertia", mouseInertiaWeight);
+        XBOW_ENTERPRISE_REGISTRY.put("PacketOrderSync", packetOrderStrictSync);
+        XBOW_ENTERPRISE_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
+        XBOW_ENTERPRISE_REGISTRY.put("BetaMetric", sessionMetricBeta);
+        XBOW_ENTERPRISE_REGISTRY.put("GammaMetric", sessionMetricGamma);
+        XBOW_ENTERPRISE_REGISTRY.put("DeltaMetric", sessionMetricDelta);
     }
 
-    public AutoMace() {
-        super("AutoMace");
-        AutoMace.enabled = false;
-        initializeMaceEnterpriseRegistry();
+    public XbowCart() {
+        super("XbowCart");
+        XbowCart.enabled = false;
+        initializeXbowEnterpriseRegistry();
     }
 
     @Override
@@ -95,21 +131,30 @@ public class AutoMace extends ClientBase.Module {
     public void toggle() {
         enabled = !enabled;
         super.enabled = enabled;
-        resetMaceEnterpriseState();
+        if (!enabled) {
+            purgePipelineRegistry();
+        } else {
+            resetXbowInternalState();
+        }
     }
 
-    private static void resetMaceEnterpriseState() {
-        lockedMaceTarget = null;
-        smashCooldownTracker = 0;
-        anomalyCounter = 0;
-        sessionSmashCounter = 0;
-        autoCalibrationTickTimer = 0;
-        currentFatigueAccumulator = 0.0D;
-        VERTICAL_VELOCITY_HISTORY.clear();
-        SMASH_EXECUTION_TIMESTAMPS.clear();
-        TARGET_MOMENTUM_BUFFER.clear();
-        MACE_ENTERPRISE_REGISTRY.clear();
-        initializeMaceEnterpriseRegistry();
+    private static void resetXbowInternalState() {
+        currentPhase = PipelinePhase.VOID;
+        actionTickCounter = 0;
+        vectorReferencePos = null;
+        vectorReferenceFace = Direction.UP;
+        vectorHitRegistry = null;
+        currentRetryAttempt = 0;
+        emergencyHaltFlag = false;
+        pipelineAnomalyCounter = 0;
+        successiveExecutionCount = 0;
+        EXECUTION_TIMESTAMP_QUEUE.clear();
+        STOCHASTIC_LATENCY_DEQUE.clear();
+        VECTOR_TRAJECTORY_HISTORY.clear();
+        PIPELINE_ERROR_DEQUE.clear();
+        STAGE_DURATION_DEQUE.clear();
+        purgeRegistry();
+        initializeXbowEnterpriseRegistry();
     }
 
     @Override
@@ -117,235 +162,315 @@ public class AutoMace extends ClientBase.Module {
         onTick(clientRef);
     }
 
+    public static boolean validateRegistryItem(Item candidateItem) {
+        return candidateItem == Items.RAIL ||
+               candidateItem == Items.POWERED_RAIL ||
+               candidateItem == Items.DETECTOR_RAIL ||
+               candidateItem == Items.ACTIVATOR_RAIL;
+    }
+
     public static void onTick(Minecraft clientRef) {
         if (!enabled || clientRef.player == null || clientRef.level == null) return;
-        if (!clientRef.player.isAlive()) return;
-
-        executionTickCounter++;
-        autoCalibrationTickTimer++;
-
-        if (autoCalibrationTickTimer >= 200) {
-            autoCalibrationTickTimer = 0;
-            executeAutoCalibrationRoutine();
+        if (emergencyHaltFlag || safetyWatchdog.isWatchdogLockout()) {
+            purgePipelineRegistry();
+            return;
         }
 
+        pipelineExecutionCounter++;
+        successiveExecutionCount++;
         executeSubsystemSanitation();
 
-        if (smashCooldownTracker > 0) {
-            smashCooldownTracker--;
+        if (actionTickCounter > 0) {
+            actionTickCounter--;
+            if (actionTickCounter == 0) {
+                advancePipelinePhase(clientRef);
+            }
+            return;
         }
 
-        double currentVerticalVelocity = clientRef.player.getDeltaMovement().y;
-        pushFallVelocityHistory(currentVerticalVelocity);
-
-        LivingEntity target = resolveOptimalMaceTarget(clientRef);
-        if (target != null) {
-            evaluateSmashConditions(clientRef, target);
-        } else {
-            lockedMaceTarget = null;
+        if (safetyWatchdog.isTimedOut()) {
+            handlePipelineFailure(clientRef);
+            return;
         }
 
+        switch (currentPhase) {
+            case VOID:
+                HitResult rawHit = clientRef.hitResult;
+                if (rawHit == null || rawHit.getType() != HitResult.Type.BLOCK) return;
+                if (!(rawHit instanceof BlockHitResult blockHit)) return;
+                
+                ItemStack mainHand = clientRef.player.getMainHandItem();
+                if (!validateRegistryItem(mainHand.getItem())) return;
+                if (InventoryManager.findChargedCrossbow(clientRef) == -1) return;
+                
+                vectorReferencePos = blockHit.getBlockPos();
+                vectorReferenceFace = blockHit.getDirection();
+                vectorHitRegistry = blockHit.getLocation();
+                
+                if (vectorReferenceFace != Direction.UP) return;
+
+                safetyWatchdog.arm();
+                currentRetryAttempt = 0;
+                lastPipelineInvocationEpoch = System.currentTimeMillis();
+                currentPhase = PipelinePhase.RAIL_ACTION;
+                break;
+            case RAIL_ACTION:
+                int r = locateRailSlot(clientRef);
+                if (r == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                Vec3 railTarget = vectorHitRegistry != null ? vectorHitRegistry : Vec3.atCenterOf(vectorReferencePos);
+                RotationManager.smoothTo(clientRef, railTarget.add(secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor), 0.98F);
+                InventoryManager.selectSlot(clientRef, r);
+                InteractionManager.simulateClickUse(clientRef);
+                actionTickCounter = serverTickOffsetCalibration + secureRandom.nextInt(2);
+                break;
+            case CART_ACTION:
+                int c = InventoryManager.findItem(clientRef, Items.TNT_MINECART);
+                if (c == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                BlockPos cartPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
+                if (towerCartingModeActive && vectorReferenceFace != Direction.UP) {
+                    cartPos = vectorReferencePos.above();
+                }
+                Vec3 cartTarget = Vec3.atCenterOf(cartPos);
+                RotationManager.smoothTo(clientRef, cartTarget.add(secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor), 0.98F);
+                InventoryManager.selectSlot(clientRef, c);
+                InteractionManager.simulateClickUse(clientRef);
+                actionTickCounter = serverTickOffsetCalibration + secureRandom.nextInt(2);
+                break;
+            case FLINT_ACTION:
+                int f = InventoryManager.findItem(clientRef, Items.FLINT_AND_STEEL);
+                if (f == -1) f = InventoryManager.findItem(clientRef, Items.FIRE_CHARGE);
+                if (f == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                BlockPos firePos = vectorReferenceFace == Direction.UP ? vectorReferencePos.relative(clientRef.player.getDirection().getOpposite()) : vectorReferencePos;
+                Vec3 fireTarget = Vec3.atCenterOf(firePos);
+                RotationManager.smoothTo(clientRef, fireTarget.add(secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor), 0.98F);
+                InventoryManager.selectSlot(clientRef, f);
+                InteractionManager.simulateClickUse(clientRef);
+                actionTickCounter = serverTickOffsetCalibration + secureRandom.nextInt(2);
+                break;
+            case XBOW_ACTION:
+                int x = InventoryManager.findChargedCrossbow(clientRef);
+                if (x == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                BlockPos shootPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
+                Vec3 shootTarget = Vec3.atCenterOf(shootPos).add(0.0D, targetElevationOffset, 0.0D);
+                RotationManager.smoothTo(clientRef, shootTarget.add(secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor), 0.98F);
+                InventoryManager.selectSlot(clientRef, x);
+                InteractionManager.simulateClickUse(clientRef);
+                actionTickCounter = serverTickOffsetCalibration + secureRandom.nextInt(2);
+                break;
+            case CLEANUP:
+                purgePipelineRegistry();
+                break;
+        }
         updateRegistryState();
     }
 
-    private static LivingEntity resolveOptimalMaceTarget(Minecraft clientRef) {
-        if (lockedMaceTarget != null) {
-            if (lockedMaceTarget.isAlive() && clientRef.player.distanceToSqr(lockedMaceTarget) <= (maxAimDistance * maxAimDistance)) {
-                return lockedMaceTarget;
-            }
-            lockedMaceTarget = null;
+    private static void handlePipelineFailure(Minecraft clientRef) {
+        currentRetryAttempt++;
+        pipelineAnomalyCounter++;
+        PIPELINE_ERROR_DEQUE.offerLast((long) currentPhase.ordinal());
+        if (PIPELINE_ERROR_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            PIPELINE_ERROR_DEQUE.pollFirst();
         }
-
-        LivingEntity bestTarget = null;
-        double minDistanceSqr = (maxAimDistance * maxAimDistance) + 1.0D;
-
-        for (Player player : clientRef.level.players()) {
-            if (player == clientRef.player) continue;
-            if (!player.isAlive() || player.isSpectator() || player.isCreative()) continue;
-            double distSqr = clientRef.player.distanceToSqr(player);
-            if (distSqr > (maxAimDistance * maxAimDistance)) continue;
-
-            if (distSqr < minDistanceSqr) {
-                minDistanceSqr = distSqr;
-                bestTarget = player;
-            }
-        }
-
-        if (bestTarget != null) {
-            lockedMaceTarget = bestTarget;
-        }
-        return lockedMaceTarget;
-    }
-
-    private static void evaluateSmashConditions(Minecraft clientRef, LivingEntity target) {
-        double playerFallDistance = clientRef.player.fallDistance;
-        boolean isElytraActive = clientRef.player.isFallFlying();
-        double verticalVelocityY = clientRef.player.getDeltaMovement().y;
-        
-        boolean windChargeMomentum = windChargeBoostDetection && verticalVelocityY > verticalBoostThreshold;
-        boolean diveTriggerCondition = playerFallDistance >= minimumFallDistance || (elytraDiveCheck && isElytraActive) || verticalVelocityY < -0.25D || windChargeMomentum;
-
-        if (diveTriggerCondition) {
-            int maceSlot = findItem(clientRef, Items.MACE);
-            if (maceSlot != -1) {
-                selectSlot(clientRef, maceSlot);
-                
-                Vec3 targetCenter = target.position().add(0.0D, target.getBbHeight() * 0.5D, 0.0D);
-                Vec3 predictedTargetPos = targetCenter.add(target.getDeltaMovement().scale(predictionMultiplier));
-                
-                RotationManager.smoothTo(clientRef, predictedTargetPos.add(secureRandom.nextDouble() * stochasticJitterFactor, secureRandom.nextDouble() * stochasticJitterFactor, secureRandom.nextDouble() * stochasticJitterFactor), hyperSnapSpeed);
-
-                double distanceToTarget = clientRef.player.distanceTo(target);
-                float attackScale = clientRef.player.getAttackStrengthScale(0.0F);
-
-                double dynamicThreshold = attackStrengthScaleLock + currentFatigueAccumulator;
-                if (distanceToTarget <= maxSwingRange && attackScale >= dynamicThreshold && smashCooldownTracker == 0) {
-                    if (errorInjectionActive && secureRandom.nextDouble() < randomMissProbabilityRate) {
-                        return;
-                    }
-
-                    sessionSmashCounter++;
-                    currentFatigueAccumulator = Math.min(1.0D, currentFatigueAccumulator + fatigueIncrementRate);
-                    lastSmashEpoch = System.currentTimeMillis();
-                    
-                    SMASH_EXECUTION_TIMESTAMPS.offerLast(lastSmashEpoch);
-                    if (SMASH_EXECUTION_TIMESTAMPS.size() > HISTORY_CAPACITY) {
-                        SMASH_EXECUTION_TIMESTAMPS.pollFirst();
-                    }
-
-                    InteractionManager.simulateClickAttack(clientRef);
-                    smashCooldownTracker = 3 + secureRandom.nextInt(3);
-                }
-            }
+        if (currentRetryAttempt <= maxPipelineRetries) {
+            actionTickCounter = 3 + secureRandom.nextInt(3);
+        } else {
+            emergencyHaltFlag = true;
+            purgePipelineRegistry();
         }
     }
 
-    private static int findItem(Minecraft clientRef, Item item) {
+    private static void advancePipelinePhase(Minecraft clientRef) {
+        if (clientRef != null && clientRef.options != null) {
+            clientRef.options.keyUse.setDown(false);
+        }
+        long stageDuration = System.currentTimeMillis() - lastPipelineInvocationEpoch;
+        STAGE_DURATION_DEQUE.offerLast(stageDuration);
+        if (STAGE_DURATION_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            STAGE_DURATION_DEQUE.pollFirst();
+        }
+
+        switch (currentPhase) {
+            case RAIL_ACTION: currentPhase = PipelinePhase.CART_ACTION; break;
+            case CART_ACTION: currentPhase = PipelinePhase.FLINT_ACTION; break;
+            case FLINT_ACTION: currentPhase = PipelinePhase.XBOW_ACTION; break;
+            case XBOW_ACTION: currentPhase = PipelinePhase.CLEANUP; break;
+            default: purgePipelineRegistry(); break;
+        }
+
+        if (EXECUTION_TIMESTAMP_QUEUE.size() >= HISTORY_MAX_CAPACITY) {
+            EXECUTION_TIMESTAMP_QUEUE.pollFirst();
+        }
+        EXECUTION_TIMESTAMP_QUEUE.offerLast(System.currentTimeMillis());
+        updateRegistryState();
+    }
+
+    private static int locateRailSlot(Minecraft clientRef) {
         if (clientRef.player == null) return -1;
         for (int i = 0; i < 9; i++) {
-            if (clientRef.player.getInventory().getItem(i).getItem() == item) return i;
+            Item itemNode = clientRef.player.getInventory().getItem(i).getItem();
+            if (validateRegistryItem(itemNode)) return i;
         }
         return -1;
     }
 
-    private static void selectSlot(Minecraft clientRef, int slot) {
-        if (clientRef.player == null || slot < 0 || slot > 8) return;
-        clientRef.player.getInventory().setSelectedSlot(slot);
-        if (clientRef.options != null && clientRef.options.keyHotbarSlots[slot] != null) {
-            clientRef.options.keyHotbarSlots[slot].setDown(true);
-            clientRef.options.keyHotbarSlots[slot].setDown(false);
-        }
-    }
-
-    private static void pushFallVelocityHistory(double velocity) {
-        if (VERTICAL_VELOCITY_HISTORY.size() >= HISTORY_CAPACITY) {
-            VERTICAL_VELOCITY_HISTORY.pollFirst();
-        }
-        VERTICAL_VELOCITY_HISTORY.offerLast(velocity);
-    }
-
-    private static void executeAutoCalibrationRoutine() {
-        maxSwingRange = 4.75D + (secureRandom.nextDouble() - 0.5) * 0.05D;
-        currentFatigueAccumulator = Math.max(0.0D, currentFatigueAccumulator - 0.1D);
-    }
-
     private static void updateRegistryState() {
-        MACE_ENTERPRISE_REGISTRY.put("ExecutionTicks", executionTickCounter);
-        MACE_ENTERPRISE_REGISTRY.put("LockedTargetState", lockedMaceTarget != null);
-        MACE_ENTERPRISE_REGISTRY.put("HistoryQueueSize", VERTICAL_VELOCITY_HISTORY.size());
-        MACE_ENTERPRISE_REGISTRY.put("SmashCooldown", smashCooldownTracker);
-        MACE_ENTERPRISE_REGISTRY.put("SessionSmashes", sessionSmashCounter);
-        MACE_ENTERPRISE_REGISTRY.put("FatigueLevel", currentFatigueAccumulator);
+        XBOW_ENTERPRISE_REGISTRY.put("ExecutionCounter", pipelineExecutionCounter);
+        XBOW_ENTERPRISE_REGISTRY.put("PipelineStage", currentPhase.name());
+        XBOW_ENTERPRISE_REGISTRY.put("HistorySize", EXECUTION_TIMESTAMP_QUEUE.size());
+        XBOW_ENTERPRISE_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
+        XBOW_ENTERPRISE_REGISTRY.put("EmergencyHalt", emergencyHaltFlag);
+        XBOW_ENTERPRISE_REGISTRY.put("AnomalyCount", pipelineAnomalyCounter);
+        XBOW_ENTERPRISE_REGISTRY.put("SuccessiveExecutions", successiveExecutionCount);
     }
 
     private static void executeSubsystemSanitation() {
-        if (executionTickCounter > 50000000L) {
-            executionTickCounter = 0L;
+        if (pipelineExecutionCounter > 100000000L) {
+            pipelineExecutionCounter = 0L;
         }
-        if (MACE_ENTERPRISE_REGISTRY.size() > 150) {
-            MACE_ENTERPRISE_REGISTRY.clear();
-            initializeMaceEnterpriseRegistry();
+        if (XBOW_ENTERPRISE_REGISTRY.size() > 250) {
+            purgeRegistry();
+            initializeXbowEnterpriseRegistry();
         }
     }
 
-    public static boolean verifyAutoMaceSubsystemHealth() {
+    private static void purgeRegistry() {
+        XBOW_ENTERPRISE_REGISTRY.clear();
+    }
+
+    public static void purgePipelineRegistry() {
+        currentPhase = PipelinePhase.VOID;
+        vectorReferencePos = null;
+        vectorReferenceFace = Direction.UP;
+        vectorHitRegistry = null;
+        actionTickCounter = 0;
+        currentRetryAttempt = 0;
+        safetyWatchdog.disarm();
+    }
+
+    public static boolean verifyXbowSubsystemHealth() {
         return enabled && SUBSESSION_IDENTITY != null;
     }
 
-    public static long getExecutionTickCounter() {
-        return executionTickCounter;
+    public static long getPipelineExecutionCounter() {
+        return pipelineExecutionCounter;
     }
 
-    public static void setMaxSwingRange(double range) {
-        maxSwingRange = range;
-        MACE_ENTERPRISE_REGISTRY.put("MaxSwingRange", maxSwingRange);
+    public static PipelinePhase getPipelineStage() {
+        return currentPhase;
     }
 
-    public static double getMaxSwingRange() {
-        return maxSwingRange;
+    public static void setStrictCompliance(boolean state) {
+        strictComplianceFlag = state;
+        XBOW_ENTERPRISE_REGISTRY.put("StrictCompliance", strictComplianceFlag);
     }
 
-    public static void setMinimumFallDistance(double dist) {
-        minimumFallDistance = dist;
-        MACE_ENTERPRISE_REGISTRY.put("MinFallDistance", minimumFallDistance);
+    public static boolean isStrictComplianceActive() {
+        return strictComplianceFlag;
     }
 
-    public static double getMinimumFallDistance() {
-        return minimumFallDistance;
+    public static void setMaxRetries(int retries) {
+        maxPipelineRetries = Math.max(0, retries);
+        XBOW_ENTERPRISE_REGISTRY.put("MaxRetries", maxPipelineRetries);
     }
 
-    public static void toggleWindChargeDetection(boolean state) {
-        windChargeBoostDetection = state;
-        MACE_ENTERPRISE_REGISTRY.put("WindChargeDetection", windChargeBoostDetection);
-    }
-
-    public static boolean isWindChargeDetectionActive() {
-        return windChargeBoostDetection;
-    }
-
-    public static void toggleElytraDiveCheck(boolean state) {
-        elytraDiveCheck = state;
-        MACE_ENTERPRISE_REGISTRY.put("ElytraDiveCheck", elytraDiveCheck);
-    }
-
-    public static boolean isElytraDiveCheckActive() {
-        return elytraDiveCheck;
-    }
-
-    public static int getVelocityHistorySize() {
-        return VERTICAL_VELOCITY_HISTORY.size();
+    public static int getMaxRetries() {
+        return maxPipelineRetries;
     }
 
     public static void performBaselineCalibration() {
-        maxSwingRange = 4.75D;
-        maxAimDistance = 24.0D;
-        minimumFallDistance = 1.15D;
-        hyperSnapSpeed = 0.99F;
-        windChargeBoostDetection = true;
-        elytraDiveCheck = true;
-        smashCooldownTracker = 0;
-        executionTickCounter = 0L;
-        sessionSmashCounter = 0;
-        currentFatigueAccumulator = 0.0D;
-        VERTICAL_VELOCITY_HISTORY.clear();
-        SMASH_EXECUTION_TIMESTAMPS.clear();
-        TARGET_MOMENTUM_BUFFER.clear();
+        strictComplianceFlag = true;
+        maxPipelineRetries = 7;
+        currentRetryAttempt = 0;
+        pipelineExecutionCounter = 0L;
+        emergencyHaltFlag = false;
+        pipelineAnomalyCounter = 0;
+        successiveExecutionCount = 0;
+        EXECUTION_TIMESTAMP_QUEUE.clear();
+        STOCHASTIC_LATENCY_DEQUE.clear();
+        VECTOR_TRAJECTORY_HISTORY.clear();
+        PIPELINE_ERROR_DEQUE.clear();
+        STAGE_DURATION_DEQUE.clear();
     }
 
     public static void executeExtendedDiagnosticFlush() {
         executeSubsystemSanitation();
-        if (VERTICAL_VELOCITY_HISTORY.size() > HISTORY_CAPACITY) {
-            VERTICAL_VELOCITY_HISTORY.clear();
+        if (EXECUTION_TIMESTAMP_QUEUE.size() > HISTORY_MAX_CAPACITY) {
+            EXECUTION_TIMESTAMP_QUEUE.clear();
         }
-        if (SMASH_EXECUTION_TIMESTAMPS.size() > HISTORY_CAPACITY) {
-            SMASH_EXECUTION_TIMESTAMPS.clear();
+        if (STOCHASTIC_LATENCY_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            STOCHASTIC_LATENCY_DEQUE.clear();
         }
-        if (TARGET_MOMENTUM_BUFFER.size() > HISTORY_CAPACITY) {
-            TARGET_MOMENTUM_BUFFER.clear();
+        if (VECTOR_TRAJECTORY_HISTORY.size() > HISTORY_MAX_CAPACITY) {
+            VECTOR_TRAJECTORY_HISTORY.clear();
+        }
+        if (PIPELINE_ERROR_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            PIPELINE_ERROR_DEQUE.clear();
+        }
+        if (STAGE_DURATION_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            STAGE_DURATION_DEQUE.clear();
         }
     }
 
     public static UUID getSubsessionIdentity() {
         return SUBSESSION_IDENTITY;
+    }
+
+    public static void setTowerCartingMode(boolean state) {
+        towerCartingModeActive = state;
+        XBOW_ENTERPRISE_REGISTRY.put("TowerMode", towerCartingModeActive);
+    }
+
+    public static boolean isTowerCartingModeActive() {
+        return towerCartingModeActive;
+    }
+
+    public static void setDivebombBypass(boolean state) {
+        divebombBypassActive = state;
+        XBOW_ENTERPRISE_REGISTRY.put("DivebombMode", divebombBypassActive);
+    }
+
+    public static boolean isDivebombBypassActive() {
+        return divebombBypassActive;
+    }
+
+    public static int getInternalSlotCacheIndex() {
+        return internalSlotCacheIndex;
+    }
+
+    public static void setInternalSlotCacheIndex(int idx) {
+        internalSlotCacheIndex = idx;
+    }
+
+    public static double getStochasticDelayModifier() {
+        return stochasticDelayModifier;
+    }
+
+    public static void setStochasticDelayModifier(double modifier) {
+        stochasticDelayModifier = modifier;
+    }
+
+    public static long getGlobalWatchdogTimeoutMs() {
+        return globalWatchdogTimeoutMs;
+    }
+
+    public static void setGlobalWatchdogTimeoutMs(long timeout) {
+        globalWatchdogTimeoutMs = timeout;
+        XBOW_ENTERPRISE_REGISTRY.put("WatchdogTimeout", globalWatchdogTimeoutMs);
+    }
+
+    public static long getGlobalWatchdogTimeoutMs() {
+        return globalWatchdogTimeoutMs;
     }
 }

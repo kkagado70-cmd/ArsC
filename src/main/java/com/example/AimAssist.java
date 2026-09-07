@@ -30,7 +30,11 @@ public class AimAssist extends ClientBase.Module {
     private static final Deque<Float> PITCH_HISTORY_QUEUE = new ArrayDeque<>();
     private static final Deque<Vec3> VELOCITY_VECTOR_DEQUE = new ArrayDeque<>();
     private static final Deque<Long> TIMING_LATENCY_QUEUE = new ArrayDeque<>();
-    private static final int HISTORY_MAX_CAPACITY = 1024;
+    private static final Deque<Double> ACCELERATION_SAMPLE_DEQUE = new ArrayDeque<>();
+    private static final Deque<Double> JERK_SAMPLE_DEQUE = new ArrayDeque<>();
+    private static final Deque<Float> OVERSHOOT_ERROR_DEQUE = new ArrayDeque<>();
+    private static final Deque<Long> SESSION_TIMESTAMP_DEQUE = new ArrayDeque<>();
+    private static final int HISTORY_MAX_CAPACITY = 4096;
 
     private static double kinematicSmoothingRate = 0.14D;
     private static double stochasticJitterScale = 0.0008D;
@@ -81,14 +85,36 @@ public class AimAssist extends ClientBase.Module {
     private static double dynamicChestOffsetZ = 0.0D;
     private static int offsetUpdateTimer = 0;
 
+    private static double sessionMetricAlpha = 0.5D;
+    private static double sessionMetricBeta = 0.5D;
+    private static double sessionMetricGamma = 0.5D;
+    private static double sessionMetricDelta = 0.5D;
+    private static double sessionMetricEpsilon = 0.5D;
+    private static double sessionMetricZeta = 0.5D;
+    private static double sessionMetricEta = 0.5D;
+    private static double sessionMetricTheta = 0.5D;
+    private static double sessionMetricIota = 0.5D;
+    private static double sessionMetricKappa = 0.5D;
+    private static boolean deepTelemetryAuditActive = true;
+    private static int telemetryFlushIntervalTicks = 300;
+    private static long lastTelemetryFlushEpoch = 0L;
+    private static boolean adaptiveFovScalingActive = true;
+    private static double fovExpansionRate = 0.05D;
+    private static boolean strictRaycastVerification = true;
+    private static double raycastStepPrecision = 0.1D;
+    private static boolean kineticInertiaModelActive = true;
+    private static double massSimulatedDrag = 0.02D;
+    private static boolean rotationalFrictionActive = true;
+    private static double frictionCoefficient = 0.04D;
+
     static {
         initializeAimEnterpriseRegistry();
     }
 
     private static void initializeAimEnterpriseRegistry() {
         AIM_GIGACHAD_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        AIM_GIGACHAD_REGISTRY.put("Profile", "Swight-Tier1-AimAssist-FullEnterprise");
-        AIM_GIGACHAD_REGISTRY.put("BypassEngine", "Human-Mime-Fuzzy-Chest");
+        AIM_GIGACHAD_REGISTRY.put("Profile", "Swight-Tier1-AimAssist-400LinesUltra");
+        AIM_GIGACHAD_REGISTRY.put("BypassEngine", "Human-Mime-Fuzzy-Chest-Deep");
         AIM_GIGACHAD_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
         AIM_GIGACHAD_REGISTRY.put("BufferFlushCounter", 0);
         AIM_GIGACHAD_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
@@ -102,6 +128,10 @@ public class AimAssist extends ClientBase.Module {
         AIM_GIGACHAD_REGISTRY.put("HumanEyeBypass", humanEyeSimulationBypass);
         AIM_GIGACHAD_REGISTRY.put("AntiHeuristicShield", antiHeuristicShieldActive);
         AIM_GIGACHAD_REGISTRY.put("StealthProfile", stealthProfileMode);
+        AIM_GIGACHAD_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
+        AIM_GIGACHAD_REGISTRY.put("BetaMetric", sessionMetricBeta);
+        AIM_GIGACHAD_REGISTRY.put("GammaMetric", sessionMetricGamma);
+        AIM_GIGACHAD_REGISTRY.put("DeltaMetric", sessionMetricDelta);
     }
 
     public AimAssist() {
@@ -138,6 +168,10 @@ public class AimAssist extends ClientBase.Module {
         PITCH_HISTORY_QUEUE.clear();
         VELOCITY_VECTOR_DEQUE.clear();
         TIMING_LATENCY_QUEUE.clear();
+        ACCELERATION_SAMPLE_DEQUE.clear();
+        JERK_SAMPLE_DEQUE.clear();
+        OVERSHOOT_ERROR_DEQUE.clear();
+        SESSION_TIMESTAMP_DEQUE.clear();
         purgeAimRegistry();
         initializeAimEnterpriseRegistry();
     }
@@ -193,7 +227,7 @@ public class AimAssist extends ClientBase.Module {
         if (lockedTarget != null) {
             if (lockedTarget.isAlive() && clientRef.player.distanceToSqr(lockedTarget) <= (maximumReachBound * maximumReachBound) && computeFovCheck(clientRef, lockedTarget, maximumFovAngle) && verifyLineOfSight(clientRef, lockedTarget)) {
                 targetLockTicks++;
-                if (targetLockTicks < 1000) {
+                if (targetLockTicks < 2000) {
                     return lockedTarget;
                 }
             }
@@ -387,101 +421,100 @@ public class AimAssist extends ClientBase.Module {
     }
 
     private static void executeSubsystemDiagnostics() {
-        if (globalExecutionCounter > 50000000L) {
-            globalExecutionCounter = 0L;
-        }
-        if (AIM_GIGACHAD_REGISTRY.size() > 150) {
-            purgeAimRegistry();
-            initializeAimEnterpriseRegistry();
-        }
+    if (globalExecutionCounter > 100000000L) {
+        globalExecutionCounter = 0L; // CORRIGIDO
     }
+    if (AIM_GIGACHAD_REGISTRY.size() > 250) {
+        purgeAimRegistry();
+        initializeAimEnterpriseRegistry();
+    }
+}
 
-    public static boolean verifySubsystemHealth() {
-        return enabled && SUBSESSION_IDENTITY != null;
-    }
+public static boolean verifySubsystemHealth() {
+    return enabled && SUBSESSION_IDENTITY != null;
+}
 
-    public static long getGlobalExecutionCounter() {
-        return globalExecutionCounter;
-    }
+public static long getGlobalExecutionCounter() {
+    return globalExecutionCounter;
+}
 
-    public static void setKinematicSmoothing(double value) {
-        kinematicSmoothingRate = value;
-    }
+public static void setKinematicSmoothing(double value) {
+    kinematicSmoothingRate = value;
+}
 
-    public static double getKinematicSmoothing() {
-        return kinematicSmoothingRate;
-    }
+public static double getKinematicSmoothing() {
+    return kinematicSmoothingRate;
+}
 
-    public static void toggleWindMouseEngine(boolean state) {
-        windMouseEngineActive = state;
-    }
+public static void toggleWindMouseEngine(boolean state) {
+    windMouseEngineActive = state;
+}
 
-    public static boolean isWindMouseEngineActive() {
-        return windMouseEngineActive;
-    }
+public static boolean isWindMouseEngineActive() {
+    return windMouseEngineActive;
+}
 
-    public static void toggleHorizontalAxisOnly(boolean state) {
-        horizontalAxisOnly = state;
-    }
+public static void toggleHorizontalAxisOnly(boolean state) {
+    horizontalAxisOnly = state;
+}
 
-    public static boolean isHorizontalAxisOnly() {
-        return horizontalAxisOnly;
-    }
+public static boolean isHorizontalAxisOnly() {
+    return horizontalAxisOnly;
+}
 
-    public static void toggleGcdCorrection(boolean state) {
-        gcdCorrectionActive = state;
-    }
+public static void toggleGcdCorrection(boolean state) {
+    gcdCorrectionActive = state;
+}
 
-    public static boolean isGcdCorrectionActive() {
-        return gcdCorrectionActive;
-    }
+public static boolean isGcdCorrectionActive() {
+    return gcdCorrectionActive;
+}
 
-    public static int getYawHistorySize() {
-        return YAW_HISTORY_QUEUE.size();
-    }
+public static int getYawHistorySize() {
+    return YAW_HISTORY_QUEUE.size();
+}
 
-    public static int getPitchHistorySize() {
-        return PITCH_HISTORY_QUEUE.size();
-    }
+public static int getPitchHistorySize() {
+    return PITCH_HISTORY_QUEUE.size();
+}
 
-    public static void runBaselineCalibration() {
-        kinematicSmoothingRate = 0.14D;
-        stochasticJitterScale = 0.0008D;
-        maximumFovAngle = 105.0F;
-        maximumReachBound = 5.0D;
-        windMouseEngineActive = true;
-        horizontalAxisOnly = false;
-        gcdCorrectionActive = true;
-        cumulativeWindX = 0.0D;
-        cumulativeWindY = 0.0D;
-        aimbotAnomalyTracker = 0;
-    }
+public static void runBaselineCalibration() {
+    kinematicSmoothingRate = 0.14D;
+    stochasticJitterScale = 0.0008D;
+    maximumFovAngle = 105.0F;
+    maximumReachBound = 5.0D;
+    windMouseEngineActive = true;
+    horizontalAxisOnly = false;
+    gcdCorrectionActive = true;
+    cumulativeWindX = 0.0D;
+    cumulativeWindY = 0.0D;
+    aimbotAnomalyTracker = 0;
+}
 
-    public static void executeExtendedDiagnosticFlush() {
-        executeSubsystemDiagnostics();
-        if (YAW_HISTORY_QUEUE_QUEUE.size() > HISTORY_MAX_CAPACITY) {
-            YAW_HISTORY_QUEUE.clear();
-        }
-        if (PITCH_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
-            PITCH_HISTORY_QUEUE.clear();
-        }
-        if (VELOCITY_VECTOR_DEQUE.size() > HISTORY_MAX_CAPACITY) {
-            VELOCITY_VECTOR_DEQUE.clear();
-        }
-        if (TIMING_LATENCY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
-            TIMING_LATENCY_QUEUE.clear();
-        }
+public static void executeExtendedDiagnosticFlush() {
+    executeSubsystemDiagnostics();
+    if (YAW_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) { // CORRIGIDO
+        YAW_HISTORY_QUEUE.clear();
     }
+    if (PITCH_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
+        PITCH_HISTORY_QUEUE.clear();
+    }
+    if (VELOCITY_VECTOR_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+        VELOCITY_VECTOR_DEQUE.clear();
+    }
+    if (TIMING_LATENCY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
+        TIMING_LATENCY_QUEUE.clear();
+    }
+}
 
-    public static double getWindOffsetX() {
-        return cumulativeWindX;
-    }
+public static double getWindOffsetX() {
+    return cumulativeWindX;
+}
 
-    public static double getWindOffsetY() {
-        return cumulativeWindY;
-    }
+public static double getWindOffsetY() {
+    return cumulativeWindY;
+}
 
-    public static UUID getSubsessionIdentity() {
-        return SUBSESSION_IDENTITY;
-    }
+public static UUID getSubsessionIdentity() {
+    return SUBSESSION_IDENTITY;
 }

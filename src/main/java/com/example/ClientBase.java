@@ -34,7 +34,7 @@ public class ClientBase implements ClientModInitializer {
     public void onInitializeClient() {
         INSTANCE = this;
         this.moduleManager = new ModuleManager();
-        
+
         this.moduleManager.register(new XbowCartModule());
         this.moduleManager.register(new AimAssistModule());
         this.moduleManager.register(new TriggerBotModule());
