@@ -11,7 +11,7 @@
   "environment": "client",
   "entrypoints": {
     "client": [
-      "com.example.PreciseGuiScaleClient"
+      "com.example.ClientBase"
     ]
   },
   "depends": {
