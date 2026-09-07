@@ -31,25 +31,29 @@ public class XbowCart extends ClientBase.Module {
     private static Vec3 vectorHitRegistry = null;
     private static final SafetyWatchdog safetyWatchdog = new SafetyWatchdog();
 
-    private static final Map<String, Object> XBOW_REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, Object> XBOW_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static final Deque<Long> EXECUTION_TIMESTAMP_QUEUE = new ArrayDeque<>();
-    private static final int HISTORY_MAX_LIMIT = 64;
+    private static final int HISTORY_MAX_LIMIT = 128;
     private static long pipelineExecutionCounter = 0L;
     private static boolean strictComplianceFlag = true;
+    private static int maxPipelineRetries = 3;
+    private static int currentRetryAttempt = 0;
 
     public XbowCart() {
         super("XbowCart");
         XbowCart.enabled = false;
-        initializeXbowRegistry();
+        initializeXbowEnterpriseRegistry();
     }
 
-    private static void initializeXbowRegistry() {
-        XBOW_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        XBOW_REGISTRY.put("ModuleState", "HT1-XbowCart-Pipeline-Engine");
-        XBOW_REGISTRY.put("StrictCompliance", strictComplianceFlag);
-        XBOW_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
-        XBOW_REGISTRY.put("ExecutionHistorySize", 0);
+    private static void initializeXbowEnterpriseRegistry() {
+        XBOW_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        XBOW_ENTERPRISE_REGISTRY.put("ModuleState", "HT1-Enterprise-XbowCart-Engine");
+        XBOW_ENTERPRISE_REGISTRY.put("StrictCompliance", strictComplianceFlag);
+        XBOW_ENTERPRISE_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        XBOW_ENTERPRISE_REGISTRY.put("ExecutionHistorySize", 0);
+        XBOW_ENTERPRISE_REGISTRY.put("MaxRetries", maxPipelineRetries);
+        XBOW_ENTERPRISE_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
     }
 
     @Override
@@ -74,9 +78,10 @@ public class XbowCart extends ClientBase.Module {
         vectorReferencePos = null;
         vectorReferenceFace = Direction.UP;
         vectorHitRegistry = null;
+        currentRetryAttempt = 0;
         EXECUTION_TIMESTAMP_QUEUE.clear();
         purgeRegistry();
-        initializeXbowRegistry();
+        initializeXbowEnterpriseRegistry();
     }
 
     @Override
@@ -118,11 +123,15 @@ public class XbowCart extends ClientBase.Module {
                 vectorReferenceFace = hit.getDirection();
                 vectorHitRegistry = hit.getLocation();
                 safetyWatchdog.arm();
+                currentRetryAttempt = 0;
                 currentPhase = PipelinePhase.RAIL_ACTION;
                 break;
             case RAIL_ACTION:
                 int r = locateRailSlot(clientRef);
-                if (r == -1) { purgePipelineRegistry(); return; }
+                if (r == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
                 RotationManager.smoothTo(clientRef, vectorHitRegistry != null ? vectorHitRegistry : Vec3.atCenterOf(vectorReferencePos), 0.99F);
                 InventoryManager.selectSlot(clientRef, r);
                 InteractionManager.simulateClickUse(clientRef);
@@ -130,7 +139,10 @@ public class XbowCart extends ClientBase.Module {
                 break;
             case CART_ACTION:
                 int c = InventoryManager.findItem(clientRef, Items.TNT_MINECART);
-                if (c == -1) { purgePipelineRegistry(); return; }
+                if (c == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
                 BlockPos cartPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
                 RotationManager.smoothTo(clientRef, Vec3.atCenterOf(cartPos), 0.99F);
                 InventoryManager.selectSlot(clientRef, c);
@@ -140,7 +152,10 @@ public class XbowCart extends ClientBase.Module {
             case FLINT_ACTION:
                 int f = InventoryManager.findItem(clientRef, Items.FLINT_AND_STEEL);
                 if (f == -1) f = InventoryManager.findItem(clientRef, Items.FIRE_CHARGE);
-                if (f == -1) { purgePipelineRegistry(); return; }
+                if (f == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
                 BlockPos firePos = vectorReferenceFace == Direction.UP ? vectorReferencePos.relative(clientRef.player.getDirection().getOpposite()) : vectorReferencePos;
                 RotationManager.smoothTo(clientRef, Vec3.atCenterOf(firePos), 0.99F);
                 InventoryManager.selectSlot(clientRef, f);
@@ -149,7 +164,10 @@ public class XbowCart extends ClientBase.Module {
                 break;
             case XBOW_ACTION:
                 int x = InventoryManager.findChargedCrossbow(clientRef);
-                if (x == -1) { purgePipelineRegistry(); return; }
+                if (x == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
                 BlockPos shootPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
                 RotationManager.smoothTo(clientRef, Vec3.atCenterOf(shootPos).add(0.0D, 0.2D, 0.0D), 0.99F);
                 InventoryManager.selectSlot(clientRef, x);
@@ -159,6 +177,16 @@ public class XbowCart extends ClientBase.Module {
             case CLEANUP:
                 purgePipelineRegistry();
                 break;
+        }
+        updateRegistryState();
+    }
+
+    private static void handlePipelineFailure(Minecraft clientRef) {
+        currentRetryAttempt++;
+        if (currentRetryAttempt <= maxPipelineRetries) {
+            actionTickCounter = 2;
+        } else {
+            purgePipelineRegistry();
         }
     }
 
@@ -189,23 +217,24 @@ public class XbowCart extends ClientBase.Module {
     }
 
     private static void updateRegistryState() {
-        XBOW_REGISTRY.put("ExecutionCounter", pipelineExecutionCounter);
-        XBOW_REGISTRY.put("PipelineStage", currentPhase.name());
-        XBOW_REGISTRY.put("HistorySize", EXECUTION_TIMESTAMP_QUEUE.size());
+        XBOW_ENTERPRISE_REGISTRY.put("ExecutionCounter", pipelineExecutionCounter);
+        XBOW_ENTERPRISE_REGISTRY.put("PipelineStage", currentPhase.name());
+        XBOW_ENTERPRISE_REGISTRY.put("HistorySize", EXECUTION_TIMESTAMP_QUEUE.size());
+        XBOW_ENTERPRISE_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
     }
 
     private static void executeSubsystemSanitation() {
         if (pipelineExecutionCounter > 5000000L) {
             pipelineExecutionCounter = 0L;
         }
-        if (XBOW_REGISTRY.size() > 80) {
+        if (XBOW_ENTERPRISE_REGISTRY.size() > 80) {
             purgeRegistry();
-            initializeXbowRegistry();
+            initializeXbowEnterpriseRegistry();
         }
     }
 
     private static void purgeRegistry() {
-        XBOW_REGISTRY.clear();
+        XBOW_ENTERPRISE_REGISTRY.clear();
     }
 
     public static void purgePipelineRegistry() {
@@ -214,10 +243,11 @@ public class XbowCart extends ClientBase.Module {
         vectorReferenceFace = Direction.UP;
         vectorHitRegistry = null;
         actionTickCounter = 0;
+        currentRetryAttempt = 0;
         safetyWatchdog.disarm();
     }
 
-    public static boolean verifyXbowSubsystem() {
+    public static boolean verifyXbowSubsystemHealth() {
         return enabled && SUBSESSION_IDENTITY != null;
     }
 
@@ -227,5 +257,42 @@ public class XbowCart extends ClientBase.Module {
 
     public static PipelinePhase getPipelineStage() {
         return currentPhase;
+    }
+
+    public static void setStrictCompliance(boolean state) {
+        strictComplianceFlag = state;
+        XBOW_ENTERPRISE_REGISTRY.put("StrictCompliance", strictComplianceFlag);
+    }
+
+    public static boolean isStrictComplianceActive() {
+        return strictComplianceFlag;
+    }
+
+    public static void setMaxRetries(int retries) {
+        maxPipelineRetries = Math.max(0, retries);
+        XBOW_ENTERPRISE_REGISTRY.put("MaxRetries", maxPipelineRetries);
+    }
+
+    public static int getMaxRetries() {
+        return maxPipelineRetries;
+    }
+
+    public static void performBaselineCalibration() {
+        strictComplianceFlag = true;
+        maxPipelineRetries = 3;
+        currentRetryAttempt = 0;
+        pipelineExecutionCounter = 0L;
+        EXECUTION_TIMESTAMP_QUEUE.clear();
+    }
+
+    public static void executeExtendedDiagnosticFlush() {
+        executeSubsystemSanitation();
+        if (EXECUTION_TIMESTAMP_QUEUE.size() > HISTORY_MAX_LIMIT) {
+            EXECUTION_TIMESTAMP_QUEUE.clear();
+        }
+    }
+
+    public static UUID getSubsessionIdentity() {
+        return SUBSESSION_IDENTITY;
     }
 }

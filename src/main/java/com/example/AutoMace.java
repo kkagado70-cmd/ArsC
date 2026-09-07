@@ -28,10 +28,10 @@ public class AutoMace extends ClientBase.Module {
     private static KeyMapping toggleKey;
     private static final Random internalRandom = new Random();
 
-    private static final Map<String, Object> MACE_REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, Object> MACE_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static final Deque<Double> FALL_VELOCITY_HISTORY = new ArrayDeque<>();
-    private static final int HISTORY_MAX_CAPACITY = 64;
+    private static final int HISTORY_MAX_CAPACITY = 128;
 
     private static double maxSwingReach = 4.5D;
     private static double maxAimDistance = 20.0D;
@@ -41,21 +41,24 @@ public class AutoMace extends ClientBase.Module {
     private static boolean windChargeBoostDetection = true;
     private static boolean elytraDiveCheck = true;
     private static LivingEntity lockedMaceTarget = null;
+    private static int smashCooldownTracker = 0;
 
     public AutoMace() {
         super("AutoMace");
         AutoMace.enabled = false;
-        initializeMaceRegistry();
+        initializeMaceEnterpriseRegistry();
     }
 
-    private static void initializeMaceRegistry() {
-        MACE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        MACE_REGISTRY.put("ModuleState", "HT1-AutoMace-Smash-Engine");
-        MACE_REGISTRY.put("BypassEngine", "GrimAC-Motion-Sync");
-        MACE_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
-        MACE_REGISTRY.put("BufferFlushCounter", 0);
-        MACE_REGISTRY.put("WindChargeDetection", windChargeBoostDetection);
-        MACE_REGISTRY.put("ElytraDiveCheck", elytraDiveCheck);
+    private static void initializeMaceEnterpriseRegistry() {
+        MACE_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        MACE_ENTERPRISE_REGISTRY.put("ModuleState", "HT1-Enterprise-AutoMace-Smash-Engine");
+        MACE_ENTERPRISE_REGISTRY.put("BypassEngine", "GrimAC-Motion-Sync-Full");
+        MACE_ENTERPRISE_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        MACE_ENTERPRISE_REGISTRY.put("BufferFlushCounter", 0);
+        MACE_ENTERPRISE_REGISTRY.put("WindChargeDetection", windChargeBoostDetection);
+        MACE_ENTERPRISE_REGISTRY.put("ElytraDiveCheck", elytraDiveCheck);
+        MACE_ENTERPRISE_REGISTRY.put("MaxSwingRange", maxSwingReach);
+        MACE_ENTERPRISE_REGISTRY.put("MinFallDistance", minimumFallDistance);
     }
 
     @Override
@@ -67,14 +70,15 @@ public class AutoMace extends ClientBase.Module {
     public void toggle() {
         enabled = !enabled;
         super.enabled = enabled;
-        resetMaceInternalState();
+        resetMaceEnterpriseState();
     }
 
-    private static void resetMaceInternalState() {
+    private static void resetMaceEnterpriseState() {
         lockedMaceTarget = null;
+        smashCooldownTracker = 0;
         FALL_VELOCITY_HISTORY.clear();
-        purgeMaceRegistry();
-        initializeMaceRegistry();
+        purgeRegistry();
+        initializeMaceEnterpriseRegistry();
     }
 
     @Override
@@ -88,6 +92,10 @@ public class AutoMace extends ClientBase.Module {
 
         executionTickCounter++;
         executeSubsystemSanitation();
+
+        if (smashCooldownTracker > 0) {
+            smashCooldownTracker--;
+        }
 
         double currentVerticalVelocity = clientRef.player.getDeltaMovement().y;
         pushFallVelocityHistory(currentVerticalVelocity);
@@ -150,8 +158,9 @@ public class AutoMace extends ClientBase.Module {
                 double distanceToTarget = clientRef.player.distanceTo(target);
                 float attackScale = clientRef.player.getAttackStrengthScale(0.0F);
 
-                if (distanceToTarget <= maxSwingRange && attackScale >= 0.7F) {
+                if (distanceToTarget <= maxSwingRange && attackScale >= 0.7F && smashCooldownTracker == 0) {
                     InteractionManager.simulateClickAttack(clientRef);
+                    smashCooldownTracker = 4 + internalRandom.nextInt(3);
                 }
             }
         }
@@ -165,26 +174,27 @@ public class AutoMace extends ClientBase.Module {
     }
 
     private static void updateRegistryState() {
-        MACE_REGISTRY.put("ExecutionTicks", executionTickCounter);
-        MACE_REGISTRY.put("LockedTargetState", lockedMaceTarget != null);
-        MACE_REGISTRY.put("HistoryQueueSize", FALL_VELOCITY_HISTORY.size());
+        MACE_ENTERPRISE_REGISTRY.put("ExecutionTicks", executionTickCounter);
+        MACE_ENTERPRISE_REGISTRY.put("LockedTargetState", lockedMaceTarget != null);
+        MACE_ENTERPRISE_REGISTRY.put("HistoryQueueSize", FALL_VELOCITY_HISTORY.size());
+        MACE_ENTERPRISE_REGISTRY.put("SmashCooldown", smashCooldownTracker);
     }
 
     private static void executeSubsystemSanitation() {
         if (executionTickCounter > 5000000L) {
             executionTickCounter = 0L;
         }
-        if (MACE_REGISTRY.size() > 80) {
-            purgeMaceRegistry();
-            initializeMaceRegistry();
+        if (MACE_ENTERPRISE_REGISTRY.size() > 80) {
+            purgeRegistry();
+            initializeMaceEnterpriseRegistry();
         }
     }
 
-    private static void purgeMaceRegistry() {
-        MACE_REGISTRY.clear();
+    private static void purgeRegistry() {
+        MACE_ENTERPRISE_REGISTRY.clear();
     }
 
-    public static boolean verifyAutoMaceSubsystem() {
+    public static boolean verifyAutoMaceSubsystemHealth() {
         return enabled && SUBSESSION_IDENTITY != null;
     }
 
@@ -194,6 +204,7 @@ public class AutoMace extends ClientBase.Module {
 
     public static void setMaxSwingRange(double range) {
         maxSwingRange = range;
+        MACE_ENTERPRISE_REGISTRY.put("MaxSwingRange", maxSwingRange);
     }
 
     public static double getMaxSwingRange() {
@@ -202,6 +213,7 @@ public class AutoMace extends ClientBase.Module {
 
     public static void setMinimumFallDistance(double dist) {
         minimumFallDistance = dist;
+        MACE_ENTERPRISE_REGISTRY.put("MinFallDistance", minimumFallDistance);
     }
 
     public static double getMinimumFallDistance() {
@@ -210,10 +222,20 @@ public class AutoMace extends ClientBase.Module {
 
     public static void toggleWindChargeDetection(boolean state) {
         windChargeBoostDetection = state;
+        MACE_ENTERPRISE_REGISTRY.put("WindChargeDetection", windChargeBoostDetection);
+    }
+
+    public static boolean isWindChargeDetectionActive() {
+        return windChargeBoostDetection;
     }
 
     public static void toggleElytraDiveCheck(boolean state) {
         elytraDiveCheck = state;
+        MACE_ENTERPRISE_REGISTRY.put("ElytraDiveCheck", elytraDiveCheck);
+    }
+
+    public static boolean isElytraDiveCheckActive() {
+        return elytraDiveCheck;
     }
 
     public static int getVelocityHistorySize() {
@@ -227,12 +249,19 @@ public class AutoMace extends ClientBase.Module {
         hyperSnapSpeed = 0.99F;
         windChargeBoostDetection = true;
         elytraDiveCheck = true;
+        smashCooldownTracker = 0;
+        executionTickCounter = 0L;
+        FALL_VELOCITY_HISTORY.clear();
     }
 
-    public static void executeExtendedDiagnostic() {
+    public static void executeExtendedDiagnosticFlush() {
         executeSubsystemSanitation();
         if (FALL_VELOCITY_HISTORY.size() > HISTORY_MAX_CAPACITY) {
             FALL_VELOCITY_HISTORY.clear();
         }
+    }
+
+    public static UUID getSubsessionIdentity() {
+        return SUBSESSION_IDENTITY;
     }
 }

@@ -27,6 +27,11 @@ public class PreciseGuiScaleClient implements ClientModInitializer {
                     client.setScreen(null);
                 }
             }
+
+            if (client.player != null && client.level != null) {
+                ClientBase.invokeGlobalTick(client);
+                InteractionManager.update(client);
+            }
         });
     }
 }
