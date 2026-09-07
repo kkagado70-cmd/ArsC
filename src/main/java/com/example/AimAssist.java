@@ -11,7 +11,7 @@ import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 
-import java.util.Random;
+import java.security.SecureRandom;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
@@ -21,7 +21,7 @@ import java.util.Deque;
 public class AimAssist extends ClientBase.Module {
     public static final String FILE_NAME = "AimAssist.java";
     public static boolean enabled = true;
-    private static final Random internalRandom = new Random();
+    private static final SecureRandom secureRandom = new SecureRandom();
     private static Entity lockedTarget = null;
     private static int targetLockTicks = 0;
 
@@ -29,12 +29,13 @@ public class AimAssist extends ClientBase.Module {
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static final Deque<Float> YAW_HISTORY_QUEUE = new ArrayDeque<>();
     private static final Deque<Float> PITCH_HISTORY_QUEUE = new ArrayDeque<>();
-    private static final int HISTORY_CAPACITY = 128;
+    private static final Deque<Double> KINEMATIC_DELTA_DEQUE = new ArrayDeque<>();
+    private static final int HISTORY_CAPACITY = 256;
 
-    private static double kinematicSmoothingRate = 0.22D;
-    private static double stochasticJitterScale = 0.007D;
-    private static float maximumFovAngle = 75.0F;
-    private static double maximumReachBound = 4.0D;
+    private static double kinematicSmoothingRate = 0.14D;
+    private static double stochasticJitterScale = 0.0015D;
+    private static float maximumFovAngle = 95.0F;
+    private static double maximumReachBound = 4.75D;
     private static long globalExecutionCounter = 0L;
     private static boolean windMouseEngineActive = true;
     private static boolean horizontalAxisOnly = false;
@@ -42,6 +43,22 @@ public class AimAssist extends ClientBase.Module {
     private static double cumulativeWindX = 0.0D;
     private static double cumulativeWindY = 0.0D;
     private static int targetSwitchThrottleTicks = 0;
+    private static boolean humanEyeSimulationBypass = true;
+    private static double accelerationInertiaFactor = 0.92D;
+    private static int microCorrectionFrequency = 4;
+    private static boolean adaptiveSmoothingActive = true;
+    private static long subsessionEpochTracker = System.currentTimeMillis();
+    private static double targetPredictionScalar = 1.15D;
+    private static boolean antiHeuristicShieldActive = true;
+    private static int aimbotAnomalyTracker = 0;
+    private static boolean dynamicPitchClamping = true;
+    private static double maxTurnDeltaPerTick = 18.5D;
+    private static boolean stealthProfileMode = true;
+    private static int targetAcquisitionDelayTicks = 2;
+    private static boolean screenShareShieldActive = true;
+    private static double verticalSmoothingMultiplier = 1.2D;
+    private static boolean lineOfSightStrictCheck = true;
+    private static int historicalBufferCursor = 0;
 
     public AimAssist() {
         super("AimAssist");
@@ -51,9 +68,9 @@ public class AimAssist extends ClientBase.Module {
 
     private static void initializeGigachadRegistry() {
         AIM_GIGACHAD_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        AIM_GIGACHAD_REGISTRY.put("Profile", "Vulcan-Grim-Gcd-Bypass-AimAssist");
-        AIM_GIGACHAD_REGISTRY.put("BypassEngine", "Ultimate-AntiCheat-Evading-System");
-        AIM_GIGACHAD_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        AIM_GIGACHAD_REGISTRY.put("Profile", "Silky-Smooth-Bypass-AimAssist-V12");
+        AIM_GIGACHAD_REGISTRY.put("BypassEngine", "Human-Mime-Kinematic-Curve");
+        AIM_GIGACHAD_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
         AIM_GIGACHAD_REGISTRY.put("BufferFlushCounter", 0);
         AIM_GIGACHAD_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
         AIM_GIGACHAD_REGISTRY.put("WindMouseState", windMouseEngineActive);
@@ -63,8 +80,9 @@ public class AimAssist extends ClientBase.Module {
         AIM_GIGACHAD_REGISTRY.put("MaxFov", maximumFovAngle);
         AIM_GIGACHAD_REGISTRY.put("MaxReach", maximumReachBound);
         AIM_GIGACHAD_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
-        AIM_GIGACHAD_REGISTRY.put("ActiveTargetState", false);
-        AIM_GIGACHAD_REGISTRY.put("HistoryBufferSize", 0);
+        AIM_GIGACHAD_REGISTRY.put("HumanEyeBypass", humanEyeSimulationBypass);
+        AIM_GIGACHAD_REGISTRY.put("AntiHeuristicShield", antiHeuristicShieldActive);
+        AIM_GIGACHAD_REGISTRY.put("StealthProfile", stealthProfileMode);
     }
 
     @Override
@@ -85,8 +103,10 @@ public class AimAssist extends ClientBase.Module {
         targetSwitchThrottleTicks = 0;
         cumulativeWindX = 0.0D;
         cumulativeWindY = 0.0D;
+        aimbotAnomalyTracker = 0;
         YAW_HISTORY_QUEUE.clear();
         PITCH_HISTORY_QUEUE.clear();
+        KINEMATIC_DELTA_DEQUE.clear();
         purgeGigachadRegistry();
         initializeGigachadRegistry();
     }
@@ -146,13 +166,13 @@ public class AimAssist extends ClientBase.Module {
         if (lockedTarget != null) {
             if (lockedTarget.isAlive() && clientRef.player.distanceToSqr(lockedTarget) <= (maximumReachBound * maximumReachBound) && computeFovCheck(clientRef, lockedTarget, maximumFovAngle) && verifyLineOfSight(clientRef, lockedTarget)) {
                 targetLockTicks++;
-                if (targetLockTicks < 300) {
+                if (targetLockTicks < 500) {
                     return lockedTarget;
                 }
             }
             lockedTarget = null;
             targetLockTicks = 0;
-            targetSwitchThrottleTicks = 5 + internalRandom.nextInt(5);
+            targetSwitchThrottleTicks = 2 + secureRandom.nextInt(4);
         }
 
         if (targetSwitchThrottleTicks > 0) return null;
@@ -165,7 +185,7 @@ public class AimAssist extends ClientBase.Module {
             if (!player.isAlive() || player.isSpectator() || player.isCreative()) continue;
             double distSqr = clientRef.player.distanceToSqr(player);
             if (distSqr > (maximumReachBound * maximumReachBound)) continue;
-            if (!verifyLineOfSight(clientRef, player)) continue;
+            if (lineOfSightStrictCheck && !verifyLineOfSight(clientRef, player)) continue;
 
             if (distSqr < minDistanceSqr) {
                 minDistanceSqr = distSqr;
@@ -195,7 +215,7 @@ public class AimAssist extends ClientBase.Module {
     }
 
     private static void executeGcdAwareAimPipeline(Minecraft clientRef, Entity target) {
-        Vec3 targetVelocityPrediction = target.getDeltaMovement().scale(1.25D);
+        Vec3 targetVelocityPrediction = target.getDeltaMovement().scale(targetPredictionScalar);
         Vec3 resolvedTargetPos = target.position().add(targetVelocityPrediction);
         
         double deltaX = resolvedTargetPos.x - clientRef.player.getX();
@@ -213,19 +233,19 @@ public class AimAssist extends ClientBase.Module {
         float pitchDifference = calculatedTargetPitch - playerCurrentPitch;
 
         if (windMouseEngineActive) {
-            cumulativeWindX = cumulativeWindX / Math.sqrt(3.0D) + (internalRandom.nextGaussian() * 2.2D) / Math.sqrt(5.0D);
+            cumulativeWindX = cumulativeWindX / Math.sqrt(3.0D) + (secureRandom.nextGaussian() * 1.2D) / Math.sqrt(5.0D);
             if (!horizontalAxisOnly) {
-                cumulativeWindY = cumulativeWindY / Math.sqrt(3.0D) + (internalRandom.nextGaussian() * 2.2D) / Math.sqrt(5.0D);
+                cumulativeWindY = cumulativeWindY / Math.sqrt(3.0D) + (secureRandom.nextGaussian() * 1.2D * verticalSmoothingMultiplier) / Math.sqrt(5.0D);
             }
 
-            float curveStepYaw = (float) (yawDifference / 11.0D + cumulativeWindX * 0.03D);
-            float noiseYaw = (float)(internalRandom.nextGaussian() * stochasticJitterScale);
+            float curveStepYaw = (float) (yawDifference / 16.0D + cumulativeWindX * 0.015D);
+            float noiseYaw = (float)(secureRandom.nextGaussian() * stochasticJitterScale);
             float nextEvaluatedYaw = playerCurrentYaw + curveStepYaw + noiseYaw;
 
             float nextEvaluatedPitch = playerCurrentPitch;
             if (!horizontalAxisOnly) {
-                float curveStepPitch = (float) (pitchDifference / 11.0D + cumulativeWindY * 0.03D);
-                float noisePitch = (float)(internalRandom.nextGaussian() * stochasticJitterScale);
+                float curveStepPitch = (float) (pitchDifference / 16.0D + cumulativeWindY * 0.015D);
+                float noisePitch = (float)(secureRandom.nextGaussian() * stochasticJitterScale);
                 nextEvaluatedPitch = Mth.clamp(playerCurrentPitch + curveStepPitch + noisePitch, -89.0F, 89.0F);
             }
 
@@ -240,13 +260,13 @@ public class AimAssist extends ClientBase.Module {
             }
             applyGcdHardwareTurnSimulation(clientRef, playerCurrentYaw, nextEvaluatedYaw, horizontalAxisOnly ? 0.0D : (nextEvaluatedPitch - playerCurrentPitch));
         } else {
-            float dynamicSmooth = (float)(kinematicSmoothingRate + (internalRandom.nextGaussian() * 0.02D));
-            dynamicSmooth = Mth.clamp(dynamicSmooth, 0.10f, 0.42f);
+            float dynamicSmooth = (float)(kinematicSmoothingRate + (secureRandom.nextGaussian() * 0.008D));
+            dynamicSmooth = Mth.clamp(dynamicSmooth, 0.06f, 0.30f);
 
-            float nextEvaluatedYaw = playerCurrentYaw + yawDifference * dynamicSmooth + (float)(internalRandom.nextGaussian() * stochasticJitterScale);
+            float nextEvaluatedYaw = playerCurrentYaw + yawDifference * dynamicSmooth + (float)(secureRandom.nextGaussian() * stochasticJitterScale);
             float nextEvaluatedPitch = playerCurrentPitch;
             if (!horizontalAxisOnly) {
-                float nextEvaluatedPitchComputed = Mth.clamp(playerCurrentPitch + pitchDifference * dynamicSmooth + (float)(internalRandom.nextGaussian() * stochasticJitterScale), -89.0F, 89.0F);
+                float nextEvaluatedPitchComputed = Mth.clamp(playerCurrentPitch + pitchDifference * dynamicSmooth * (float)verticalSmoothingMultiplier + (float)(secureRandom.nextGaussian() * stochasticJitterScale), -89.0F, 89.0F);
                 nextEvaluatedPitch = nextEvaluatedPitchComputed;
             }
 
@@ -303,13 +323,14 @@ public class AimAssist extends ClientBase.Module {
         AIM_GIGACHAD_REGISTRY.put("ActiveLockState", lockedTarget != null);
         AIM_GIGACHAD_REGISTRY.put("WindOffset", cumulativeWindX);
         AIM_GIGACHAD_REGISTRY.put("HistoryQueueSize", YAW_HISTORY_QUEUE.size());
+        AIM_GIGACHAD_REGISTRY.put("AnomalyCount", aimbotAnomalyTracker);
     }
 
     private static void executeSubsystemDiagnostics() {
-        if (globalExecutionCounter > 10000000L) {
+        if (globalExecutionCounter > 20000000L) {
             globalExecutionCounter = 0L;
         }
-        if (AIM_GIGACHAD_REGISTRY.size() > 90) {
+        if (AIM_GIGACHAD_REGISTRY.size() > 180) {
             purgeGigachadRegistry();
             initializeGigachadRegistry();
         }
@@ -364,15 +385,16 @@ public class AimAssist extends ClientBase.Module {
     }
 
     public static void runBaselineCalibration() {
-        kinematicSmoothingRate = 0.22D;
-        stochasticJitterScale = 0.007D;
-        maximumFovAngle = 75.0F;
-        maximumReachBound = 4.0D;
+        kinematicSmoothingRate = 0.14D;
+        stochasticJitterScale = 0.0015D;
+        maximumFovAngle = 95.0F;
+        maximumReachBound = 4.75D;
         windMouseEngineActive = true;
         horizontalAxisOnly = false;
         gcdCorrectionActive = true;
         cumulativeWindX = 0.0D;
         cumulativeWindY = 0.0D;
+        aimbotAnomalyTracker = 0;
     }
 
     public static void executeExtendedDiagnosticFlush() {
@@ -382,6 +404,9 @@ public class AimAssist extends ClientBase.Module {
         }
         if (PITCH_HISTORY_QUEUE.size() > HISTORY_CAPACITY) {
             PITCH_HISTORY_QUEUE.clear();
+        }
+        if (KINEMATIC_DELTA_DEQUE.size() > HISTORY_CAPACITY) {
+            KINEMATIC_DELTA_DEQUE.clear();
         }
     }
 

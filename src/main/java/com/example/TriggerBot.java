@@ -11,25 +11,45 @@ import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
-import java.util.Random;
+import java.security.SecureRandom;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 public class TriggerBot extends ClientBase.Module {
     public static final String FILE_NAME = "TriggerBot.java";
     public static boolean enabled = true;
     public static boolean consistentCritsEnabled = true;
-    private static final Random internalRandom = new Random();
+    private static final SecureRandom secureRandom = new SecureRandom();
 
     private static int attackReleaseTracker = 0;
     private static int reactionCountdownTicks = 0;
     private static int comboBufferTicks = 0;
-    private static final double MAX_MELEE_REACH_SQR = 9.0D;
+    private static final double MAX_MELEE_REACH_SQR = 16.0D;
 
     private static final Map<String, Object> TRIGGER_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_UUID = UUID.randomUUID();
+    private static final Deque<Long> ATTACK_INTERVAL_HISTORY = new ArrayDeque<>();
+    private static final int HISTORY_CAPACITY = 256;
+
     private static long totalTriggersFired = 0L;
+    private static boolean adaptiveCritSyncActive = true;
+    private static double attackStrengthThresholdNormal = 0.82D;
+    private static double attackStrengthThresholdCombo = 0.55D;
+    private static boolean humanReactionStochasticity = true;
+    private static long subsessionEpochTracker = System.currentTimeMillis();
+    private static boolean antiReplayShieldActive = true;
+    private static int triggerAnomalyCounter = 0;
+    private static boolean stealthProfileMode = true;
+    private static int minReactionDelayTicks = 1;
+    private static int maxReactionDelayTicks = 3;
+    private static boolean packetOrderStrictSync = true;
+    private static double verticalFallingTolerance = -0.04D;
+    private static boolean lineOfSightValidation = true;
+    private static int sessionAttackCounter = 0;
+    private static boolean dynamicThresholdAdjustment = true;
 
     static {
         initializeTriggerRegistry();
@@ -37,10 +57,13 @@ public class TriggerBot extends ClientBase.Module {
 
     private static void initializeTriggerRegistry() {
         TRIGGER_REGISTRY.put("SubsessionUUID", SUBSESSION_UUID);
-        TRIGGER_REGISTRY.put("Profile", "HT1-Enterprise-TriggerBot");
-        TRIGGER_REGISTRY.put("BypassEngine", "Crit-Sync-Attack-Interval");
-        TRIGGER_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        TRIGGER_REGISTRY.put("Profile", "HT1-Enterprise-TriggerBot-V12");
+        TRIGGER_REGISTRY.put("BypassEngine", "Crit-Sync-Attack-Interval-Stochastic");
+        TRIGGER_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
         TRIGGER_REGISTRY.put("TotalFires", totalTriggersFired);
+        TRIGGER_REGISTRY.put("AdaptiveCritSync", adaptiveCritSyncActive);
+        TRIGGER_REGISTRY.put("AntiReplayShield", antiReplayShieldActive);
+        TRIGGER_REGISTRY.put("StealthProfile", stealthProfileMode);
     }
 
     public TriggerBot() {
@@ -96,7 +119,7 @@ public class TriggerBot extends ClientBase.Module {
         }
 
         if (clientRef.player.hurtTime > 0) {
-            comboBufferTicks = 12;
+            comboBufferTicks = 15;
         } else if (comboBufferTicks > 0) {
             comboBufferTicks--;
         }
@@ -107,7 +130,7 @@ public class TriggerBot extends ClientBase.Module {
             if (hit instanceof EntityHitResult entityHit && entityHit.getEntity() instanceof LivingEntity living) {
                 if (living.isAlive() && living != clientRef.player) {
                     if (!(living instanceof Player player && (player.isSpectator() || player.isCreative()))) {
-                        if (clientRef.player.distanceToSqr(living) <= MAX_MELEE_REACH_SQR && hasLineOfSight(clientRef, living)) {
+                        if (clientRef.player.distanceToSqr(living) <= MAX_MELEE_REACH_SQR && (!lineOfSightValidation || hasLineOfSight(clientRef, living))) {
                             shouldAttack = true;
                         }
                     }
@@ -119,7 +142,7 @@ public class TriggerBot extends ClientBase.Module {
             for (Player player : clientRef.level.players()) {
                 if (player == clientRef.player) continue;
                 if (!player.isAlive() || player.isSpectator() || player.isCreative()) continue;
-                if (clientRef.player.distanceToSqr(player) <= MAX_MELEE_REACH_SQR && hasLineOfSight(clientRef, player)) {
+                if (clientRef.player.distanceToSqr(player) <= MAX_MELEE_REACH_SQR && (!lineOfSightValidation || hasLineOfSight(clientRef, player))) {
                     shouldAttack = true;
                     break;
                 }
@@ -133,19 +156,21 @@ public class TriggerBot extends ClientBase.Module {
             }
 
             if (consistentCritsEnabled && !clientRef.player.onGround()) {
-                boolean isFalling = clientRef.player.getDeltaMovement().y < -0.05D;
+                boolean isFalling = clientRef.player.getDeltaMovement().y < verticalFallingTolerance;
                 if (!isFalling && comboBufferTicks == 0) {
                     return;
                 }
             }
 
-            float threshold = comboBufferTicks > 0 ? 0.60F : 0.85F;
-            if (clientRef.player.getAttackStrengthScale(0.0F) >= threshold) {
+            double activeThreshold = comboBufferTicks > 0 ? attackStrengthThresholdCombo : attackStrengthThresholdNormal;
+            if (clientRef.player.getAttackStrengthScale(0.0F) >= activeThreshold) {
                 if (attackReleaseTracker == 0) {
                     totalTriggersFired++;
+                    sessionAttackCounter++;
+                    pushAttackInterval(System.currentTimeMillis());
                     InteractionManager.simulateClickAttack(clientRef);
-                    attackReleaseTracker = 1 + internalRandom.nextInt(2);
-                    reactionCountdownTicks = 1 + internalRandom.nextInt(2);
+                    attackReleaseTracker = minReactionDelayTicks + secureRandom.nextInt(maxReactionDelayTicks);
+                    reactionCountdownTicks = minReactionDelayTicks + secureRandom.nextInt(maxReactionDelayTicks);
                 }
             }
         } else {
@@ -156,8 +181,17 @@ public class TriggerBot extends ClientBase.Module {
         updateRegistryState();
     }
 
+    private static void pushAttackInterval(long timestamp) {
+        if (ATTACK_INTERVAL_HISTORY.size() >= HISTORY_CAPACITY) {
+            ATTACK_INTERVAL_HISTORY.pollFirst();
+        }
+        ATTACK_INTERVAL_HISTORY.offerLast(timestamp);
+    }
+
     private static void updateRegistryState() {
         TRIGGER_REGISTRY.put("TotalFires", totalTriggersFired);
+        TRIGGER_REGISTRY.put("SessionFires", sessionAttackCounter);
+        TRIGGER_REGISTRY.put("HistoryQueueSize", ATTACK_INTERVAL_HISTORY.size());
     }
 
     public static UUID getSubsessionIdentity() {
@@ -166,5 +200,25 @@ public class TriggerBot extends ClientBase.Module {
 
     public static long getTotalTriggersFired() {
         return totalTriggersFired;
+    }
+
+    public static void performBaselineCalibration() {
+        totalTriggersFired = 0L;
+        sessionAttackCounter = 0;
+        attackReleaseTracker = 0;
+        reactionCountdownTicks = 0;
+        comboBufferTicks = 0;
+        triggerAnomalyCounter = 0;
+        ATTACK_INTERVAL_HISTORY.clear();
+    }
+
+    public static void executeExtendedDiagnosticFlush() {
+        if (ATTACK_INTERVAL_HISTORY.size() > HISTORY_CAPACITY) {
+            ATTACK_INTERVAL_HISTORY.clear();
+        }
+        if (TRIGGER_REGISTRY.size() > 120) {
+            TRIGGER_REGISTRY.clear();
+            initializeTriggerRegistry();
+        }
     }
 }
