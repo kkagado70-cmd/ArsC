@@ -24,15 +24,10 @@ public class ClientBase implements ClientModInitializer {
     private static boolean diagnosticModeActive = false;
 
     static {
-        initializeBaseRegistry();
-    }
-
-    private static void initializeBaseRegistry() {
         globalInitializationTimestamp = System.currentTimeMillis();
         BASE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
         BASE_REGISTRY.put("Architecture", "Fabric-1.21.11-Mojmap");
         BASE_REGISTRY.put("InitializationEpoch", globalInitializationTimestamp);
-        BASE_REGISTRY.put("DiagnosticState", diagnosticModeActive);
     }
 
     @Override
