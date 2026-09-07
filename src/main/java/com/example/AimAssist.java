@@ -4,7 +4,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.ClipContext;
@@ -77,6 +76,10 @@ public class AimAssist extends ClientBase.Module {
     private static boolean selfOptimizationActive = true;
     private static double temporalEntropyValue = 0.01D;
     private static boolean antiPatternEntropy = true;
+    private static double dynamicChestOffsetX = 0.0D;
+    private static double dynamicChestOffsetY = 0.45D;
+    private static double dynamicChestOffsetZ = 0.0D;
+    private static int offsetUpdateTimer = 0;
 
     static {
         initializeAimEnterpriseRegistry();
@@ -85,7 +88,7 @@ public class AimAssist extends ClientBase.Module {
     private static void initializeAimEnterpriseRegistry() {
         AIM_GIGACHAD_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
         AIM_GIGACHAD_REGISTRY.put("Profile", "Swight-Tier1-AimAssist-FullEnterprise");
-        AIM_GIGACHAD_REGISTRY.put("BypassEngine", "Human-Mime-Kinematic-Curve");
+        AIM_GIGACHAD_REGISTRY.put("BypassEngine", "Human-Mime-Fuzzy-Chest");
         AIM_GIGACHAD_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
         AIM_GIGACHAD_REGISTRY.put("BufferFlushCounter", 0);
         AIM_GIGACHAD_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
@@ -127,6 +130,10 @@ public class AimAssist extends ClientBase.Module {
         cumulativeWindY = 0.0D;
         aimbotAnomalyTracker = 0;
         autoCalibrationCounter = 0;
+        offsetUpdateTimer = 0;
+        dynamicChestOffsetX = 0.0D;
+        dynamicChestOffsetY = 0.45D;
+        dynamicChestOffsetZ = 0.0D;
         YAW_HISTORY_QUEUE.clear();
         PITCH_HISTORY_QUEUE.clear();
         VELOCITY_VECTOR_DEQUE.clear();
@@ -144,14 +151,6 @@ public class AimAssist extends ClientBase.Module {
         onTick(clientRef);
     }
 
-    private static boolean validateWeaponContext(Minecraft clientRef) {
-        if (clientRef.player == null) return false;
-        ItemStack stack = clientRef.player.getMainHandItem();
-        if (stack.isEmpty()) return false;
-        String name = stack.getItem().getDescriptionId().toLowerCase();
-        return name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace");
-    }
-
     private static boolean verifyLineOfSight(Minecraft clientRef, Entity target) {
         if (clientRef.player == null || target == null) return false;
         Vec3 start = clientRef.player.getEyePosition();
@@ -163,10 +162,6 @@ public class AimAssist extends ClientBase.Module {
     public static void onTick(Minecraft clientRef) {
         if (!enabled || clientRef.player == null || clientRef.level == null) return;
         if (!clientRef.player.isAlive()) return;
-        if (!validateWeaponContext(clientRef)) {
-            hardResetAimSubsystem();
-            return;
-        }
 
         globalExecutionCounter++;
         saccadeTickCounter++;
@@ -247,9 +242,21 @@ public class AimAssist extends ClientBase.Module {
     }
 
     private static void executeGcdAwareAimPipeline(Minecraft clientRef, Entity target) {
+        offsetUpdateTimer++;
+        if (offsetUpdateTimer >= 15) {
+            offsetUpdateTimer = 0;
+            dynamicChestOffsetX = (secureRandom.nextDouble() - 0.5) * 0.25D;
+            dynamicChestOffsetY = 0.35D + secureRandom.nextDouble() * 0.2D;
+            dynamicChestOffsetZ = (secureRandom.nextDouble() - 0.5) * 0.25D;
+        }
+
         Vec3 playerVelocityVector = clientRef.player.getDeltaMovement().scale(selfVelocityDampener);
         Vec3 targetVelocityPrediction = target.getDeltaMovement().scale(targetPredictionScalar).subtract(playerVelocityVector);
-        Vec3 resolvedTargetPos = target.position().add(0.0D, target.getBbHeight() * 0.45D, 0.0D).add(targetVelocityPrediction);
+        Vec3 resolvedTargetPos = target.position().add(
+                dynamicChestOffsetX,
+                target.getBbHeight() * dynamicChestOffsetY,
+                dynamicChestOffsetZ
+        ).add(targetVelocityPrediction);
         
         double deltaX = resolvedTargetPos.x - clientRef.player.getX();
         double deltaY = resolvedTargetPos.y - clientRef.player.getEyeY();
@@ -450,9 +457,9 @@ public class AimAssist extends ClientBase.Module {
         aimbotAnomalyTracker = 0;
     }
 
-        public static void executeExtendedDiagnosticFlush() {
+    public static void executeExtendedDiagnosticFlush() {
         executeSubsystemDiagnostics();
-        if (YAW_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
+        if (YAW_HISTORY_QUEUE_QUEUE.size() > HISTORY_MAX_CAPACITY) {
             YAW_HISTORY_QUEUE.clear();
         }
         if (PITCH_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
@@ -464,5 +471,17 @@ public class AimAssist extends ClientBase.Module {
         if (TIMING_LATENCY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
             TIMING_LATENCY_QUEUE.clear();
         }
+    }
+
+    public static double getWindOffsetX() {
+        return cumulativeWindX;
+    }
+
+    public static double getWindOffsetY() {
+        return cumulativeWindY;
+    }
+
+    public static UUID getSubsessionIdentity() {
+        return SUBSESSION_IDENTITY;
     }
 }

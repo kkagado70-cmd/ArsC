@@ -29,12 +29,12 @@ public class TriggerBot extends ClientBase.Module {
     private static int comboBufferTicks = 0;
     private static final double MAX_MELEE_REACH_SQR = 16.0D;
 
-    private static final Map<String, Object> TRIGGER_REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, Object> TRIGGER_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_UUID = UUID.randomUUID();
     private static final Deque<Long> ATTACK_INTERVAL_HISTORY = new ArrayDeque<>();
     private static final Deque<Integer> CLICK_DURATION_MEMORY = new ArrayDeque<>();
     private static final Deque<Double> ERROR_VECTOR_MEMORY = new ArrayDeque<>();
-    private static final int HISTORY_MAX_CAPACITY = 1024;
+    private static final int HISTORY_MAX_CAPACITY = 2048;
 
     private static long totalTriggersFired = 0L;
     private static boolean adaptiveCritSyncActive = true;
@@ -68,13 +68,13 @@ public class TriggerBot extends ClientBase.Module {
     }
 
     private static void initializeTriggerRegistry() {
-        TRIGGER_REGISTRY.put("SubsessionUUID", SUBSESSION_UUID);
-        TRIGGER_REGISTRY.put("Profile", "Swight-Tier1-TriggerBot-FullEnterprise");
-        TRIGGER_REGISTRY.put("BypassEngine", "Crit-Sync-Attack-Interval-Stochastic");
-        TRIGGER_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
-        TRIGGER_REGISTRY.put("TotalFires", totalTriggersFired);
-        TRIGGER_REGISTRY.put("AdaptiveCritSync", adaptiveCritSyncActive);
-        TRIGGER_REGISTRY.put("CombatSync", combatSyncEnabled);
+        TRIGGER_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_UUID);
+        TRIGGER_ENTERPRISE_REGISTRY.put("Profile", "Swight-Tier1-TriggerBot-FullEnterprise");
+        TRIGGER_ENTERPRISE_REGISTRY.put("BypassEngine", "Crit-Sync-Attack-Interval-Stochastic");
+        TRIGGER_ENTERPRISE_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
+        TRIGGER_ENTERPRISE_REGISTRY.put("TotalFires", totalTriggersFired);
+        TRIGGER_ENTERPRISE_REGISTRY.put("AdaptiveCritSync", adaptiveCritSyncActive);
+        TRIGGER_ENTERPRISE_REGISTRY.put("CombatSync", combatSyncEnabled);
     }
 
     public TriggerBot() {
@@ -220,17 +220,17 @@ public class TriggerBot extends ClientBase.Module {
     }
 
     private static void updateRegistryState() {
-        TRIGGER_REGISTRY.put("TotalFires", totalTriggersFired);
-        TRIGGER_REGISTRY.put("SessionFires", sessionAttackCounter);
-        TRIGGER_REGISTRY.put("FatigueLevel", currentFatigueLevel);
+        TRIGGER_ENTERPRISE_REGISTRY.put("TotalFires", totalTriggersFired);
+        TRIGGER_ENTERPRISE_REGISTRY.put("SessionFires", sessionAttackCounter);
+        TRIGGER_ENTERPRISE_REGISTRY.put("FatigueLevel", currentFatigueLevel);
     }
 
     private static void executeSubsystemSanitation() {
         if (totalTriggersFired > 50000000L) {
             totalTriggersFired = 0L;
         }
-        if (TRIGGER_REGISTRY.size() > 150) {
-            TRIGGER_REGISTRY.clear();
+        if (TRIGGER_ENTERPRISE_REGISTRY.size() > 150) {
+            TRIGGER_ENTERPRISE_REGISTRY.clear();
             initializeTriggerRegistry();
         }
     }

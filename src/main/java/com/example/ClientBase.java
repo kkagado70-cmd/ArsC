@@ -93,17 +93,17 @@ public class ClientBase implements ClientModInitializer {
         }
 
         public boolean isEnabled() {
-            return this.enabled;
+            return enabled;
         }
 
         public void toggle() {
-            this.enabled = !this.enabled;
+            enabled = !enabled;
         }
 
         public abstract void tick(Minecraft client);
 
         public void executeTickWrapper(Minecraft client) {
-            if (this.enabled) {
+            if (enabled) {
                 tick(client);
             }
         }
@@ -132,122 +132,62 @@ public class ClientBase implements ClientModInitializer {
     }
 
     public static class XbowCartModule extends Module {
-        private final XbowCart instance;
-
         public XbowCartModule() {
             super("XbowCart");
-            this.instance = new XbowCart();
-            this.enabled = XbowCart.enabled;
-        }
-
-        @Override
-        public void toggle() {
-            super.toggle();
-            XbowCart.enabled = this.enabled;
+            this.enabled = false;
         }
 
         @Override
         public void tick(Minecraft client) {
-            this.enabled = XbowCart.enabled;
-            if (this.enabled) {
-                instance.tick(client);
-            }
+            XbowCart.onTick(client);
         }
     }
 
     public static class AimAssistModule extends Module {
-        private final AimAssist instance;
-
         public AimAssistModule() {
             super("AimAssist");
-            this.instance = new AimAssist();
-            this.enabled = AimAssist.enabled;
-        }
-
-        @Override
-        public void toggle() {
-            super.toggle();
-            AimAssist.enabled = this.enabled;
+            this.enabled = true;
         }
 
         @Override
         public void tick(Minecraft client) {
-            this.enabled = AimAssist.enabled;
-            if (this.enabled) {
-                instance.tick(client);
-            }
+            AimAssist.onTick(client);
         }
     }
 
     public static class TriggerBotModule extends Module {
-        private final TriggerBot instance;
-
         public TriggerBotModule() {
             super("TriggerBot");
-            this.instance = new TriggerBot();
-            this.enabled = TriggerBot.enabled;
-        }
-
-        @Override
-        public void toggle() {
-            super.toggle();
-            TriggerBot.enabled = this.enabled;
+            this.enabled = true;
         }
 
         @Override
         public void tick(Minecraft client) {
-            this.enabled = TriggerBot.enabled;
-            if (this.enabled) {
-                instance.tick(client);
-            }
+            TriggerBot.onTick(client);
         }
     }
 
     public static class ShieldBreakerModule extends Module {
-        private final ShieldBreaker instance;
-
         public ShieldBreakerModule() {
             super("ShieldBreaker");
-            this.instance = new ShieldBreaker();
-            this.enabled = ShieldBreaker.enabled;
-        }
-
-        @Override
-        public void toggle() {
-            super.toggle();
-            ShieldBreaker.enabled = this.enabled;
+            this.enabled = true;
         }
 
         @Override
         public void tick(Minecraft client) {
-            this.enabled = ShieldBreaker.enabled;
-            if (this.enabled) {
-                instance.tick(client);
-            }
+            ShieldBreaker.onTick(client);
         }
     }
 
     public static class AutoMaceModule extends Module {
-        private final AutoMace instance;
-
         public AutoMaceModule() {
             super("AutoMace");
-            this.instance = new AutoMace();
-            this.enabled = AutoMace.enabled;
-        }
-
-        @Override
-        public void toggle() {
-            super.toggle();
-            AutoMace.enabled = this.enabled;
+            this.enabled = false;
         }
 
         @Override
         public void tick(Minecraft client) {
-            this.enabled = AutoMace.enabled;
-            if (this.enabled) {
-                instance.tick(client);
-            }
+            AutoMace.onTick(client);
         }
     }
 
