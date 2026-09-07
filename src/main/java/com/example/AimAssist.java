@@ -47,7 +47,7 @@ public class AimAssist extends ClientBase.Module {
     private static double maximumReachBound = 4.5D;   // Aim Range padrão (expande para 7.0 em condições)
     private static long globalExecutionCounter = 0L;
     private static boolean windMouseEngineActive = true;
-    privatef static boolean horizontalAxisOnly = false;
+    private static boolean horizontalAxisOnly = false;
     private static boolean gcdCorrectionActive = true;
     private static double cumulativeWindX = 0.0D;
     private static double cumulativeWindY = 0.0D;
