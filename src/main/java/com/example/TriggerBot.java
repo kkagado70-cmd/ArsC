@@ -32,6 +32,8 @@ public class TriggerBot extends ClientBase.Module {
     private static final Map<String, Object> TRIGGER_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_UUID = UUID.randomUUID();
     private static final Deque<Long> ATTACK_INTERVAL_HISTORY = new ArrayDeque<>();
+    private static final Deque<Integer> CLICK_DURATION_MEMORY = new ArrayDeque<>();
+    private static final Deque<Double> ERROR_VECTOR_MEMORY = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 1024;
 
     private static long totalTriggersFired = 0L;
@@ -156,10 +158,10 @@ public class TriggerBot extends ClientBase.Module {
         }
 
         if (!shouldAttack) {
-            for (Player player : clientRef.level.players()) {
-                if (player == clientRef.player) continue;
-                if (!player.isAlive() || player.isSpectator() || player.isCreative()) continue;
-                if (clientRef.player.distanceToSqr(player) <= MAX_MELEE_REACH_SQR && (!lineOfSightValidation || hasLineOfSight(clientRef, player))) {
+            for (Entity entity : clientRef.level.entitiesForRendering()) {
+                if (!(entity instanceof LivingEntity living) || living == clientRef.player || !living.isAlive()) continue;
+                if (living instanceof Player player && (player.isSpectator() || player.isCreative())) continue;
+                if (clientRef.player.distanceToSqr(living) <= MAX_MELEE_REACH_SQR && (!lineOfSightValidation || hasLineOfSight(clientRef, living))) {
                     shouldAttack = true;
                     break;
                 }
