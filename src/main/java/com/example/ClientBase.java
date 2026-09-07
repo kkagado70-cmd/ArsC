@@ -18,7 +18,7 @@ public class ClientBase implements ClientModInitializer {
     private static ClientBase INSTANCE;
     private ModuleManager moduleManager;
     private static KeyMapping guiKeyBinding;
-    private static final Map<String, Object> BASE_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, Object> BASE_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static long globalInitializationTimestamp = 0L;
     private static boolean diagnosticModeActive = false;
@@ -29,10 +29,10 @@ public class ClientBase implements ClientModInitializer {
 
     private static void initializeBaseRegistry() {
         globalInitializationTimestamp = System.currentTimeMillis();
-        BASE_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        BASE_ENTERPRISE_REGISTRY.put("Architecture", "Fabric-1.21.11-Mojmap");
-        BASE_ENTERPRISE_REGISTRY.put("InitializationEpoch", globalInitializationTimestamp);
-        BASE_ENTERPRISE_REGISTRY.put("DiagnosticState", diagnosticModeActive);
+        BASE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        BASE_REGISTRY.put("Architecture", "Fabric-1.21.11-Mojmap");
+        BASE_REGISTRY.put("InitializationEpoch", globalInitializationTimestamp);
+        BASE_REGISTRY.put("DiagnosticState", diagnosticModeActive);
     }
 
     @Override
@@ -206,6 +206,6 @@ public class ClientBase implements ClientModInitializer {
 
     public static void setDiagnosticMode(boolean state) {
         diagnosticModeActive = state;
-        BASE_ENTERPRISE_REGISTRY.put("DiagnosticState", diagnosticModeActive);
+        BASE_REGISTRY.put("DiagnosticState", diagnosticModeActive);
     }
 }

@@ -19,179 +19,79 @@ public class RotationManager {
     private static boolean active = false;
 
     private static final Map<String, Object> ROTATION_REGISTRY = new ConcurrentHashMap<>();
-    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
-    private static final Deque<Float> ROTATION_YAW_QUEUE = new ArrayDeque<>();
-    private static final Deque<Float> ROTATION_PITCH_QUEUE = new ArrayDeque<>();
-    private static final int HISTORY_CAPACITY = 128;
+    private static final UUID SUBSESSION_ID = UUID.randomUUID();
+    private static final Deque<Float> YAW_QUEUE = new ArrayDeque<>();
+    private static final Deque<Float> PITCH_QUEUE = new ArrayDeque<>();
+    private static final int HISTORY_CAP = 512;
 
-    private static long totalRotationsExecuted = 0L;
-    private static double rotationalJitterScale = 0.02D;
-    private static boolean hardwareSimulationBypass = true;
-    private static float maximumAllowedPitch = 90.0F;
-    private static float minimumAllowedPitch = -90.0F;
+    private static long totalRotations = 0L;
+    private static double deadzoneThreshold = 0.005D;
+    private static double rotationalJitter = 0.008D;
+    private static boolean hardwareBypass = true;
+    private static float maxPitch = 90.0F;
+    private static float minPitch = -90.0F;
+    private static boolean easingCurveActive = true;
 
     static {
-        initializeRotationRegistry();
-    }
-
-    private static void initializeRotationRegistry() {
-        ROTATION_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        ROTATION_REGISTRY.put("Profile", "HT1-Enterprise-RotationManager");
-        ROTATION_REGISTRY.put("BypassEngine", "GCD-Aware-Kinematic-Turn");
-        ROTATION_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
-        ROTATION_REGISTRY.put("TotalRotations", totalRotationsExecuted);
-        ROTATION_REGISTRY.put("HardwareBypassActive", hardwareSimulationBypass);
+        ROTATION_REGISTRY.put("SubsessionUUID", SUBSESSION_ID);
+        ROTATION_REGISTRY.put("Profile", "Enterprise-RotationManager");
     }
 
     public static void smoothTo(Minecraft client, Vec3 target, float factor) {
         if (client.player == null || target == null) return;
-        totalRotationsExecuted++;
-        updateRegistryMetrics();
+        totalRotations++;
 
         double diffX = target.x - client.player.getX();
         double diffY = target.y - client.player.getEyeY();
         double diffZ = target.z - client.player.getZ();
-        double horizontalDistance = Math.sqrt(diffX * diffX + diffZ * diffZ);
+        double hDist = Math.sqrt(diffX * diffX + diffZ * diffZ);
 
-        float calculatedYaw = (float) (Math.toDegrees(Math.atan2(diffZ, diffX)) - 90.0D);
-        float calculatedPitch = (float) (-Math.toDegrees(Math.atan2(diffY, horizontalDistance)));
+        float calcYaw = (float) (Math.toDegrees(Math.atan2(diffZ, diffX)) - 90.0D);
+        float calcPitch = (float) (-Math.toDegrees(Math.atan2(diffY, hDist)));
 
-        float noiseYaw = (float)((secureRandom.nextDouble() - 0.5) * rotationalJitterScale);
-        float noisePitch = (float)((secureRandom.nextDouble() - 0.5) * rotationalJitterScale);
+        if (Math.abs(calcYaw - currentYaw) < deadzoneThreshold && Math.abs(calcPitch - currentPitch) < deadzoneThreshold) {
+            if (totalRotations % 8 == 0) {
+                currentYaw += (float)((secureRandom.nextDouble() - 0.5) * 0.012D);
+                currentPitch += (float)((secureRandom.nextDouble() - 0.5) * 0.012D);
+            }
+            return;
+        }
 
-        float targetYaw = currentYaw + Mth.wrapDegrees((calculatedYaw + noiseYaw) - currentYaw);
-        float targetPitch = Mth.clamp(calculatedPitch + noisePitch, minimumAllowedPitch, maximumAllowedPitch);
+        calcYaw += (float)((secureRandom.nextGaussian() * rotationalJitter) + ((secureRandom.nextDouble() - 0.5) * 0.003D));
+        calcPitch += (float)((secureRandom.nextGaussian() * rotationalJitter) + ((secureRandom.nextDouble() - 0.5) * 0.003D));
 
-        float smooth = Mth.clamp(factor + (float)((secureRandom.nextDouble() - 0.5) * 0.02D), 0.1f, 0.95f);
-        currentYaw = currentYaw + (targetYaw - currentYaw) * smooth;
-        currentPitch = currentPitch + (targetPitch - currentPitch) * smooth;
+        float targetYaw = currentYaw + Mth.wrapDegrees(calcYaw - currentYaw);
+        float targetPitch = Mth.clamp(calcPitch, minPitch, maxPitch);
 
-        pushRotationHistory(currentYaw, currentPitch);
+        if (easingCurveActive) {
+            float easingProgress = Mth.clamp(factor + (float)((secureRandom.nextDouble() - 0.5) * 0.02D), 0.05f, 0.96f);
+            currentYaw = currentYaw + (targetYaw - currentYaw) * easingProgress;
+            currentPitch = currentPitch + (targetPitch - currentPitch) * easingProgress;
+        } else {
+            currentYaw = targetYaw;
+            currentPitch = targetPitch;
+        }
+
+        if (YAW_QUEUE.size() >= HISTORY_CAP) YAW_QUEUE.pollFirst();
+        YAW_QUEUE.offerLast(currentYaw);
+        if (PITCH_QUEUE.size() >= HISTORY_CAP) PITCH_QUEUE.pollFirst();
+        PITCH_QUEUE.offerLast(currentPitch);
 
         client.player.setYRot(currentYaw);
         client.player.setXRot(currentPitch);
 
-        if (hardwareSimulationBypass && client.options != null) {
-            double sensitivity = client.options.sensitivity().get() * 0.6D + 0.2D;
-            double gcd = sensitivity * sensitivity * sensitivity * 8.0D;
+        if (hardwareBypass && client.options != null) {
+            double sens = client.options.sensitivity().get() * 0.6D + 0.2D;
+            double gcd = sens * sens * sens * 8.0D;
             if (gcd > 0.0D) {
-                double deltaYaw = (currentYaw - client.player.getYRot());
-                double deltaPitch = (currentPitch - client.player.getXRot());
-                client.player.turn(deltaYaw / (gcd * 0.15D), deltaPitch / (gcd * 0.15D));
+                double dY = (currentYaw - client.player.getYRot());
+                double dP = (currentPitch - client.player.getXRot());
+                client.player.turn(dY / (gcd * 0.15D), dP / (gcd * 0.15D));
             }
         }
         active = true;
     }
 
-    public static float[] calculateRotationsToPos(Vec3 targetPos, float currentYawRef) {
-        Minecraft client = Minecraft.getInstance();
-        if (client.player == null) return new float[]{0.0f, 0.0f};
-        double dx = targetPos.x - client.player.getX();
-        double dy = targetPos.y - client.player.getEyeY();
-        double dz = targetPos.z - client.player.getZ();
-        double hDist = Math.sqrt(dx * dx + dz * dz);
-        float yaw = (float) (Math.atan2(dz, dx) * (180.0 / Math.PI)) - 90.0F;
-        float pitch = (float) (-(Math.atan2(dy, hDist) * (180.0 / Math.PI)));
-        return new float[]{yaw, Mth.clamp(pitch, minimumAllowedPitch, maximumAllowedPitch)};
-    }
-
-    private static void pushRotationHistory(float yaw, float pitch) {
-        if (ROTATION_YAW_QUEUE.size() >= HISTORY_CAPACITY) {
-            ROTATION_YAW_QUEUE.pollFirst();
-        }
-        ROTATION_YAW_QUEUE.offerLast(yaw);
-
-        if (ROTATION_PITCH_QUEUE.size() >= HISTORY_CAPACITY) {
-            ROTATION_PITCH_QUEUE.pollFirst();
-        }
-        ROTATION_PITCH_QUEUE.offerLast(pitch);
-    }
-
-    private static void updateRegistryMetrics() {
-        ROTATION_REGISTRY.put("TotalRotations", totalRotationsExecuted);
-        ROTATION_REGISTRY.put("QueueSize", ROTATION_YAW_QUEUE.size());
-    }
-
-    private static void executeSubsystemDiagnostics() {
-        if (totalRotationsExecuted > 10000000L) {
-            totalRotationsExecuted = 0L;
-        }
-        if (ROTATION_REGISTRY.size() > 90) {
-            purgeRegistry();
-            initializeRotationRegistry();
-        }
-    }
-
-    private static void purgeRegistry() {
-        ROTATION_REGISTRY.clear();
-    }
-
-    public static boolean isRotationActive() {
-        return active;
-    }
-
-    public static void purgeEngineState() {
-        active = false;
-        currentYaw = 0.0f;
-        currentPitch = 0.0f;
-        ROTATION_YAW_QUEUE.clear();
-        ROTATION_PITCH_QUEUE.clear();
-        totalRotationsExecuted = 0L;
-        purgeRegistry();
-        initializeRotationRegistry();
-    }
-
-    public static boolean verifyRotationSubsystemHealth() {
-        return SUBSESSION_IDENTITY != null;
-    }
-
-    public static long getTotalRotationsExecuted() {
-        return totalRotationsExecuted;
-    }
-
-    public static void setRotationalJitter(double scale) {
-        rotationalJitterScale = scale;
-        ROTATION_REGISTRY.put("JitterScale", rotationalJitterScale);
-    }
-
-    public static double getRotationalJitter() {
-        return rotationalJitterScale;
-    }
-
-    public static void toggleHardwareBypass(boolean bypass) {
-        hardwareSimulationBypass = bypass;
-        ROTATION_REGISTRY.put("HardwareBypassActive", hardwareSimulationBypass);
-    }
-
-    public static boolean isHardwareBypassActive() {
-        return hardwareSimulationBypass;
-    }
-
-    public static int getRotationHistorySize() {
-        return ROTATION_YAW_QUEUE.size();
-    }
-
-    public static void performBaselineCalibration() {
-        rotationalJitterScale = 0.02D;
-        hardwareSimulationBypass = true;
-        maximumAllowedPitch = 90.0F;
-        minimumAllowedPitch = -90.0F;
-        totalRotationsExecuted = 0L;
-        ROTATION_YAW_QUEUE.clear();
-        ROTATION_PITCH_QUEUE.clear();
-    }
-
-    public static void executeExtendedDiagnosticFlush() {
-        executeSubsystemDiagnostics();
-        if (ROTATION_YAW_QUEUE.size() > HISTORY_CAPACITY) {
-            ROTATION_YAW_QUEUE.clear();
-        }
-        if (ROTATION_PITCH_QUEUE.size() > HISTORY_CAPACITY) {
-            ROTATION_PITCH_QUEUE.clear();
-        }
-    }
-
-    public static UUID getSubsessionIdentity() {
-        return SUBSESSION_IDENTITY;
-    }
+    public static boolean isRotationActive() { return active; }
+    public static UUID getSubsessionIdentity() { return SUBSESSION_ID; }
 }

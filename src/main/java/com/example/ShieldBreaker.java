@@ -33,10 +33,10 @@ public class ShieldBreaker extends ClientBase.Module {
     private static final SecureRandom secureRandom = new SecureRandom();
 
     private static final Map<String, Object> SHIELD_REGISTRY = new ConcurrentHashMap<>();
-    private static final UUID SUBSESSION_ID = UUID.randomUUID();
+    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static final Deque<Long> STUN_HISTORY = new ArrayDeque<>();
     private static final Deque<Double> VELOCITY_HISTORY = new ArrayDeque<>();
-    private static final int HISTORY_CAP = 512;
+    private static final int HISTORY_CAP = 1024;
 
     private static long globalTicks = 0L;
     private static boolean autoAxe = true;
@@ -56,17 +56,6 @@ public class ShieldBreaker extends ClientBase.Module {
     private static boolean momentumReset = false;
     private static double spacingBuffer = 3.0D;
     private static boolean antiReplay = true;
-    private static boolean pCritMomentum = true;
-    private static boolean threeBlockStun = true;
-    private static boolean autoCritDefense = true;
-    private static double reactionCompMs = 250.0D;
-    private static boolean targetPrediction = true;
-    private static boolean spacingOptimization = true;
-    private static int sessionStunCount = 0;
-    private static boolean hardwareBypass = true;
-    private static boolean profileLocked = false;
-    private static double stochasticVariance = 0.03D;
-    private static int emergencyResetThreshold = 100;
     private static boolean shieldStunActiveSync = false;
 
     static {
@@ -74,12 +63,11 @@ public class ShieldBreaker extends ClientBase.Module {
     }
 
     private static void initializeRegistry() {
-        SHIELD_REGISTRY.put("SubsessionUUID", SUBSESSION_ID);
-        SHIELD_REGISTRY.put("Profile", "Swight-Tier1-ShieldBreaker-FullEnterprise");
+        SHIELD_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        SHIELD_REGISTRY.put("Profile", "Swight-Tier1-ShieldBreaker-Enterprise");
         SHIELD_REGISTRY.put("SwightStun", swightStun);
         SHIELD_REGISTRY.put("DoubleClickBurst", doubleClickBurst);
         SHIELD_REGISTRY.put("AutoAxe", autoAxe);
-        SHIELD_REGISTRY.put("SuccessiveStuns", successiveStuns);
     }
 
     public ShieldBreaker() {
@@ -104,7 +92,6 @@ public class ShieldBreaker extends ClientBase.Module {
         lockedShieldTarget = null;
         anomalyTracker = 0;
         successiveStuns = 0;
-        sessionStunCount = 0;
         momentumReset = false;
         shieldStunActiveSync = false;
         STUN_HISTORY.clear();
@@ -137,9 +124,7 @@ public class ShieldBreaker extends ClientBase.Module {
         return hit.getType() == HitResult.Type.MISS;
     }
 
-    public static boolean isShieldStunActive() {
-        return shieldStunActiveSync;
-    }
+    public static boolean isShieldStunActive() { return shieldStunActiveSync; }
 
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null || !client.player.isAlive()) return;
@@ -153,40 +138,24 @@ public class ShieldBreaker extends ClientBase.Module {
         if (shieldDisableCooldownTimer > 0) shieldDisableCooldownTimer--;
         if (actionStateCountdown > 0) { actionStateCountdown--; return; }
 
-        LivingEntity target = evaluateTarget(client);
-        if (target != null) {
-            lockedShieldTarget = target;
-            executePipeline(client, target);
-        } else {
-            lockedShieldTarget = null;
-            shieldStunActiveSync = false;
-            currentShieldState = ShieldState.IDLE;
-        }
-        updateRegistry();
-    }
-
-    private static LivingEntity evaluateTarget(Minecraft client) {
-        if (lockedShieldTarget != null) {
-            if (lockedShieldTarget.isAlive() && client.player.distanceToSqr(lockedShieldTarget) <= (maxReach * maxReach)) {
-                return lockedShieldTarget;
-            }
-            lockedShieldTarget = null;
-        }
-        LivingEntity best = null;
+        lockedShieldTarget = null;
         double minDst = (maxReach * maxReach) + 1.0D;
         for (Player p : client.level.players()) {
             if (p == client.player || !p.isAlive() || p.isSpectator() || p.isCreative()) continue;
             double dst = client.player.distanceToSqr(p);
             if (dst > (maxReach * maxReach)) continue;
             if (!verifyLos(client, p)) continue;
-            if (dst < minDst) { minDst = dst; best = p; }
+            if (dst < minDst) { minDst = dst; lockedShieldTarget = p; }
         }
-        return best;
-    }
 
-    private static void executePipeline(Minecraft client, LivingEntity target) {
-        double dist = client.player.distanceTo(target);
-        boolean blocking = isBlocking(target);
+        if (lockedShieldTarget == null) {
+            shieldStunActiveSync = false;
+            currentShieldState = ShieldState.IDLE;
+            return;
+        }
+
+        double dist = client.player.distanceTo(lockedShieldTarget);
+        boolean blocking = isBlocking(lockedShieldTarget);
 
         VELOCITY_HISTORY.offerLast(client.player.getDeltaMovement().horizontalDistance());
         if (VELOCITY_HISTORY.size() > HISTORY_CAP) VELOCITY_HISTORY.pollFirst();
@@ -203,7 +172,7 @@ public class ShieldBreaker extends ClientBase.Module {
                         currentShieldState = ShieldState.AXE_SWING_PREP;
                         actionStateCountdown = 1;
                     }
-                } else if (autoHitDef && target.isUsingItem() && dist <= 3.5D) {
+                } else if (autoHitDef && lockedShieldTarget.isUsingItem() && dist <= 3.5D) {
                     shieldStunActiveSync = true;
                     currentShieldState = ShieldState.AUTO_HIT_DEFENSE;
                 } else {
@@ -226,7 +195,7 @@ public class ShieldBreaker extends ClientBase.Module {
                 }
                 break;
             case AXE_SWING_PREP:
-                Vec3 center = target.position().add(0.0D, target.getBbHeight() * 0.5D, 0.0D);
+                Vec3 center = lockedShieldTarget.position().add(0.0D, lockedShieldTarget.getBbHeight() * 0.5D, 0.0D);
                 RotationManager.smoothTo(client, center.add(secureRandom.nextDouble() * jitterFactor, secureRandom.nextDouble() * jitterFactor, secureRandom.nextDouble() * jitterFactor), 0.97F);
                 if (dist <= 3.5D && shieldDisableCooldownTimer == 0) {
                     if (client.player.getAttackStrengthScale(0.0F) >= 0.80F) {
@@ -236,7 +205,6 @@ public class ShieldBreaker extends ClientBase.Module {
                             currentShieldState = ShieldState.EXECUTE_SWIGHT_STUN;
                         } else {
                             successiveStuns++;
-                            sessionStunCount++;
                             lastStunEpoch = System.currentTimeMillis();
                             STUN_HISTORY.offerLast(lastStunEpoch);
                             shieldDisableCooldownTimer = 80;
@@ -249,7 +217,6 @@ public class ShieldBreaker extends ClientBase.Module {
             case EXECUTE_SWIGHT_STUN:
                 InteractionManager.simulateClickAttack(client);
                 successiveStuns++;
-                sessionStunCount++;
                 lastStunEpoch = System.currentTimeMillis();
                 STUN_HISTORY.offerLast(lastStunEpoch);
                 shieldDisableCooldownTimer = 80;
@@ -263,7 +230,7 @@ public class ShieldBreaker extends ClientBase.Module {
                 actionStateCountdown = 1;
                 break;
             case SWORD_CRIT_FOLLOWUP:
-                Vec3 sCenter = target.position().add(0.0D, target.getBbHeight() * 0.4D, 0.0D);
+                Vec3 sCenter = lockedShieldTarget.position().add(0.0D, lockedShieldTarget.getBbHeight() * 0.4D, 0.0D);
                 RotationManager.smoothTo(client, sCenter.add(secureRandom.nextDouble() * jitterFactor, secureRandom.nextDouble() * jitterFactor, secureRandom.nextDouble() * jitterFactor), 0.98F);
                 if (dist <= 3.5D && client.player.getAttackStrengthScale(0.0F) >= 0.85F) {
                     InteractionManager.simulateClickAttack(client);
@@ -277,7 +244,7 @@ public class ShieldBreaker extends ClientBase.Module {
                     InteractionManager.simulateClickAttack(client);
                     actionStateCountdown = 2;
                 }
-                if (!target.isUsingItem()) {
+                if (!lockedShieldTarget.isUsingItem()) {
                     shieldStunActiveSync = false;
                     currentShieldState = ShieldState.IDLE;
                 }
@@ -302,14 +269,5 @@ public class ShieldBreaker extends ClientBase.Module {
         return -1;
     }
 
-    private static void updateRegistry() {
-        SHIELD_REGISTRY.put("Ticks", globalTicks);
-        SHIELD_REGISTRY.put("State", currentShieldState.name());
-        SHIELD_REGISTRY.put("SuccessiveStuns", successiveStuns);
-        SHIELD_REGISTRY.put("SessionStuns", sessionStunCount);
-    }
-
-    public static boolean verifySubsystemHealth() { return enabled && SUBSESSION_ID != null; }
-    public static long getGlobalTicks() { return globalTicks; }
-    public static UUID getSubsessionIdentity() { return SUBSESSION_ID; }
+    public static UUID getSubsessionIdentity() { return SUBSESSION_IDENTITY; }
 }

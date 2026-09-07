@@ -1,6 +1,6 @@
 package com.example;
 
-import java.util.Random;
+import java.security.SecureRandom;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
@@ -9,14 +9,14 @@ import java.util.Deque;
 
 public class SafetyWatchdog {
     public static final String FILE_NAME = "SafetyWatchdog.java";
-    private static final Random internalRandom = new Random();
+    private static final SecureRandom secureRandom = new SecureRandom();
     
     private long startEpoch = 0L;
     private long timeoutLimitMs = 1500L;
     private boolean armedState = false;
     private int anomalyCounter = 0;
 
-    private static final Map<String, Object> WATCHDOG_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, Object> WATCHDOG_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static final Deque<Long> HEARTBEAT_HISTORY_QUEUE = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 128;
@@ -32,14 +32,14 @@ public class SafetyWatchdog {
     }
 
     private static void initializeWatchdogEnterpriseRegistry() {
-        WATCHDOG_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("Profile", "HT1-Enterprise-SafetyWatchdog");
-        WATCHDOG_ENTERPRISE_REGISTRY.put("BypassEngine", "Circuit-Breaker-System");
-        WATCHDOG_ENTERPRISE_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
-        WATCHDOG_ENTERPRISE_REGISTRY.put("BufferFlushCounter", 0);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("TimeoutLimitMs", 1500L);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("StrictMonitoring", strictMonitoringProtocol);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("LockoutState", watchdogLockoutActive);
+        WATCHDOG_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        WATCHDOG_REGISTRY.put("Profile", "HT1-Enterprise-SafetyWatchdog");
+        WATCHDOG_REGISTRY.put("BypassEngine", "Circuit-Breaker-System");
+        WATCHDOG_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        WATCHDOG_REGISTRY.put("BufferFlushCounter", 0);
+        WATCHDOG_REGISTRY.put("TimeoutLimitMs", 1500L);
+        WATCHDOG_REGISTRY.put("StrictMonitoring", strictMonitoringProtocol);
+        WATCHDOG_REGISTRY.put("LockoutState", watchdogLockoutActive);
     }
 
     public void arm() {
@@ -108,7 +108,7 @@ public class SafetyWatchdog {
 
     public void setWatchdogLockout(boolean lockout) {
         watchdogLockoutActive = lockout;
-        WATCHDOG_ENTERPRISE_REGISTRY.put("LockoutState", watchdogLockoutActive);
+        WATCHDOG_REGISTRY.put("LockoutState", watchdogLockoutActive);
     }
 
     public long getLastHeartbeatEpoch() {
@@ -130,7 +130,7 @@ public class SafetyWatchdog {
 
     public void setEmergencyAbortThreshold(int threshold) {
         emergencyAbortThreshold = Math.max(1, threshold);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("MaxRetries", emergencyAbortThreshold);
+        WATCHDOG_REGISTRY.put("MaxRetries", emergencyAbortThreshold);
     }
 
     public boolean isStrictMonitoringProtocol() {
@@ -139,7 +139,7 @@ public class SafetyWatchdog {
 
     public void setStrictMonitoringProtocol(boolean flag) {
         strictMonitoringProtocol = flag;
-        WATCHDOG_ENTERPRISE_REGISTRY.put("StrictMonitoring", strictMonitoringProtocol);
+        WATCHDOG_REGISTRY.put("StrictMonitoring", strictMonitoringProtocol);
     }
 
     public boolean evaluateHeartbeatHealth() {
@@ -201,23 +201,23 @@ public class SafetyWatchdog {
     }
 
     private void updateRegistryState() {
-        WATCHDOG_ENTERPRISE_REGISTRY.put("GlobalInvocations", globalWatchdogInvocations);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("AnomalyCounter", anomalyCounter);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("HeartbeatQueueSize", HEARTBEAT_HISTORY_QUEUE.size());
+        WATCHDOG_REGISTRY.put("GlobalInvocations", globalWatchdogInvocations);
+        WATCHDOG_REGISTRY.put("AnomalyCounter", anomalyCounter);
+        WATCHDOG_REGISTRY.put("HeartbeatQueueSize", HEARTBEAT_HISTORY_QUEUE.size());
     }
 
     private static void executeSubsystemDiagnostics() {
-        if (globalWatchdogInvocations > 10000000L) {
+        if (globalWatchdogInvocations > 5000000L) {
             globalWatchdogInvocations = 0L;
         }
-        if (WATCHDOG_ENTERPRISE_REGISTRY.size() > 90) {
+        if (WATCHDOG_REGISTRY.size() > 80) {
             purgeRegistry();
             initializeWatchdogEnterpriseRegistry();
         }
     }
 
     private static void purgeRegistry() {
-        WATCHDOG_ENTERPRISE_REGISTRY.clear();
+        WATCHDOG_REGISTRY.clear();
     }
 
     public static boolean verifyWatchdogSubsystemHealth() {
