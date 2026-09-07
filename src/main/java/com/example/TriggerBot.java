@@ -5,9 +5,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.SwordItem;
-import net.minecraft.world.item.AxeItem;
-import net.minecraft.world.item.TridentItem;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.level.ClipContext;
@@ -72,7 +69,7 @@ public class TriggerBot extends ClientBase.Module {
         ItemStack stack = clientRef.player.getMainHandItem();
         if (stack.isEmpty()) return false;
         String name = stack.getItem().getDescriptionId().toLowerCase();
-        return stack.getItem() instanceof SwordItem || stack.getItem() instanceof AxeItem || stack.getItem() instanceof TridentItem || name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace");
+        return name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace");
     }
 
     private static boolean hasLineOfSight(Minecraft clientRef, Entity target) {

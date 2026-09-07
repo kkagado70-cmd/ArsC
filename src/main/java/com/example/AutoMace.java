@@ -7,7 +7,6 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.MaceItem;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
 
@@ -29,7 +28,7 @@ public class AutoMace extends ClientBase.Module {
     private static final Deque<Double> FALL_VELOCITY_HISTORY = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 128;
 
-    private static double maxSwingReach = 4.5D;
+    private static double maxSwingRange = 4.5D;
     private static double maxAimDistance = 20.0D;
     private static double minimumFallDistance = 1.5D;
     private static float hyperSnapSpeed = 0.99F;
@@ -53,7 +52,7 @@ public class AutoMace extends ClientBase.Module {
         MACE_ENTERPRISE_REGISTRY.put("BufferFlushCounter", 0);
         MACE_ENTERPRISE_REGISTRY.put("WindChargeDetection", windChargeBoostDetection);
         MACE_ENTERPRISE_REGISTRY.put("ElytraDiveCheck", elytraDiveCheck);
-        MACE_ENTERPRISE_REGISTRY.put("MaxSwingRange", maxSwingReach);
+        MACE_ENTERPRISE_REGISTRY.put("MaxSwingRange", maxSwingRange);
         MACE_ENTERPRISE_REGISTRY.put("MinFallDistance", minimumFallDistance);
     }
 

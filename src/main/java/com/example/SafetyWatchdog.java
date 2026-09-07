@@ -200,7 +200,7 @@ public class SafetyWatchdog {
         HEARTBEAT_HISTORY_QUEUE.offerLast(duration);
     }
 
-    private static void updateRegistryState() {
+    private void updateRegistryState() {
         WATCHDOG_ENTERPRISE_REGISTRY.put("GlobalInvocations", globalWatchdogInvocations);
         WATCHDOG_ENTERPRISE_REGISTRY.put("AnomalyCounter", anomalyCounter);
         WATCHDOG_ENTERPRISE_REGISTRY.put("HeartbeatQueueSize", HEARTBEAT_HISTORY_QUEUE.size());
