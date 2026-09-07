@@ -37,7 +37,7 @@ public class XbowCart extends ClientBase.Module {
     private static final Deque<Long> EXECUTION_TIMESTAMP_QUEUE = new ArrayDeque<>();
     private static final Deque<Double> STOCHASTIC_LATENCY_DEQUE = new ArrayDeque<>();
     private static final Deque<Vec3> VECTOR_TRAJECTORY_HISTORY = new ArrayDeque<>();
-    private static final Deque<Integer> PIPELINE_ERROR_DEQUE = new ArrayDeque<>();
+    private static final Deque<Integer> PIPELINE_ERROR_DEQUE = new ArrayDeque<>(); // <-- Deque<Integer>
     private static final Deque<Long> STAGE_DURATION_DEQUE = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 4096;
 
@@ -279,7 +279,7 @@ public class XbowCart extends ClientBase.Module {
     private static void handlePipelineFailure(Minecraft clientRef) {
         currentRetryAttempt++;
         pipelineAnomalyCounter++;
-        PIPELINE_ERROR_DEQUE.offerLast((long) currentPhase.ordinal());
+        PIPELINE_ERROR_DEQUE.offerLast(currentPhase.ordinal()); // CORRIGIDO: sem cast
         if (PIPELINE_ERROR_DEQUE.size() > HISTORY_MAX_CAPACITY) {
             PIPELINE_ERROR_DEQUE.pollFirst();
         }
@@ -462,15 +462,10 @@ public class XbowCart extends ClientBase.Module {
     }
 
     public static long getGlobalWatchdogTimeoutMs() {
-        return globalWatchdogTimeoutMs;
-    }
+    return globalWatchdogTimeoutMs;
+}
 
-    public static void setGlobalWatchdogTimeoutMs(long timeout) {
-        globalWatchdogTimeoutMs = timeout;
-        XBOW_ENTERPRISE_REGISTRY.put("WatchdogTimeout", globalWatchdogTimeoutMs);
-    }
-
-    public static long getGlobalWatchdogTimeoutMs() {
-        return globalWatchdogTimeoutMs;
-    }
+public static void setGlobalWatchdogTimeoutMs(long timeout) {
+    globalWatchdogTimeoutMs = timeout;
+    XBOW_ENTERPRISE_REGISTRY.put("WatchdogTimeout", globalWatchdogTimeoutMs);
 }

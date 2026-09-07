@@ -61,6 +61,10 @@ public class AutoMace extends ClientBase.Module {
 
     @Override
     public void tick(Minecraft client) {
+        onTick(client);
+    }
+
+    public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null || !client.player.isAlive()) return;
 
         executionTicks++;
