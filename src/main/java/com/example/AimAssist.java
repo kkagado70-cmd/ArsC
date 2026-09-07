@@ -317,9 +317,6 @@ public class AimAssist extends ClientBase.Module {
         Vec3 jerk = accel.subtract(previousTargetAcceleration);
 
         long ping = 50L;
-        if (client.getCurrentServerInfo() != null) {
-            ping = client.getCurrentServerInfo().ping;
-        }
         double pingComp = (ping / 50.0) * 0.02D;
 
         Vec3 predicted = target.position()
@@ -448,12 +445,12 @@ public class AimAssist extends ClientBase.Module {
         double sens = client.options.sensitivity().get() * 0.6D + 0.2D;
         double gcd = sens * sens * sens * 8.0D;
         if (gcd > 0.0D) {
-                        double dY = (nextYaw - curYaw);
+            double dY = (nextYaw - curYaw);
             client.player.turn(dY / (gcd * 0.15D), deltaPitch / (gcd * 0.15D));
         }
     }
 
-    private static void executeAutoCalibrationLearning() {
+        private static void executeAutoCalibrationLearning() {
         totalAttacks++;
         if (totalAttacks >= 100) {
             double hitRate = (double) hitCount / totalAttacks;
