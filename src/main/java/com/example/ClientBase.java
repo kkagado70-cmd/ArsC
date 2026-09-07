@@ -83,9 +83,9 @@ public class ClientBase implements ClientModInitializer {
         protected final String name;
         public boolean enabled;
 
-        public Module(String name, boolean initialEnabled) {
+        public Module(String name) {
             this.name = name;
-            this.enabled = initialEnabled;
+            this.enabled = true;
         }
 
         public String getName() {
@@ -132,8 +132,12 @@ public class ClientBase implements ClientModInitializer {
     }
 
     public static class XbowCartModule extends Module {
+        private final XbowCart instance;
+
         public XbowCartModule() {
-            super("XbowCart", XbowCart.enabled);
+            super("XbowCart");
+            this.instance = new XbowCart();
+            this.enabled = XbowCart.enabled;
         }
 
         @Override
@@ -144,15 +148,20 @@ public class ClientBase implements ClientModInitializer {
 
         @Override
         public void tick(Minecraft client) {
+            this.enabled = XbowCart.enabled;
             if (this.enabled) {
-                XbowCart.onTick(client);
+                instance.tick(client);
             }
         }
     }
 
     public static class AimAssistModule extends Module {
+        private final AimAssist instance;
+
         public AimAssistModule() {
-            super("AimAssist", AimAssist.enabled);
+            super("AimAssist");
+            this.instance = new AimAssist();
+            this.enabled = AimAssist.enabled;
         }
 
         @Override
@@ -163,15 +172,20 @@ public class ClientBase implements ClientModInitializer {
 
         @Override
         public void tick(Minecraft client) {
+            this.enabled = AimAssist.enabled;
             if (this.enabled) {
-                AimAssist.onTick(client);
+                instance.tick(client);
             }
         }
     }
 
     public static class TriggerBotModule extends Module {
+        private final TriggerBot instance;
+
         public TriggerBotModule() {
-            super("TriggerBot", TriggerBot.enabled);
+            super("TriggerBot");
+            this.instance = new TriggerBot();
+            this.enabled = TriggerBot.enabled;
         }
 
         @Override
@@ -182,15 +196,20 @@ public class ClientBase implements ClientModInitializer {
 
         @Override
         public void tick(Minecraft client) {
+            this.enabled = TriggerBot.enabled;
             if (this.enabled) {
-                TriggerBot.onTick(client);
+                instance.tick(client);
             }
         }
     }
 
     public static class ShieldBreakerModule extends Module {
+        private final ShieldBreaker instance;
+
         public ShieldBreakerModule() {
-            super("ShieldBreaker", ShieldBreaker.enabled);
+            super("ShieldBreaker");
+            this.instance = new ShieldBreaker();
+            this.enabled = ShieldBreaker.enabled;
         }
 
         @Override
@@ -201,15 +220,20 @@ public class ClientBase implements ClientModInitializer {
 
         @Override
         public void tick(Minecraft client) {
+            this.enabled = ShieldBreaker.enabled;
             if (this.enabled) {
-                ShieldBreaker.onTick(client);
+                instance.tick(client);
             }
         }
     }
 
     public static class AutoMaceModule extends Module {
+        private final AutoMace instance;
+
         public AutoMaceModule() {
-            super("AutoMace", AutoMace.enabled);
+            super("AutoMace");
+            this.instance = new AutoMace();
+            this.enabled = AutoMace.enabled;
         }
 
         @Override
@@ -220,8 +244,9 @@ public class ClientBase implements ClientModInitializer {
 
         @Override
         public void tick(Minecraft client) {
+            this.enabled = AutoMace.enabled;
             if (this.enabled) {
-                AutoMace.onTick(client);
+                instance.tick(client);
             }
         }
     }
