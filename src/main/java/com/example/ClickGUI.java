@@ -13,7 +13,6 @@ public class ClickGUI extends Screen {
     private static final Map<String, Object> GUI_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static boolean renderBackgroundFlag = true;
-    private static int interactionCounter = 0;
 
     static {
         GUI_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
@@ -41,7 +40,6 @@ public class ClickGUI extends Screen {
     @Override
     protected void init() {
         super.init();
-        interactionCounter++;
         int cx = this.width / 2;
         int cy = this.height / 2;
         int bw = 160, bh = 20;
@@ -49,7 +47,10 @@ public class ClickGUI extends Screen {
         this.addRenderableWidget(Button.builder(
                 Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")),
                 btn -> {
-                    XbowCart.enabled = !XbowCart.enabled;
+                    ClientBase.getInstance().getModuleManager().getModules().stream()
+                            .filter(m -> m instanceof ClientBase.XbowCartModule)
+                            .findFirst()
+                            .ifPresent(ClientBase.Module::toggle);
                     btn.setMessage(Component.literal("XbowCart: " + (XbowCart.enabled ? "§aON" : "§cOFF")));
                 }
         ).bounds(cx - bw / 2, cy - 70, bw, bh).build());
@@ -57,7 +58,10 @@ public class ClickGUI extends Screen {
         this.addRenderableWidget(Button.builder(
                 Component.literal("AimAssist: " + (AimAssist.enabled ? "§aON" : "§cOFF")),
                 btn -> {
-                    AimAssist.enabled = !AimAssist.enabled;
+                    ClientBase.getInstance().getModuleManager().getModules().stream()
+                            .filter(m -> m instanceof ClientBase.AimAssistModule)
+                            .findFirst()
+                            .ifPresent(ClientBase.Module::toggle);
                     btn.setMessage(Component.literal("AimAssist: " + (AimAssist.enabled ? "§aON" : "§cOFF")));
                 }
         ).bounds(cx - bw / 2, cy - 45, bw, bh).build());
@@ -65,7 +69,10 @@ public class ClickGUI extends Screen {
         this.addRenderableWidget(Button.builder(
                 Component.literal("TriggerBot: " + (TriggerBot.enabled ? "§aON" : "§cOFF")),
                 btn -> {
-                    TriggerBot.enabled = !TriggerBot.enabled;
+                    ClientBase.getInstance().getModuleManager().getModules().stream()
+                            .filter(m -> m instanceof ClientBase.TriggerBotModule)
+                            .findFirst()
+                            .ifPresent(ClientBase.Module::toggle);
                     btn.setMessage(Component.literal("TriggerBot: " + (TriggerBot.enabled ? "§aON" : "§cOFF")));
                 }
         ).bounds(cx - bw / 2, cy - 20, bw, bh).build());
@@ -73,7 +80,10 @@ public class ClickGUI extends Screen {
         this.addRenderableWidget(Button.builder(
                 Component.literal("ShieldBreaker: " + (ShieldBreaker.enabled ? "§aON" : "§cOFF")),
                 btn -> {
-                    ShieldBreaker.enabled = !ShieldBreaker.enabled;
+                    ClientBase.getInstance().getModuleManager().getModules().stream()
+                            .filter(m -> m instanceof ClientBase.ShieldBreakerModule)
+                            .findFirst()
+                            .ifPresent(ClientBase.Module::toggle);
                     btn.setMessage(Component.literal("ShieldBreaker: " + (ShieldBreaker.enabled ? "§aON" : "§cOFF")));
                 }
         ).bounds(cx - bw / 2, cy + 5, bw, bh).build());
@@ -81,7 +91,10 @@ public class ClickGUI extends Screen {
         this.addRenderableWidget(Button.builder(
                 Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")),
                 btn -> {
-                    AutoMace.enabled = !AutoMace.enabled;
+                    ClientBase.getInstance().getModuleManager().getModules().stream()
+                            .filter(m -> m instanceof ClientBase.AutoMaceModule)
+                            .findFirst()
+                            .ifPresent(ClientBase.Module::toggle);
                     btn.setMessage(Component.literal("AutoMace: " + (AutoMace.enabled ? "§aON" : "§cOFF")));
                 }
         ).bounds(cx - bw / 2, cy + 30, bw, bh).build());
