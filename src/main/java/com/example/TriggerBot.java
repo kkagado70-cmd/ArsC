@@ -33,12 +33,11 @@ public class TriggerBot extends ClientBase.Module {
     private static final Deque<Long> ATTACK_INTERVAL_HISTORY = new ArrayDeque<>();
     private static final Deque<Integer> CLICK_DURATION_MEMORY = new ArrayDeque<>();
     private static final Deque<Double> ERROR_VECTOR_MEMORY = new ArrayDeque<>();
-    privpublicate static final Deque<Float> ATTACK_STRENGTH_SAMPLE_DEQUE = new ArrayDeque<>();
+    private static final Deque<Float> ATTACK_STRENGTH_SAMPLE_DEQUE = new ArrayDeque<>();
     private static final Deque<Long> SESSION_TIMESTAMP_DEQUE = new ArrayDeque<>();
     private static final Deque<Double> FATIGUE_SAMPLE_DEQUE = new ArrayDeque<>();
     private static final Deque<Integer> REACTION_DELAY_SAMPLE_DEQUE = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 8192;
-
     private static long totalTriggersFired = 0L;
     private static boolean adaptiveCritSyncActive = true;
     private static double attackStrengthThresholdNormal = 0.70D;
