@@ -450,7 +450,7 @@ public class AimAssist extends ClientBase.Module {
         aimbotAnomalyTracker = 0;
     }
 
-    public static void executeExtendedDiagnosticFlush() {
+        public static void executeExtendedDiagnosticFlush() {
         executeSubsystemDiagnostics();
         if (YAW_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
             YAW_HISTORY_QUEUE.clear();
@@ -458,4 +458,11 @@ public class AimAssist extends ClientBase.Module {
         if (PITCH_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
             PITCH_HISTORY_QUEUE.clear();
         }
-       
+        if (VELOCITY_VECTOR_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            VELOCITY_VECTOR_DEQUE.clear();
+        }
+        if (TIMING_LATENCY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
+            TIMING_LATENCY_QUEUE.clear();
+        }
+    }
+}
