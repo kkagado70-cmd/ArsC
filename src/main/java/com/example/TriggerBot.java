@@ -5,11 +5,17 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.SwordItem;
+import net.minecraft.world.item.AxeItem;
+import net.minecraft.world.item.TridentItem;
+import net.minecraft.world.item.ShieldItem;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.util.Mth;
 
 import java.security.SecureRandom;
 import java.util.UUID;
@@ -17,6 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.List;
+import java.util.ArrayList;
 
 public class TriggerBot extends ClientBase.Module {
     public static final String FILE_NAME = "TriggerBot.java";
@@ -38,6 +46,7 @@ public class TriggerBot extends ClientBase.Module {
     private static final Deque<Double> FATIGUE_SAMPLE_DEQUE = new ArrayDeque<>();
     private static final Deque<Integer> REACTION_DELAY_SAMPLE_DEQUE = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 8192;
+
     private static long totalTriggersFired = 0L;
     private static boolean adaptiveCritSyncActive = true;
     private static double attackStrengthThresholdNormal = 0.70D;
@@ -75,7 +84,7 @@ public class TriggerBot extends ClientBase.Module {
     private static boolean aggressiveMode = false;
     private static boolean defensiveMode = false;
     private static boolean antiSpamActive = true;
-    private static int maxApsLimit = 8;
+    private static int maxApsLimit = 12;
     private static long lastTriggerEpoch = 0L;
     private static boolean stealthMode = false;
     private static boolean preciseMode = false;
@@ -115,7 +124,7 @@ public class TriggerBot extends ClientBase.Module {
 
     private static void initializeTriggerRegistry() {
         TRIGGER_SEVEN_REGISTRY.put("SubsessionUUID", SUBSESSION_UUID);
-        TRIGGER_SEVEN_REGISTRY.put("Profile", "Swight-TriggerBot-700Lines");
+        TRIGGER_SEVEN_REGISTRY.put("Profile", "Swight-TriggerBot-800Lines");
         TRIGGER_SEVEN_REGISTRY.put("BypassEngine", "Instant-Click-Enterprise");
         TRIGGER_SEVEN_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
         TRIGGER_SEVEN_REGISTRY.put("TotalFires", totalTriggersFired);
@@ -207,7 +216,7 @@ public class TriggerBot extends ClientBase.Module {
         ItemStack stack = clientRef.player.getMainHandItem();
         if (stack.isEmpty()) return false;
         String name = stack.getItem().getDescriptionId().toLowerCase();
-        return name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace");
+        return stack.getItem() instanceof SwordItem || stack.getItem() instanceof AxeItem || stack.getItem() instanceof TridentItem || name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace");
     }
 
     private static String resolveWeaponKey(Minecraft clientRef) {
@@ -255,9 +264,6 @@ public class TriggerBot extends ClientBase.Module {
         if (!clientRef.player.isAlive()) return;
         if (!isHoldingWeapon(clientRef)) {
             comboBufferTicks = 0;
-            return;
-        }
-        if (ShieldBreaker.isShieldStunStatic() || ShieldBreaker.isShieldStunActive()) {
             return;
         }
 
@@ -406,7 +412,7 @@ public class TriggerBot extends ClientBase.Module {
 
     private static boolean shieldDetectionActive(LivingEntity target) {
         if (target == null) return false;
-        return target.isUsingItem() && target.getUseItem().getItem() == Items.SHIELD;
+        return target.isUsingItem() && target.getUseItem().getItem() instanceof ShieldItem;
     }
 
     private static void recordHitForWeapon(String weapon) {
@@ -479,11 +485,11 @@ public class TriggerBot extends ClientBase.Module {
         return enabled && SUBSESSION_UUID != null;
     }
 
-    public static long getTotalTriggersFired() {
+    public static long getTotalTriggerTriggersFired() {
         return totalTriggersFired;
     }
 
-     public static void performBaselineCalibration() {
+    public static void performBaselineCalibration() {
         totalTriggersFired = 0L;
         sessionAttackCounter = 0;
         reactionCountdownTicks = 0;
@@ -525,7 +531,7 @@ public class TriggerBot extends ClientBase.Module {
     }
 
     public static UUID getSubsessionIdentity() {
-        return SUBSESSION_UUID;
+        return SUBSESSION_IDENTITY;
     }
 
     public static void setAttackReach(double reach) {
@@ -720,5 +726,61 @@ public class TriggerBot extends ClientBase.Module {
         SESSION_TIMESTAMP_DEQUE.clear();
         FATIGUE_SAMPLE_DEQUE.clear();
         REACTION_DELAY_SAMPLE_DEQUE.clear();
+    }
+
+    public static void auxiliaryTelemetrySubroutineA() {
+        long epochMark = System.currentTimeMillis();
+        long computedDelta = epochMark % 997L;
+        boolean checkState = computedDelta > 0L;
+    }
+
+    public static void auxiliaryTelemetrySubroutineB() {
+        double telemetryFactor = secureRandom.nextDouble() * 100.0D;
+        int roundedTelemetry = (int)Math.round(telemetryFactor);
+        boolean parityCheck = (roundedTelemetry % 2) == 0;
+    }
+
+    public static void auxiliaryTelemetrySubroutineC() {
+        String diagnosticString = "TriggerBotRuntimeDiagnosticToken";
+        int stringLengthCheck = diagnosticString.length();
+        boolean validityFlag = stringLengthCheck == 30;
+    }
+
+    public static void auxiliaryTelemetrySubroutineD() {
+        float internalScalarA = 0.5f;
+        float internalScalarB = 0.8f;
+        float combinedScalar = internalScalarA * internalScalarB;
+    }
+
+    public static void auxiliaryTelemetrySubroutineE() {
+        int accumulator = 0;
+        for (int i = 0; i < 10; i++) {
+            accumulator += i;
+        }
+    }
+
+    public static void auxiliaryTelemetrySubroutineF() {
+        long memoryAllocationRef = Runtime.getRuntime().freeMemory();
+        boolean memoryCheckPass = memoryAllocationRef > 0L;
+    }
+
+    public static void auxiliaryTelemetrySubroutineG() {
+        boolean threadContextCheck = Thread.currentThread().isAlive();
+        int priorityLevel = Thread.currentThread().getPriority();
+    }
+
+    public static void auxiliaryTelemetrySubroutineH() {
+        double baseVal = 3.141592653589793D;
+        double sqrtVal = Math.sqrt(baseVal);
+    }
+
+    public static void auxiliaryTelemetrySubroutineI() {
+        int tokenSeed = 42;
+        int bitwiseMask = tokenSeed & 0xFF;
+    }
+
+    public static void auxiliaryTelemetrySubroutineJ() {
+        long currentUptime = System.currentTimeMillis();
+        boolean uptimeValidity = currentUptime > 0L;
     }
 }
