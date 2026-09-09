@@ -28,8 +28,8 @@ public class AimAssist extends ClientBase.Module {
     private static Entity lockedTarget = null;
     private static int targetLockTicks = 0;
     private static int targetLostTicks = 0;
-        
-    private static final Map<String, Object> SWIGHT_SEVEN_REGISTRY = new ConcurrentHashMap<>();
+
+    private static final Map<String, Object> SWIGHT_ELASTIC_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static final Deque<Float> YAW_HISTORY_QUEUE = new ArrayDeque<>();
     private static final Deque<Float> PITCH_HISTORY_QUEUE = new ArrayDeque<>();
@@ -44,7 +44,7 @@ public class AimAssist extends ClientBase.Module {
     private static final Deque<Double> RECOIL_BUFFER_DEQUE = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 8192;
 
-    private static double kinematicSmoothingRate = 0.28D;
+    private static double kinematicSmoothingRate = 0.22D;
     private static double stochasticJitterScale = 0.00002D;
     private static float maximumFovAngle = 100.0F;
     private static double maximumReachBound = 4.5D;
@@ -59,8 +59,8 @@ public class AimAssist extends ClientBase.Module {
     private static Vec3 previousTargetVelocity = Vec3.ZERO;
     private static Vec3 previousTargetAcceleration = Vec3.ZERO;
     private static final float PREDICTION_TICKS = 3.0f;
-    private static float containmentStrength = 0.18f;
-    private static float containmentRadius = 0.8f;
+    private static float containmentStrength = 0.08f;
+    private static float containmentRadius = 1.4f;
     private static float overshootYawOffset = 0.0f;
     private static float overshootPitchOffset = 0.0f;
     private static int saccadeTimer = 0;
@@ -105,37 +105,37 @@ public class AimAssist extends ClientBase.Module {
     private static final Map<String, Double> WEAPON_REACH_PROFILES = new ConcurrentHashMap<>();
 
     static {
-        initializeSwightRegistry();
+        initializeElasticRegistry();
         initializeWeaponProfiles();
     }
 
-    private static void initializeSwightRegistry() {
-        SWIGHT_SEVEN_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        SWIGHT_SEVEN_REGISTRY.put("Profile", "Swight-AimAssist-700Lines");
-        SWIGHT_SEVEN_REGISTRY.put("BypassEngine", "Human-Mime-FastShift-Enterprise");
-        SWIGHT_SEVEN_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
-        SWIGHT_SEVEN_REGISTRY.put("BufferFlushCounter", 0);
-        SWIGHT_SEVEN_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
-        SWIGHT_SEVEN_REGISTRY.put("WindMouseState", windMouseEngineActive);
-        SWIGHT_SEVEN_REGISTRY.put("GcdCorrectionState", gcdCorrectionActive);
-        SWIGHT_SEVEN_REGISTRY.put("SmoothingFactor", kinematicSmoothingRate);
-        SWIGHT_SEVEN_REGISTRY.put("JitterScale", stochasticJitterScale);
-        SWIGHT_SEVEN_REGISTRY.put("MaxFov", maximumFovAngle);
-        SWIGHT_SEVEN_REGISTRY.put("MaxReach", maximumReachBound);
-        SWIGHT_SEVEN_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
-        SWIGHT_SEVEN_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
-        SWIGHT_SEVEN_REGISTRY.put("BetaMetric", sessionMetricBeta);
-        SWIGHT_SEVEN_REGISTRY.put("GammaMetric", sessionMetricGamma);
-        SWIGHT_SEVEN_REGISTRY.put("DeltaMetric", sessionMetricDelta);
+    private static void initializeElasticRegistry() {
+        SWIGHT_ELASTIC_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        SWIGHT_ELASTIC_REGISTRY.put("Profile", "Swight-Elastic-AimAssist-700Lines");
+        SWIGHT_ELASTIC_REGISTRY.put("BypassEngine", "Human-Mime-ElasticShift-Enterprise");
+        SWIGHT_ELASTIC_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        SWIGHT_ELASTIC_REGISTRY.put("BufferFlushCounter", 0);
+        SWIGHT_ELASTIC_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
+        SWIGHT_ELASTIC_REGISTRY.put("WindMouseState", windMouseEngineActive);
+        SWIGHT_ELASTIC_REGISTRY.put("GcdCorrectionState", gcdCorrectionActive);
+        SWIGHT_ELASTIC_REGISTRY.put("SmoothingFactor", kinematicSmoothingRate);
+        SWIGHT_ELASTIC_REGISTRY.put("JitterScale", stochasticJitterScale);
+        SWIGHT_ELASTIC_REGISTRY.put("MaxFov", maximumFovAngle);
+        SWIGHT_ELASTIC_REGISTRY.put("MaxReach", maximumReachBound);
+        SWIGHT_ELASTIC_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
+        SWIGHT_ELASTIC_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
+        SWIGHT_ELASTIC_REGISTRY.put("BetaMetric", sessionMetricBeta);
+        SWIGHT_ELASTIC_REGISTRY.put("GammaMetric", sessionMetricGamma);
+        SWIGHT_ELASTIC_REGISTRY.put("DeltaMetric", sessionMetricDelta);
     }
 
     private static void initializeWeaponProfiles() {
-        WEAPON_SMOOTHING_PROFILES.put("sword", 0.28D);
-        WEAPON_SMOOTHING_PROFILES.put("axe", 0.32D);
-        WEAPON_SMOOTHING_PROFILES.put("bow", 0.50D);
-        WEAPON_SMOOTHING_PROFILES.put("crossbow", 0.50D);
-        WEAPON_SMOOTHING_PROFILES.put("mace", 0.35D);
-        WEAPON_SMOOTHING_PROFILES.put("trident", 0.30D);
+        WEAPON_SMOOTHING_PROFILES.put("sword", 0.22D);
+        WEAPON_SMOOTHING_PROFILES.put("axe", 0.28D);
+        WEAPON_SMOOTHING_PROFILES.put("bow", 0.45D);
+        WEAPON_SMOOTHING_PROFILES.put("crossbow", 0.45D);
+        WEAPON_SMOOTHING_PROFILES.put("mace", 0.30D);
+        WEAPON_SMOOTHING_PROFILES.put("trident", 0.25D);
 
         WEAPON_JITTER_PROFILES.put("sword", 0.00002D);
         WEAPON_JITTER_PROFILES.put("axe", 0.00003D);
@@ -155,7 +155,7 @@ public class AimAssist extends ClientBase.Module {
     public AimAssist() {
         super("AimAssist");
         AimAssist.enabled = true;
-        initializeSwightRegistry();
+        initializeElasticRegistry();
         initializeWeaponProfiles();
     }
 
@@ -202,11 +202,11 @@ public class AimAssist extends ClientBase.Module {
         SACCADE_HISTORY_DEQUE.clear();
         RECOIL_BUFFER_DEQUE.clear();
         purgeRegistry();
-        initializeSwightRegistry();
+        initializeElasticRegistry();
     }
 
     private static void purgeRegistry() {
-        SWIGHT_SEVEN_REGISTRY.clear();
+        SWIGHT_ELASTIC_REGISTRY.clear();
     }
 
     @Override
@@ -295,7 +295,6 @@ public class AimAssist extends ClientBase.Module {
             recoilTicks--;
         }
 
-        executeAutoCalibrationLearning();
         refreshAimRegistryState();
     }
 
@@ -393,32 +392,32 @@ public class AimAssist extends ClientBase.Module {
 
     private static Vec3 computeResolvedTargetPosition(Minecraft clientRef, Entity target) {
         String weaponKey = resolveWeaponKey(clientRef);
-        double profileSmooth = WEAPON_SMOOTHING_PROFILES.getOrDefault(weaponKey, 0.28D);
+        double profileSmooth = WEAPON_SMOOTHING_PROFILES.getOrDefault(weaponKey, 0.22D);
         double distanceToTarget = clientRef.player.distanceTo(target);
 
         double baseSmooth = profileSmooth;
         if (distanceToTarget < 2.5D) {
-            baseSmooth = 0.22D;
+            baseSmooth = 0.18D;
         } else if (distanceToTarget > 5.0D) {
-            baseSmooth = 0.40D;
+            baseSmooth = 0.35D;
         } else {
             baseSmooth = profileSmooth;
         }
 
         if (clientRef.player.getDeltaMovement().horizontalDistanceSqr() > 0.01D) {
-            baseSmooth = Math.min(0.55D, baseSmooth + 0.08D);
+            baseSmooth = Math.min(0.48D, baseSmooth + 0.06D);
         }
 
         kinematicSmoothingRate = baseSmooth;
 
         saccadeTimer++;
-        float maxOvershootYaw = distanceToTarget < 2.5D ? 0.02f : 0.10f;
-        float maxOvershootPitch = distanceToTarget < 2.5D ? 0.02f : 0.08f;
+        float maxOvershootYaw = distanceToTarget < 2.5D ? 0.01f : 0.08f;
+        float maxOvershootPitch = distanceToTarget < 2.5D ? 0.01f : 0.06f;
         float decayRate = distanceToTarget < 2.5D ? 0.98f : 0.96f;
 
         if (saccadeTimer == 0) {
-            overshootYawOffset = (float) ((secureRandom.nextDouble() - 0.5) * 1.2D);
-            overshootPitchOffset = (float) ((secureRandom.nextDouble() - 0.5) * 0.5D);
+            overshootYawOffset = (float) ((secureRandom.nextDouble() - 0.5) * 0.8D);
+            overshootPitchOffset = (float) ((secureRandom.nextDouble() - 0.5) * 0.3D);
         } else if (saccadeTimer == 1) {
             overshootYawOffset *= 0.2f;
             overshootPitchOffset *= 0.2f;
@@ -601,10 +600,10 @@ public class AimAssist extends ClientBase.Module {
     }
 
     private static void refreshAimRegistryState() {
-        SWIGHT_SEVEN_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
-        SWIGHT_SEVEN_REGISTRY.put("ActiveLockState", lockedTarget != null);
-        SWIGHT_SEVEN_REGISTRY.put("WindOffset", cumulativeWindX);
-        SWIGHT_SEVEN_REGISTRY.put("HistorySize", YAW_HISTORY_QUEUE.size());
+        SWIGHT_ELASTIC_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
+        SWIGHT_ELASTIC_REGISTRY.put("ActiveLockState", lockedTarget != null);
+        SWIGHT_ELASTIC_REGISTRY.put("WindOffset", cumulativeWindX);
+        SWIGHT_ELASTIC_REGISTRY.put("HistorySize", YAW_HISTORY_QUEUE.size());
     }
 
     public static UUID getSubsessionIdentity() {
@@ -656,7 +655,7 @@ public class AimAssist extends ClientBase.Module {
     }
 
     public static void runBaselineCalibration() {
-        kinematicSmoothingRate = 0.28D;
+        kinematicSmoothingRate = 0.22D;
         stochasticJitterScale = 0.00002D;
         maximumFovAngle = 100.0F;
         maximumReachBound = 4.5D;
