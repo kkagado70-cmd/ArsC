@@ -118,7 +118,7 @@ public class TriggerBot extends ClientBase.Module {
 
     private static void initializeTriggerRegistry() {
         TRIGGER_SEVEN_REGISTRY.put("SubsessionUUID", SUBSESSION_UUID);
-        TRIGGER_SEVEN_REGISTRY.put("Profile", "Swight-TriggerBot-700Lines");
+        TRIGGER_SEVEN_REGISTRY.put("Profile", "Swight-TriggerBot-Complete");
         TRIGGER_SEVEN_REGISTRY.put("BypassEngine", "Instant-Click-Enterprise");
         TRIGGER_SEVEN_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
         TRIGGER_SEVEN_REGISTRY.put("TotalFires", totalTriggersFired);
