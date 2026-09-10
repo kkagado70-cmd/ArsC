@@ -10,6 +10,8 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.security.SecureRandom;
 import java.util.UUID;
@@ -29,44 +31,47 @@ public class XbowCart extends ClientBase.Module {
     private static BlockPos vectorReferencePos = null;
     private static Direction vectorReferenceFace = Direction.UP;
     private static Vec3 vectorHitRegistry = null;
+    private static BlockPos resolvedRailPos = null;
+    private static BlockPos resolvedCartPos = null;
+    private static BlockPos resolvedFirePos = null;
     private static final SafetyWatchdog safetyWatchdog = new SafetyWatchdog();
     private static final SecureRandom secureRandom = new SecureRandom();
 
-    private static final Map<String, Object> XBOW_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, Object> XBOW_EYEZINGZ_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static final Deque<Long> EXECUTION_TIMESTAMP_QUEUE = new ArrayDeque<>();
     private static final Deque<Double> STOCHASTIC_LATENCY_DEQUE = new ArrayDeque<>();
     private static final Deque<Vec3> VECTOR_TRAJECTORY_HISTORY = new ArrayDeque<>();
-    private static final Deque<Integer> PIPELINE_ERROR_DEQUE = new ArrayDeque<>(); // <-- Deque<Integer>
+    private static final Deque<Integer> PIPELINE_ERROR_DEQUE = new ArrayDeque<>();
     private static final Deque<Long> STAGE_DURATION_DEQUE = new ArrayDeque<>();
-    private static final int HISTORY_MAX_CAPACITY = 4096;
+    private static final int HISTORY_MAX_CAPACITY = 8192;
 
     private static long pipelineExecutionCounter = 0L;
     private static boolean strictComplianceFlag = true;
-    private static int maxPipelineRetries = 7;
+    private static int maxPipelineRetries = 5;
     private static int currentRetryAttempt = 0;
-    private static double stochasticDelayModifier = 1.25D;
+    private static double stochasticDelayModifier = 1.0D;
     private static boolean towerCartingModeActive = true;
     private static boolean divebombBypassActive = true;
-    private static long globalWatchdogTimeoutMs = 1800L;
+    private static long globalWatchdogTimeoutMs = 1200L;
     private static int internalSlotCacheIndex = -1;
     private static boolean emergencyHaltFlag = false;
-    private static double humanMimeJitterFactor = 0.015D;
+    private static double humanMimeJitterFactor = 0.008D;
     private static int packetThrottlingCounter = 0;
     private static boolean adaptivePacingActive = true;
     private static long subsessionEpochTracker = System.currentTimeMillis();
-    private static double spatialPrecisionTolerance = 0.05D;
+    private static double spatialPrecisionTolerance = 0.02D;
     private static boolean antiReplayHeuristicShield = true;
     private static int pipelineAnomalyCounter = 0;
     private static boolean tacticalRetreatMode = false;
-    private static double targetElevationOffset = 0.2D;
+    private static double targetElevationOffset = 0.15D;
     private static boolean dynamicAngleCorrection = true;
     private static int successiveExecutionCount = 0;
     private static boolean stealthProfileActive = true;
     private static long lastPipelineInvocationEpoch = 0L;
-    private static double mouseInertiaWeight = 0.85D;
+    private static double mouseInertiaWeight = 0.95D;
     private static boolean packetOrderStrictSync = true;
-    private static int serverTickOffsetCalibration = 2;
+    private static int serverTickOffsetCalibration = 1;
 
     private static double sessionMetricAlpha = 0.5D;
     private static double sessionMetricBeta = 0.5D;
@@ -91,35 +96,35 @@ public class XbowCart extends ClientBase.Module {
     private static double frictionCoefficient = 0.04D;
 
     static {
-        initializeXbowEnterpriseRegistry();
+        initializeEyezingzRegistry();
     }
 
-    private static void initializeXbowEnterpriseRegistry() {
-        XBOW_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        XBOW_ENTERPRISE_REGISTRY.put("ModuleState", "HT1-Enterprise-XbowCart-Engine-V12");
-        XBOW_ENTERPRISE_REGISTRY.put("StrictCompliance", strictComplianceFlag);
-        XBOW_ENTERPRISE_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
-        XBOW_ENTERPRISE_REGISTRY.put("ExecutionHistorySize", 0);
-        XBOW_ENTERPRISE_REGISTRY.put("MaxRetries", maxPipelineRetries);
-        XBOW_ENTERPRISE_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
-        XBOW_ENTERPRISE_REGISTRY.put("TowerMode", towerCartingModeActive);
-        XBOW_ENTERPRISE_REGISTRY.put("DivebombMode", divebombBypassActive);
-        XBOW_ENTERPRISE_REGISTRY.put("JitterFactor", humanMimeJitterFactor);
-        XBOW_ENTERPRISE_REGISTRY.put("AdaptivePacing", adaptivePacingActive);
-        XBOW_ENTERPRISE_REGISTRY.put("AntiReplayShield", antiReplayHeuristicShield);
-        XBOW_ENTERPRISE_REGISTRY.put("StealthProfile", stealthProfileActive);
-        XBOW_ENTERPRISE_REGISTRY.put("MouseInertia", mouseInertiaWeight);
-        XBOW_ENTERPRISE_REGISTRY.put("PacketOrderSync", packetOrderStrictSync);
-        XBOW_ENTERPRISE_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
-        XBOW_ENTERPRISE_REGISTRY.put("BetaMetric", sessionMetricBeta);
-        XBOW_ENTERPRISE_REGISTRY.put("GammaMetric", sessionMetricGamma);
-        XBOW_ENTERPRISE_REGISTRY.put("DeltaMetric", sessionMetricDelta);
+    private static void initializeEyezingzRegistry() {
+        XBOW_EYEZINGZ_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        XBOW_EYEZINGZ_REGISTRY.put("ModuleState", "Eyezingz-Flick-XbowCart-800Lines");
+        XBOW_EYEZINGZ_REGISTRY.put("StrictCompliance", strictComplianceFlag);
+        XBOW_EYEZINGZ_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
+        XBOW_EYEZINGZ_REGISTRY.put("ExecutionHistorySize", 0);
+        XBOW_EYEZINGZ_REGISTRY.put("MaxRetries", maxPipelineRetries);
+        XBOW_EYEZINGZ_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
+        XBOW_EYEZINGZ_REGISTRY.put("TowerMode", towerCartingModeActive);
+        XBOW_EYEZINGZ_REGISTRY.put("DivebombMode", divebombBypassActive);
+        XBOW_EYEZINGZ_REGISTRY.put("JitterFactor", humanMimeJitterFactor);
+        XBOW_EYEZINGZ_REGISTRY.put("AdaptivePacing", adaptivePacingActive);
+        XBOW_EYEZINGZ_REGISTRY.put("AntiReplayShield", antiReplayHeuristicShield);
+        XBOW_EYEZINGZ_REGISTRY.put("StealthProfile", stealthProfileActive);
+        XBOW_EYEZINGZ_REGISTRY.put("MouseInertia", mouseInertiaWeight);
+        XBOW_EYEZINGZ_REGISTRY.put("PacketOrderSync", packetOrderStrictSync);
+        XBOW_EYEZINGZ_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
+        XBOW_EYEZINGZ_REGISTRY.put("BetaMetric", sessionMetricBeta);
+        XBOW_EYEZINGZ_REGISTRY.put("GammaMetric", sessionMetricGamma);
+        XBOW_EYEZINGZ_REGISTRY.put("DeltaMetric", sessionMetricDelta);
     }
 
     public XbowCart() {
         super("XbowCart");
         XbowCart.enabled = false;
-        initializeXbowEnterpriseRegistry();
+        initializeEyezingzRegistry();
     }
 
     @Override
@@ -144,6 +149,9 @@ public class XbowCart extends ClientBase.Module {
         vectorReferencePos = null;
         vectorReferenceFace = Direction.UP;
         vectorHitRegistry = null;
+        resolvedRailPos = null;
+        resolvedCartPos = null;
+        resolvedFirePos = null;
         currentRetryAttempt = 0;
         emergencyHaltFlag = false;
         pipelineAnomalyCounter = 0;
@@ -154,7 +162,7 @@ public class XbowCart extends ClientBase.Module {
         PIPELINE_ERROR_DEQUE.clear();
         STAGE_DURATION_DEQUE.clear();
         purgeRegistry();
-        initializeXbowEnterpriseRegistry();
+        initializeEyezingzRegistry();
     }
 
     @Override
@@ -202,46 +210,56 @@ public class XbowCart extends ClientBase.Module {
                 ItemStack mainHand = clientRef.player.getMainHandItem();
                 if (!validateRegistryItem(mainHand.getItem())) return;
                 if (InventoryManager.findChargedCrossbow(clientRef) == -1) return;
-                
+                if (InventoryManager.findItem(clientRef, Items.TNT_MINECART) == -1) return;
+
                 vectorReferencePos = blockHit.getBlockPos();
                 vectorReferenceFace = blockHit.getDirection();
                 vectorHitRegistry = blockHit.getLocation();
-                
-                if (vectorReferenceFace != Direction.UP) return;
+
+                if (vectorReferenceFace == Direction.UP) {
+                    resolvedRailPos = vectorReferencePos.above();
+                } else if (vectorReferenceFace == Direction.DOWN) {
+                    resolvedRailPos = vectorReferencePos.below();
+                } else {
+                    resolvedRailPos = vectorReferencePos.relative(vectorReferenceFace);
+                }
+
+                resolvedCartPos = resolvedRailPos;
+                resolvedFirePos = resolvedRailPos.relative(clientRef.player.getDirection().getOpposite());
+                if (!clientRef.level.getBlockState(resolvedFirePos.below()).isSolid()) {
+                    resolvedFirePos = resolvedRailPos.above();
+                }
 
                 safetyWatchdog.arm();
                 currentRetryAttempt = 0;
                 lastPipelineInvocationEpoch = System.currentTimeMillis();
                 currentPhase = PipelinePhase.RAIL_ACTION;
                 break;
+
             case RAIL_ACTION:
                 int r = locateRailSlot(clientRef);
                 if (r == -1) {
                     handlePipelineFailure(clientRef);
                     return;
                 }
-                Vec3 railTarget = vectorHitRegistry != null ? vectorHitRegistry : Vec3.atCenterOf(vectorReferencePos);
-                RotationManager.smoothTo(clientRef, railTarget.add(secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor), 0.98F);
-                InventoryManager.selectSlot(clientRef, r);
+                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(resolvedRailPos), 0.99F);
+                InventoryManager.selectSlotInstant(clientRef, r);
                 InteractionManager.simulateClickUse(clientRef);
-                actionTickCounter = serverTickOffsetCalibration + secureRandom.nextInt(2);
+                actionTickCounter = serverTickOffsetCalibration;
                 break;
+
             case CART_ACTION:
                 int c = InventoryManager.findItem(clientRef, Items.TNT_MINECART);
                 if (c == -1) {
                     handlePipelineFailure(clientRef);
                     return;
                 }
-                BlockPos cartPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
-                if (towerCartingModeActive && vectorReferenceFace != Direction.UP) {
-                    cartPos = vectorReferencePos.above();
-                }
-                Vec3 cartTarget = Vec3.atCenterOf(cartPos);
-                RotationManager.smoothTo(clientRef, cartTarget.add(secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor), 0.98F);
-                InventoryManager.selectSlot(clientRef, c);
+                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(resolvedCartPos), 0.99F);
+                InventoryManager.selectSlotInstant(clientRef, c);
                 InteractionManager.simulateClickUse(clientRef);
-                actionTickCounter = serverTickOffsetCalibration + secureRandom.nextInt(2);
+                actionTickCounter = serverTickOffsetCalibration;
                 break;
+
             case FLINT_ACTION:
                 int f = InventoryManager.findItem(clientRef, Items.FLINT_AND_STEEL);
                 if (f == -1) f = InventoryManager.findItem(clientRef, Items.FIRE_CHARGE);
@@ -249,26 +267,25 @@ public class XbowCart extends ClientBase.Module {
                     handlePipelineFailure(clientRef);
                     return;
                 }
-                BlockPos firePos = vectorReferenceFace == Direction.UP ? vectorReferencePos.relative(clientRef.player.getDirection().getOpposite()) : vectorReferencePos;
-                Vec3 fireTarget = Vec3.atCenterOf(firePos);
-                RotationManager.smoothTo(clientRef, fireTarget.add(secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor), 0.98F);
-                InventoryManager.selectSlot(clientRef, f);
+                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(resolvedFirePos), 0.99F);
+                InventoryManager.selectSlotInstant(clientRef, f);
                 InteractionManager.simulateClickUse(clientRef);
-                actionTickCounter = serverTickOffsetCalibration + secureRandom.nextInt(2);
+                actionTickCounter = serverTickOffsetCalibration;
                 break;
+
             case XBOW_ACTION:
                 int x = InventoryManager.findChargedCrossbow(clientRef);
                 if (x == -1) {
                     handlePipelineFailure(clientRef);
                     return;
                 }
-                BlockPos shootPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
-                Vec3 shootTarget = Vec3.atCenterOf(shootPos).add(0.0D, targetElevationOffset, 0.0D);
-                RotationManager.smoothTo(clientRef, shootTarget.add(secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor, secureRandom.nextDouble() * humanMimeJitterFactor), 0.98F);
-                InventoryManager.selectSlot(clientRef, x);
+                Vec3 shootTarget = Vec3.atCenterOf(resolvedCartPos).add(0.0D, targetElevationOffset, 0.0D);
+                RotationManager.smoothTo(clientRef, shootTarget, 0.99F);
+                InventoryManager.selectSlotInstant(clientRef, x);
                 InteractionManager.simulateClickUse(clientRef);
-                actionTickCounter = serverTickOffsetCalibration + secureRandom.nextInt(2);
+                actionTickCounter = serverTickOffsetCalibration;
                 break;
+
             case CLEANUP:
                 purgePipelineRegistry();
                 break;
@@ -279,12 +296,12 @@ public class XbowCart extends ClientBase.Module {
     private static void handlePipelineFailure(Minecraft clientRef) {
         currentRetryAttempt++;
         pipelineAnomalyCounter++;
-        PIPELINE_ERROR_DEQUE.offerLast(currentPhase.ordinal()); // CORRIGIDO: sem cast
+        PIPELINE_ERROR_DEQUE.offerLast(currentPhase.ordinal());
         if (PIPELINE_ERROR_DEQUE.size() > HISTORY_MAX_CAPACITY) {
             PIPELINE_ERROR_DEQUE.pollFirst();
         }
         if (currentRetryAttempt <= maxPipelineRetries) {
-            actionTickCounter = 3 + secureRandom.nextInt(3);
+            actionTickCounter = 1 + secureRandom.nextInt(2);
         } else {
             emergencyHaltFlag = true;
             purgePipelineRegistry();
@@ -326,27 +343,27 @@ public class XbowCart extends ClientBase.Module {
     }
 
     private static void updateRegistryState() {
-        XBOW_ENTERPRISE_REGISTRY.put("ExecutionCounter", pipelineExecutionCounter);
-        XBOW_ENTERPRISE_REGISTRY.put("PipelineStage", currentPhase.name());
-        XBOW_ENTERPRISE_REGISTRY.put("HistorySize", EXECUTION_TIMESTAMP_QUEUE.size());
-        XBOW_ENTERPRISE_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
-        XBOW_ENTERPRISE_REGISTRY.put("EmergencyHalt", emergencyHaltFlag);
-        XBOW_ENTERPRISE_REGISTRY.put("AnomalyCount", pipelineAnomalyCounter);
-        XBOW_ENTERPRISE_REGISTRY.put("SuccessiveExecutions", successiveExecutionCount);
+        XBOW_EYEZINGZ_REGISTRY.put("ExecutionCounter", pipelineExecutionCounter);
+        XBOW_EYEZINGZ_REGISTRY.put("PipelineStage", currentPhase.name());
+        XBOW_EYEZINGZ_REGISTRY.put("HistorySize", EXECUTION_TIMESTAMP_QUEUE.size());
+        XBOW_EYEZINGZ_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
+        XBOW_EYEZINGZ_REGISTRY.put("EmergencyHalt", emergencyHaltFlag);
+        XBOW_EYEZINGZ_REGISTRY.put("AnomalyCount", pipelineAnomalyCounter);
+        XBOW_EYEZINGZ_REGISTRY.put("SuccessiveExecutions", successiveExecutionCount);
     }
 
     private static void executeSubsystemSanitation() {
         if (pipelineExecutionCounter > 100000000L) {
             pipelineExecutionCounter = 0L;
         }
-        if (XBOW_ENTERPRISE_REGISTRY.size() > 250) {
+        if (XBOW_EYEZINGZ_REGISTRY.size() > 250) {
             purgeRegistry();
-            initializeXbowEnterpriseRegistry();
+            initializeEyezingzRegistry();
         }
     }
 
     private static void purgeRegistry() {
-        XBOW_ENTERPRISE_REGISTRY.clear();
+        XBOW_EYEZINGZ_REGISTRY.clear();
     }
 
     public static void purgePipelineRegistry() {
@@ -354,6 +371,9 @@ public class XbowCart extends ClientBase.Module {
         vectorReferencePos = null;
         vectorReferenceFace = Direction.UP;
         vectorHitRegistry = null;
+        resolvedRailPos = null;
+        resolvedCartPos = null;
+        resolvedFirePos = null;
         actionTickCounter = 0;
         currentRetryAttempt = 0;
         safetyWatchdog.disarm();
@@ -373,7 +393,7 @@ public class XbowCart extends ClientBase.Module {
 
     public static void setStrictCompliance(boolean state) {
         strictComplianceFlag = state;
-        XBOW_ENTERPRISE_REGISTRY.put("StrictCompliance", strictComplianceFlag);
+        XBOW_EYEZINGZ_REGISTRY.put("StrictCompliance", strictComplianceFlag);
     }
 
     public static boolean isStrictComplianceActive() {
@@ -382,7 +402,7 @@ public class XbowCart extends ClientBase.Module {
 
     public static void setMaxRetries(int retries) {
         maxPipelineRetries = Math.max(0, retries);
-        XBOW_ENTERPRISE_REGISTRY.put("MaxRetries", maxPipelineRetries);
+        XBOW_EYEZINGZ_REGISTRY.put("MaxRetries", maxPipelineRetries);
     }
 
     public static int getMaxRetries() {
@@ -391,7 +411,7 @@ public class XbowCart extends ClientBase.Module {
 
     public static void performBaselineCalibration() {
         strictComplianceFlag = true;
-        maxPipelineRetries = 7;
+        maxPipelineRetries = 5;
         currentRetryAttempt = 0;
         pipelineExecutionCounter = 0L;
         emergencyHaltFlag = false;
@@ -429,7 +449,7 @@ public class XbowCart extends ClientBase.Module {
 
     public static void setTowerCartingMode(boolean state) {
         towerCartingModeActive = state;
-        XBOW_ENTERPRISE_REGISTRY.put("TowerMode", towerCartingModeActive);
+        XBOW_EYEZINGZ_REGISTRY.put("TowerMode", towerCartingModeActive);
     }
 
     public static boolean isTowerCartingModeActive() {
@@ -438,7 +458,7 @@ public class XbowCart extends ClientBase.Module {
 
     public static void setDivebombBypass(boolean state) {
         divebombBypassActive = state;
-        XBOW_ENTERPRISE_REGISTRY.put("DivebombMode", divebombBypassActive);
+        XBOW_EYEZINGZ_REGISTRY.put("DivebombMode", divebombBypassActive);
     }
 
     public static boolean isDivebombBypassActive() {
@@ -461,12 +481,12 @@ public class XbowCart extends ClientBase.Module {
         stochasticDelayModifier = modifier;
     }
 
-        public static long getGlobalWatchdogTimeoutMs() {
+    public static long getGlobalWatchdogTimeoutMs() {
         return globalWatchdogTimeoutMs;
     }
 
     public static void setGlobalWatchdogTimeoutMs(long timeout) {
         globalWatchdogTimeoutMs = timeout;
-        XBOW_ENTERPRISE_REGISTRY.put("WatchdogTimeout", globalWatchdogTimeoutMs);
+        XBOW_EYEZINGZ_REGISTRY.put("WatchdogTimeout", globalWatchdogTimeoutMs);
     }
-} // <-- ESSA É A CHAVE QUE FALTAVA
+}
