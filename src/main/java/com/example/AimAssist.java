@@ -22,7 +22,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 public class AimAssist extends ClientBase.Module {
-    pubdlic static final String FILE_NAME = "AimAssist.java";
+    public static final String FILE_NAME = "AimAssist.java";
     public static boolean enabled = true;
     private static final SecureRandom secureRandom = new SecureRandom();
     private static Entity lockedTarget = null;
