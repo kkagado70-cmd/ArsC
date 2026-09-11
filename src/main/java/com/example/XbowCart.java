@@ -38,7 +38,7 @@ public class XbowCart extends ClientBase.Module {
     private static final SafetyWatchdog safetyWatchdog = new SafetyWatchdog();
     private static final SecureRandom secureRandom = new SecureRandom();
 
-    private static final Map<String, Object> XBOW_MONOLITH_REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, Object> XBOW_MATH_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static final Deque<Long> EXECUTION_TIMESTAMP_QUEUE = new ArrayDeque<>();
     private static final Deque<Double> STOCHASTIC_LATENCY_DEQUE = new ArrayDeque<>();
@@ -57,20 +57,20 @@ public class XbowCart extends ClientBase.Module {
     private static long globalWatchdogTimeoutMs = 1200L;
     private static int internalSlotCacheIndex = -1;
     private static boolean emergencyHaltFlag = false;
-    private static double humanMimeJitterFactor = 0.005D;
+    private static double humanMimeJitterFactor = 0.003D;
     private static int packetThrottlingCounter = 0;
     private static boolean adaptivePacingActive = true;
     private static long subsessionEpochTracker = System.currentTimeMillis();
-    private static double spatialPrecisionTolerance = 0.02D;
+    private static double spatialPrecisionTolerance = 0.01D;
     private static boolean antiReplayHeuristicShield = true;
     private static int pipelineAnomalyCounter = 0;
     private static boolean tacticalRetreatMode = false;
-    private static double targetElevationOffset = 0.15D;
+    private static double targetElevationOffset = 0.12D;
     private static boolean dynamicAngleCorrection = true;
     private static int successiveExecutionCount = 0;
     private static boolean stealthProfileActive = true;
     private static long lastPipelineInvocationEpoch = 0L;
-    private static double mouseInertiaWeight = 0.95D;
+    private static double mouseInertiaWeight = 0.98D;
     private static boolean packetOrderStrictSync = true;
     private static int serverTickOffsetCalibration = 1;
 
@@ -97,35 +97,35 @@ public class XbowCart extends ClientBase.Module {
     private static double frictionCoefficient = 0.04D;
 
     static {
-        initializeXbowMonolithRegistry();
+        initializeXbowMathRegistry();
     }
 
-    private static void initializeXbowMonolithRegistry() {
-        XBOW_MONOLITH_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        XBOW_MONOLITH_REGISTRY.put("ModuleState", "Swight-Monolith-XbowCart-800Lines");
-        XBOW_MONOLITH_REGISTRY.put("StrictCompliance", strictComplianceFlag);
-        XBOW_MONOLITH_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
-        XBOW_MONOLITH_REGISTRY.put("ExecutionHistorySize", 0);
-        XBOW_MONOLITH_REGISTRY.put("MaxRetries", maxPipelineRetries);
-        XBOW_MONOLITH_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
-        XBOW_MONOLITH_REGISTRY.put("TowerMode", towerCartingModeActive);
-        XBOW_MONOLITH_REGISTRY.put("DivebombMode", divebombBypassActive);
-        XBOW_MONOLITH_REGISTRY.put("JitterFactor", humanMimeJitterFactor);
-        XBOW_MONOLITH_REGISTRY.put("AdaptivePacing", adaptivePacingActive);
-        XBOW_MONOLITH_REGISTRY.put("AntiReplayShield", antiReplayHeuristicShield);
-        XBOW_MONOLITH_REGISTRY.put("StealthProfile", stealthProfileActive);
-        XBOW_MONOLITH_REGISTRY.put("MouseInertia", mouseInertiaWeight);
-        XBOW_MONOLITH_REGISTRY.put("PacketOrderSync", packetOrderStrictSync);
-        XBOW_MONOLITH_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
-        XBOW_MONOLITH_REGISTRY.put("BetaMetric", sessionMetricBeta);
-        XBOW_MONOLITH_REGISTRY.put("GammaMetric", sessionMetricGamma);
-        XBOW_MONOLITH_REGISTRY.put("DeltaMetric", sessionMetricDelta);
+    private static void initializeXbowMathRegistry() {
+        XBOW_MATH_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        XBOW_MATH_REGISTRY.put("ModuleState", "HT1-Math-XbowCart-800Lines");
+        XBOW_MATH_REGISTRY.put("StrictCompliance", strictComplianceFlag);
+        XBOW_MATH_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
+        XBOW_MATH_REGISTRY.put("ExecutionHistorySize", 0);
+        XBOW_MATH_REGISTRY.put("MaxRetries", maxPipelineRetries);
+        XBOW_MATH_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
+        XBOW_MATH_REGISTRY.put("TowerMode", towerCartingModeActive);
+        XBOW_MATH_REGISTRY.put("DivebombMode", divebombBypassActive);
+        XBOW_MATH_REGISTRY.put("JitterFactor", humanMimeJitterFactor);
+        XBOW_MATH_REGISTRY.put("AdaptivePacing", adaptivePacingActive);
+        XBOW_MATH_REGISTRY.put("AntiReplayShield", antiReplayHeuristicShield);
+        XBOW_MATH_REGISTRY.put("StealthProfile", stealthProfileActive);
+        XBOW_MATH_REGISTRY.put("MouseInertia", mouseInertiaWeight);
+        XBOW_MATH_REGISTRY.put("PacketOrderSync", packetOrderStrictSync);
+        XBOW_MATH_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
+        XBOW_MATH_REGISTRY.put("BetaMetric", sessionMetricBeta);
+        XBOW_MATH_REGISTRY.put("GammaMetric", sessionMetricGamma);
+        XBOW_MATH_REGISTRY.put("DeltaMetric", sessionMetricDelta);
     }
 
     public XbowCart() {
         super("XbowCart");
         XbowCart.enabled = false;
-        initializeXbowMonolithRegistry();
+        initializeXbowMathRegistry();
     }
 
     @Override
@@ -163,7 +163,7 @@ public class XbowCart extends ClientBase.Module {
         PIPELINE_ERROR_DEQUE.clear();
         STAGE_DURATION_DEQUE.clear();
         purgeRegistry();
-        initializeXbowMonolithRegistry();
+        initializeXbowMathRegistry();
     }
 
     @Override
@@ -249,7 +249,7 @@ public class XbowCart extends ClientBase.Module {
                 RotationManager.smoothTo(clientRef, Vec3.atCenterOf(resolvedRailPos), 0.99F);
                 InventoryManager.selectSlot(clientRef, r);
                 InteractionManager.simulateClickUse(clientRef);
-                actionTickCounter = serverTickOffsetCalibration;
+                actionTickCounter = 1;
                 break;
 
             case CART_ACTION:
@@ -261,7 +261,7 @@ public class XbowCart extends ClientBase.Module {
                 RotationManager.smoothTo(clientRef, Vec3.atCenterOf(resolvedCartPos), 0.99F);
                 InventoryManager.selectSlot(clientRef, c);
                 InteractionManager.simulateClickUse(clientRef);
-                actionTickCounter = serverTickOffsetCalibration;
+                actionTickCounter = 1;
                 break;
 
             case FLINT_ACTION:
@@ -274,7 +274,7 @@ public class XbowCart extends ClientBase.Module {
                 RotationManager.smoothTo(clientRef, Vec3.atCenterOf(resolvedFirePos), 0.99F);
                 InventoryManager.selectSlot(clientRef, f);
                 InteractionManager.simulateClickUse(clientRef);
-                actionTickCounter = serverTickOffsetCalibration;
+                actionTickCounter = 1;
                 break;
 
             case XBOW_ACTION:
@@ -287,13 +287,13 @@ public class XbowCart extends ClientBase.Module {
                 Vec3 fireCenter = Vec3.atCenterOf(resolvedFirePos);
                 Vec3 trajectoryMidpoint = cartCenter.add(fireCenter).scale(0.5D);
                 double distanceToCart = clientRef.player.position().distanceTo(cartCenter);
-                double dynamicElevation = targetElevationOffset + (distanceToTarget(clientRef, cartCenter) * 0.03D);
+                double dynamicElevation = targetElevationOffset + (distanceToCart * 0.025D);
                 Vec3 shootTarget = trajectoryMidpoint.add(0.0D, dynamicElevation, 0.0D);
 
                 RotationManager.smoothTo(clientRef, shootTarget, 0.99F);
                 InventoryManager.selectSlot(clientRef, x);
                 InteractionManager.simulateClickUse(clientRef);
-                actionTickCounter = serverTickOffsetCalibration + 1;
+                actionTickCounter = 2;
                 break;
 
             case CLEANUP:
@@ -301,11 +301,6 @@ public class XbowCart extends ClientBase.Module {
                 break;
         }
         updateRegistryState();
-    }
-
-    private static double distanceToTarget(Minecraft clientRef, Vec3 target) {
-        if (clientRef.player == null) return 0.0D;
-        return clientRef.player.position().distanceTo(target);
     }
 
     private static void handlePipelineFailure(Minecraft clientRef) {
@@ -358,27 +353,27 @@ public class XbowCart extends ClientBase.Module {
     }
 
     private static void updateRegistryState() {
-        XBOW_MONOLITH_REGISTRY.put("ExecutionCounter", pipelineExecutionCounter);
-        XBOW_MONOLITH_REGISTRY.put("PipelineStage", currentPhase.name());
-        XBOW_MONOLITH_REGISTRY.put("HistorySize", EXECUTION_TIMESTAMP_QUEUE.size());
-        XBOW_MONOLITH_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
-        XBOW_MONOLITH_REGISTRY.put("EmergencyHalt", emergencyHaltFlag);
-        XBOW_MONOLITH_REGISTRY.put("AnomalyCount", pipelineAnomalyCounter);
-        XBOW_MONOLITH_REGISTRY.put("SuccessiveExecutions", successiveExecutionCount);
+        XBOW_MATH_REGISTRY.put("ExecutionCounter", pipelineExecutionCounter);
+        XBOW_MATH_REGISTRY.put("PipelineStage", currentPhase.name());
+        XBOW_MATH_REGISTRY.put("HistorySize", EXECUTION_TIMESTAMP_QUEUE.size());
+        XBOW_MATH_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
+        XBOW_MATH_REGISTRY.put("EmergencyHalt", emergencyHaltFlag);
+        XBOW_MATH_REGISTRY.put("AnomalyCount", pipelineAnomalyCounter);
+        XBOW_MATH_REGISTRY.put("SuccessiveExecutions", successiveExecutionCount);
     }
 
     private static void executeSubsystemSanitation() {
         if (pipelineExecutionCounter > 100000000L) {
             pipelineExecutionCounter = 0L;
         }
-        if (XBOW_MONOLITH_REGISTRY.size() > 250) {
+        if (XBOW_MATH_REGISTRY.size() > 250) {
             purgeRegistry();
-            initializeXbowMonolithRegistry();
+            initializeXbowMathRegistry();
         }
     }
 
     private static void purgeRegistry() {
-        XBOW_MONOLITH_REGISTRY.clear();
+        XBOW_MATH_REGISTRY.clear();
     }
 
     public static void purgePipelineRegistry() {
@@ -408,7 +403,7 @@ public class XbowCart extends ClientBase.Module {
 
     public static void setStrictCompliance(boolean state) {
         strictComplianceFlag = state;
-        XBOW_MONOLITH_REGISTRY.put("StrictCompliance", strictComplianceFlag);
+        XBOW_MATH_REGISTRY.put("StrictCompliance", strictComplianceFlag);
     }
 
     public static boolean isStrictComplianceActive() {
@@ -417,7 +412,7 @@ public class XbowCart extends ClientBase.Module {
 
     public static void setMaxRetries(int retries) {
         maxPipelineRetries = Math.max(0, retries);
-        XBOW_MONOLITH_REGISTRY.put("MaxRetries", maxPipelineRetries);
+        XBOW_MATH_REGISTRY.put("MaxRetries", maxPipelineRetries);
     }
 
     public static int getMaxRetries() {
@@ -464,7 +459,7 @@ public class XbowCart extends ClientBase.Module {
 
     public static void setTowerCartingMode(boolean state) {
         towerCartingModeActive = state;
-        XBOW_MONOLITH_REGISTRY.put("TowerMode", towerCartingModeActive);
+        XBOW_MATH_REGISTRY.put("TowerMode", towerCartingModeActive);
     }
 
     public static boolean isTowerCartingModeActive() {
@@ -473,7 +468,7 @@ public class XbowCart extends ClientBase.Module {
 
     public static void setDivebombBypass(boolean state) {
         divebombBypassActive = state;
-        XBOW_MONOLITH_REGISTRY.put("DivebombMode", divebombBypassActive);
+        XBOW_MATH_REGISTRY.put("DivebombMode", divebombBypassActive);
     }
 
     public static boolean isDivebombBypassActive() {
@@ -501,7 +496,120 @@ public class XbowCart extends ClientBase.Module {
     }
 
     public static void setGlobalWatchdogTimeoutMs(long timeout) {
-        globalWatchdogTimeoutMs = timeout;
-        XBOW_MONOLITH_REGISTRY.put("WatchdogTimeout", globalWatchdogTimeoutMs);
+        globbalWatchdogTimeoutMs = timeout;
+        XBOW_MATH_REGISTRY.put("WatchdogTimeout", globalWatchdogTimeoutMs);
+    }
+
+    public static int getPipelineAnomalyCounter() {
+        return pipelineAnomalyCounter;
+    }
+
+    public static void resetPipelineAnomalyCounter() {
+        pipelineAnomalyCounter = 0;
+        XBOW_MATH_REGISTRY.put("AnomalyCount", pipelineAnomalyCounter);
+    }
+
+    public static boolean isTacticalRetreatMode() {
+        return tacticalRetreatMode;
+    }
+
+    public static void setTacticalRetreatMode(boolean state) {
+        tacticalRetreatMode = state;
+        XBOW_MATH_REGISTRY.put("TacticalRetreat", tacticalRetreatMode);
+    }
+
+    public static double getTargetElevationOffset() {
+        return targetElevationOffset;
+    }
+
+    public static void setTargetElevationOffset(double offset) {
+        targetElevationOffset = offset;
+        XBOW_MATH_REGISTRY.put("ElevationOffset", targetElevationOffset);
+    }
+
+    public static boolean isDynamicAngleCorrectionActive() {
+        return dynamicAngleCorrection;
+    }
+
+    public static void setDynamicAngleCorrection(boolean state) {
+        dynamicAngleCorrection = state;
+        XBOW_MATH_REGISTRY.put("DynamicAngleCorrection", dynamicAngleCorrection);
+    }
+
+    public static int getSuccessiveExecutionCount() {
+        return successiveExecutionCount;
+    }
+
+    public static void resetSuccessiveExecutionCount() {
+        successiveExecutionCount = 0;
+        XBOW_MATH_REGISTRY.put("SuccessiveExecutions", successiveExecutionCount);
+    }
+
+    public static boolean isStealthProfileActive() {
+        return stealthProfileActive;
+    }
+
+    public static void setStealthProfileActive(boolean state) {
+        stealthProfileActive = state;
+        XBOW_MATH_REGISTRY.put("StealthProfile", stealthProfileActive);
+    }
+
+    public static double getMouseInertiaWeight() {
+        return mouseInertiaWeight;
+    }
+
+    public static void setMouseInertiaWeight(double weight) {
+        mouseInertiaWeight = weight;
+        XBOW_MATH_REGISTRY.put("MouseInertia", mouseInertiaWeight);
+    }
+
+    public static boolean isPacketOrderStrictSyncActive() {
+        return packetOrderStrictSync;
+    }
+
+    public static void setPacketOrderStrictSync(boolean state) {
+        packetOrderStrictSync = state;
+        XBOW_MATH_REGISTRY.put("PacketOrderSync", packetOrderStrictSync);
+    }
+
+    public static int getServerTickOffsetCalibration() {
+        return serverTickOffsetCalibration;
+    }
+
+    public static void setServerTickOffsetCalibration(int offset) {
+        serverTickOffsetCalibration = Math.max(0, offset);
+        XBOW_MATH_REGISTRY.put("TickOffsetCalibration", serverTickOffsetCalibration);
+    }
+
+    public static int getExecutionTimestampQueueSize() {
+        return EXECUTION_TIMESTAMP_QUEUE.size();
+    }
+
+    public static int getStochasticLatencyQueueSize() {
+        return STOCHASTIC_LATENCY_DEQUE.size();
+    }
+
+    public static int getVectorTrajectoryHistorySize() {
+        return VECTOR_TRAJECTORY_HISTORY.size();
+    }
+
+    public static int getPipelineErrorDequeSize() {
+        return PIPELINE_ERROR_DEQUE.size();
+    }
+
+    public static int getStageDurationDequeSize() {
+        return STAGE_DURATION_DEQUE.size();
+    }
+
+    public static void clearAllXbowHistoryQueues() {
+        EXECUTION_TIMESTAMP_QUEUE.clear();
+        STOCHASTIC_LATENCY_DEQUE.clear();
+        VECTOR_TRAJECTORY_HISTORY.clear();
+        PIPELINE_ERROR_DEQUE.clear();
+        STAGE_DURATION_DEQUE.clear();
+    }
+
+    public static void forceXbowSubsystemReset() {
+        resetXbowInternalState();
     }
 }

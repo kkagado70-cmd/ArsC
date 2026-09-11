@@ -29,7 +29,7 @@ public class AimAssist extends ClientBase.Module {
     private static int targetLockTicks = 0;
     private static int targetLostTicks = 0;
 
-    private static final Map<String, Object> MATH_AIM_REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, Object> SWIGHT_SWIFT_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static final Deque<Float> YAW_HISTORY_QUEUE = new ArrayDeque<>();
     private static final Deque<Float> PITCH_HISTORY_QUEUE = new ArrayDeque<>();
@@ -42,10 +42,16 @@ public class AimAssist extends ClientBase.Module {
     private static final Deque<Double> STRAFE_VECTOR_DEQUE = new ArrayDeque<>();
     private static final Deque<Float> SACCADE_HISTORY_DEQUE = new ArrayDeque<>();
     private static final Deque<Double> RECOIL_BUFFER_DEQUE = new ArrayDeque<>();
+    private static final Deque<Float> DELTA_YAW_SAMPLE_DEQUE = new ArrayDeque<>();
+    private static final Deque<Float> DELTA_PITCH_SAMPLE_DEQUE = new ArrayDeque<>();
+    private static final Deque<Double> DISTANCE_SAMPLE_DEQUE = new ArrayDeque<>();
+    private static final Deque<Integer> TICK_DURATION_DEQUE = new ArrayDeque<>();
+    private static final Deque<Boolean> LINE_OF_SIGHT_DEQUE = new ArrayDeque<>();
+    private static final Deque<Double> SMOOTHING_TRACE_DEQUE = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 8192;
 
-    private static double kinematicSmoothingRate = 0.25D;
-    private static double stochasticJitterScale = 0.00002D;
+    private static double kinematicSmoothingRate = 0.65D;
+    private static double stochasticJitterScale = 0.00003D;
     private static float maximumFovAngle = 180.0F;
     private static double maximumReachBound = 7.0D;
     private static long globalExecutionCounter = 0L;
@@ -58,17 +64,17 @@ public class AimAssist extends ClientBase.Module {
 
     private static Vec3 previousTargetVelocity = Vec3.ZERO;
     private static Vec3 previousTargetAcceleration = Vec3.ZERO;
-    private static final float PREDICTION_TICKS = 3.0f;
-    private static float containmentStrength = 0.15f;
-    private static float containmentRadius = 1.2f;
+    private static final float PREDICTION_TICKS = 2.5f;
+    private static float containmentStrength = 0.28f;
+    private static float containmentRadius = 0.6f;
     private static float overshootYawOffset = 0.0f;
     private static float overshootPitchOffset = 0.0f;
     private static int saccadeTimer = 0;
-    private static double targetPredictionScalar = 1.35D;
+    private static double targetPredictionScalar = 1.45D;
     private static long averagePing = 50L;
     private static double verticalSmoothingMultiplier = 1.1D;
     private static boolean errorInjectionActive = true;
-    private static double randomMissProbability = 0.02D;
+    private static double randomMissProbability = 0.015D;
 
     private static Vec3 lastKnownTargetPos = null;
     private static int memoryTicks = 0;
@@ -104,54 +110,45 @@ public class AimAssist extends ClientBase.Module {
     private static final Map<String, Double> WEAPON_JITTER_PROFILES = new ConcurrentHashMap<>();
     private static final Map<String, Double> WEAPON_REACH_PROFILES = new ConcurrentHashMap<>();
 
-    private static final KalmanFilter1D kalmanX = new KalmanFilter1D(0.02D, 0.5D, 1.0D, 0.0D);
-    private static final KalmanFilter1D kalmanY = new KalmanFilter1D(0.02D, 0.5D, 1.0D, 0.0D);
-    private static final KalmanFilter1D kalmanZ = new KalmanFilter1D(0.02D, 0.5D, 1.0D, 0.0D);
-    private static final DampedSpring dampedSpringYaw = new DampedSpring(1.0D, 18.0D);
-    private static final DampedSpring dampedSpringPitch = new DampedSpring(1.0D, 18.0D);
-    private static final ButterworthFilter2nd butterworthYaw = new ButterworthFilter2nd(8.0D, 50.0D);
-    private static final ButterworthFilter2nd butterworthPitch = new ButterworthFilter2nd(8.0D, 50.0D);
-    private static final PinkNoiseGenerator pinkNoise = new PinkNoiseGenerator();
-
     static {
-        initializeMathAimRegistry();
+        initializeSwiftRegistry();
         initializeWeaponProfiles();
     }
 
-    private static void initializeMathAimRegistry() {
-        MATH_AIM_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        MATH_AIM_REGISTRY.put("Profile", "Swight-Mathematical-AimAssist-800Lines");
-        MATH_AIM_REGISTRY.put("BypassEngine", "Human-Mime-Math-Enterprise");
-        MATH_AIM_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
-        MATH_AIM_REGISTRY.put("BufferFlushCounter", 0);
-        MATH_AIM_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
-        MATH_AIM_REGISTRY.put("WindMouseState", windMouseEngineActive);
-        MATH_AIM_REGISTRY.put("GcdCorrectionState", gcdCorrectionActive);
-        MATH_AIM_REGISTRY.put("SmoothingFactor", kinematicSmoothingRate);
-        MATH_AIM_REGISTRY.put("JitterScale", stochasticJitterScale);
-        MATH_AIM_REGISTRY.put("MaxFov", maximumFovAngle);
-        MATH_AIM_REGISTRY.put("MaxReach", maximumReachBound);
-        MATH_AIM_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
-        MATH_AIM_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
-        MATH_AIM_REGISTRY.put("BetaMetric", sessionMetricBeta);
-        MATH_AIM_REGISTRY.put("GammaMetric", sessionMetricGamma);
-        MATH_AIM_REGISTRY.put("DeltaMetric", sessionMetricDelta);
+    private static void initializeSwiftRegistry() {
+        SWIGHT_SWIFT_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        SWIGHT_SWIFT_REGISTRY.put("Profile", "Swight-AimAssist-800Lines");
+        SWIGHT_SWIFT_REGISTRY.put("BypassEngine", "Human-Mime-FastShift-Enterprise");
+        SWIGHT_SWIFT_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        SWIGHT_SWIFT_REGISTRY.put("BufferFlushCounter", 0);
+        SWIGHT_SWIFT_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
+        SWIGHT_SWIFT_REGISTRY.put("WindMouseState", windMouseEngineActive);
+        SWIGHT_SWIFT_REGISTRY.put("GcdCorrectionState", gcdCorrectionActive);
+        SWIGHT_SWIFT_REGISTRY.put("SmoothingFactor", kinematicSmoothingRate);
+        SWIGHT_SWIFT_REGISTRY.put("JitterScale", stochasticJitterScale);
+        SWIGHT_SWIFT_REGISTRY.put("MaxFov", maximumFovAngle);
+        SWIGHT_SWIFT_REGISTRY.put("MaxReach", maximumReachBound);
+        SWIGHT_SWIFT_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
+        SWIGHT_SWIFT_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
+        SWIGHT_SWIFT_REGISTRY.put("BetaMetric", sessionMetricBeta);
+        SWIGHT_SWIFT_REGISTRY.put("GammaMetric", sessionMetricGamma);
+        SWIGHT_SWIFT_REGISTRY.put("DeltaMetric", sessionMetricDelta);
     }
 
     private static void initializeWeaponProfiles() {
-        WEAPON_SMOOTHING_PROFILES.put("sword", 0.25D);
-        WEAPON_SMOOTHING_PROFILES.put("axe", 0.30D);
-        WEAPON_SMOOTHING_PROFILES.put("bow", 0.45D);
-        WEAPON_SMOOTHING_PROFILES.put("crossbow", 0.45D);
-        WEAPON_SMOOTHING_PROFILES.put("mace", 0.28D);
-        WEAPON_SMOOTHING_PROFILES.put("trident", 0.25D);
+        WEAPON_SMOOTHING_PROFILES.put("sword", 0.60D);
+        WEAPON_SMOOTHING_PROFILES.put("axe", 0.65D);
+        WEAPON_SMOOTHING_PROFILES.put("bow", 0.70D);
+        WEAPON_SMOOTHING_PROFILES.put("crossbow", 0.70D);
+        WEAPON_SMOOTHING_PROFILES.put("mace", 0.62D);
+        WEAPON_SMOOTHING_PROFILES.put("trident", 0.60D);
 
-        WEAPON_JITTER_PROFILES.put("sword", 0.00002D);
-        WEAPON_JITTER_PROFILES.put("axe", 0.00003D);
+        WEAPON_JITTER_PROFILES.put("sword", 0.00003D);
+        WEAPON_JITTER_PROFILES.put("axe", 0.00004D);
         WEAPON_JITTER_PROFILES.put("bow", 0.00001D);
         WEAPON_JITTER_PROFILES.put("crossbow", 0.00001D);
-        WEAPON_JITTER_PROFILES.put("mace", 0.00004D);
-        WEAPON_JITTER_PROFILES.put("trident", 0.00002D);
+        WEAPON_JITTER_PROFILES.put("mace", 0.00005D);
+        WEAPON_JITTER_PROFILES.put("trident", 0.00003D);
 
         WEAPON_REACH_PROFILES.put("sword", 7.0D);
         WEAPON_REACH_PROFILES.put("axe", 7.0D);
@@ -161,152 +158,10 @@ public class AimAssist extends ClientBase.Module {
         WEAPON_REACH_PROFILES.put("trident", 7.0D);
     }
 
-    public static class KalmanFilter1D {
-        private double q;
-        private double r;
-        private double x;
-        private double p;
-        private double k;
-
-        public KalmanFilter1D(double processNoise, double measurementNoise, double estimationError, double initialValue) {
-            this.q = processNoise;
-            this.r = measurementNoise;
-            this.p = estimationError;
-            this.x = initialValue;
-        }
-
-        public double update(double measurement) {
-            p = p + q;
-            k = p / (p + r);
-            x = x + k * (measurement - x);
-            p = (1.0D - k) * p;
-            return x;
-        }
-
-        public void reset() {
-            x = 0.0D;
-            p = 1.0D;
-        }
-    }
-
-    public static class FittsCalculator {
-        public static double calculateMovementTime(double distance, double tolerance) {
-            if (tolerance <= 0.001D) tolerance = 0.001D;
-            double a = 0.05D;
-            double b = 0.12D;
-            return a + b * Math.log(2.0D * distance / tolerance) / Math.log(2.0D);
-        }
-    }
-
-    public static class MinJerkTrajectory {
-        public static double compute(double t) {
-            double clamped = Mth.clamp(t, 0.0D, 1.0D);
-            return 10.0D * Math.pow(clamped, 3.0D) - 15.0D * Math.pow(clamped, 4.0D) + 6.0D * Math.pow(clamped, 5.0D);
-        }
-    }
-
-    public static class BezierCubic {
-        public static double evaluate(double t, double p0, double p1, double p2, double p3) {
-            double u = 1.0D - t;
-            double tt = t * t;
-            double uu = u * u;
-            double uuu = uu * u;
-            double ttt = tt * t;
-            double p = uuu * p0;
-            p += 3.0D * uu * t * p1;
-            p += 3.0D * u * tt * p2;
-            p += ttt * p3;
-            return p;
-        }
-    }
-
-    public static class DampedSpring {
-        private double dampingRatio;
-        private double angularFrequency;
-        private double velocity = 0.0D;
-
-        public DampedSpring(double zeta, double omega) {
-            this.dampingRatio = zeta;
-            this.angularFrequency = omega;
-        }
-
-        public double update(double current, double target, double dt) {
-            double displacement = current - target;
-            double acceleration = -2.0D * dampingRatio * angularFrequency * velocity - angularFrequency * angularFrequency * displacement;
-            velocity += acceleration * dt;
-            return current + velocity * dt;
-        }
-
-        public void reset() {
-            velocity = 0.0D;
-        }
-    }
-
-    public static class ButterworthFilter2nd {
-        private double cutoffFrequency;
-        private double sampleRate;
-        private double v0 = 0.0D;
-        private double v1 = 0.0D;
-
-        public ButterworthFilter2nd(double cutoff, double rate) {
-            this.cutoffFrequency = cutoff;
-            this.sampleRate = rate;
-        }
-
-        public double filter(double input) {
-            double c = 1.0D / Math.tan(Math.PI * cutoffFrequency / sampleRate);
-            double a1 = 1.0D / (1.0D + Math.sqrt(2.0D) * c + c * c);
-            double a2 = 2.0D * a1;
-            double a3 = a1;
-            double b1 = 2.0D * (1.0D - c * c) * a1;
-            double b2 = (1.0D - Math.sqrt(2.0D) * c + c * c) * a1;
-
-            double output = a1 * input + a2 * v0 + a3 * v1 - b1 * v0 - b2 * v1;
-            v1 = v0;
-            v0 = input;
-            return output;
-        }
-
-        public void reset() {
-            v0 = 0.0D;
-            v1 = 0.0D;
-        }
-    }
-
-    public static class PinkNoiseGenerator {
-        private int counter = 0;
-        private final double[] rows = new double[16];
-        private double runningSum = 0.0D;
-
-        public double nextNoise() {
-            int lastKey = counter;
-            counter = (counter + 1) & 32767;
-            int diff = lastKey ^ counter;
-            for (int i = 0; i < 16; i++) {
-                if (((diff >> i) & 1) != 0) {
-                    double rand = (secureRandom.nextDouble() - 0.5D) * 2.0D;
-                    runningSum -= rows[i];
-                    rows[i] = rand;
-                    runningSum += rows[i];
-                }
-            }
-            return runningSum / 16.0D;
-        }
-    }
-
-    public static class TwoThirdsPowerLaw {
-        public static double calculateCurvatureVelocity(double radius, double curvature) {
-            double k = 0.85D;
-            if (radius < 0.001D) radius = 0.001D;
-            if (curvature < 0.001D) curvature = 0.001D;
-            return k * Math.pow(radius, 1.0D / 3.0D) * Math.pow(curvature, 2.0D / 3.0D);
-        }
-    }
-
     public AimAssist() {
         super("AimAssist");
         AimAssist.enabled = true;
-        initializeMathAimRegistry();
+        initializeSwiftRegistry();
         initializeWeaponProfiles();
     }
 
@@ -341,13 +196,6 @@ public class AimAssist extends ClientBase.Module {
         recoilTicks = 0;
         hitCount = 0;
         totalAttacks = 0;
-        kalmanX.reset();
-        kalmanY.reset();
-        kalmanZ.reset();
-        dampedSpringYaw.reset();
-        dampedSpringPitch.reset();
-        butterworthYaw.reset();
-        butterworthPitch.reset();
         YAW_HISTORY_QUEUE.clear();
         PITCH_HISTORY_QUEUE.clear();
         VELOCITY_VECTOR_DEQUE.clear();
@@ -359,12 +207,18 @@ public class AimAssist extends ClientBase.Module {
         STRAFE_VECTOR_DEQUE.clear();
         SACCADE_HISTORY_DEQUE.clear();
         RECOIL_BUFFER_DEQUE.clear();
+        DELTA_YAW_SAMPLE_DEQUE.clear();
+        DELTA_PITCH_SAMPLE_DEQUE.clear();
+        DISTANCE_SAMPLE_DEQUE.clear();
+        TICK_DURATION_DEQUE.clear();
+        LINE_OF_SIGHT_DEQUE.clear();
+        SMOOTHING_TRACE_DEQUE.clear();
         purgeRegistry();
-        initializeMathAimRegistry();
+        initializeSwiftRegistry();
     }
 
     private static void purgeRegistry() {
-        MATH_AIM_REGISTRY.clear();
+        SWIGHT_SWIFT_REGISTRY.clear();
     }
 
     @Override
@@ -454,67 +308,28 @@ public class AimAssist extends ClientBase.Module {
         }
 
         refreshAimRegistryState();
+        pushTelemetryAuditQueue();
     }
 
     private static Entity evaluateSmartTarget(Minecraft clientRef) {
-        String weaponKey = resolveWeaponKey(clientRef);
-        double profileReach = WEAPON_REACH_PROFILES.getOrDefault(weaponKey, 7.0D);
-
         if (lockedTarget != null) {
-            double effectiveReach = profileReach;
-            if (clientRef.player.distanceTo(lockedTarget) > 5.0D) {
-                effectiveReach = 7.0D;
-            }
-            double distSqr = clientRef.player.distanceToSqr(lockedTarget);
-            double dist = Math.sqrt(distSqr);
-            double effectiveFov = dist > 5.0D ? 80.0D : maximumFovAngle;
-
-            if (lockedTarget.isAlive() && distSqr <= (effectiveReach * effectiveReach) && computeFovCheck(clientRef, lockedTarget, effectiveFov) && verifyLineOfSight(clientRef, lockedTarget)) {
+            if (lockedTarget.isAlive() && clientRef.player.distanceToSqr(lockedTarget) <= (maximumReachBound * maximumReachBound)) {
                 targetLockTicks++;
-                targetLostTicks = 0;
-                if (targetLockTicks < 5000) {
-                    return lockedTarget;
-                }
-            }
-            targetLostTicks++;
-            if (targetLostTicks < 5) {
                 return lockedTarget;
             }
             lockedTarget = null;
             targetLockTicks = 0;
-            targetLostTicks = 0;
-            targetSwitchThrottleTicks = 1 + secureRandom.nextInt(2);
         }
 
-        if (targetSwitchThrottleTicks > 0) return null;
-
         Entity bestEntity = null;
-        double minDistanceSqr = (7.0D * 7.0D) + 1.0D;
+        double minDistanceSqr = (maximumReachBound * maximumReachBound) + 1.0D;
 
         for (Entity entity : clientRef.level.entitiesForRendering()) {
             if (!(entity instanceof LivingEntity living) || living == clientRef.player || !living.isAlive()) continue;
             if (living instanceof Player player && (player.isSpectator() || player.isCreative())) continue;
             
             double distSqr = clientRef.player.distanceToSqr(living);
-            double currentReach = profileReach;
-            
-            ItemStack hand = clientRef.player.getMainHandItem();
-            boolean isLongRange = hand.getItem() instanceof BowItem || hand.getItem() instanceof CrossbowItem;
-            boolean targetStatic = living.getDeltaMovement().horizontalDistanceSqr() < 0.001D;
-            
-            if (isLongRange || targetStatic || distSqr > (4.5D * 4.5D)) {
-                currentReach = 7.0D;
-            } else {
-                currentReach = profileReach;
-            }
-            
-            if (distSqr > (currentReach * currentReach)) continue;
-            
-            double dist = Math.sqrt(distSqr);
-            double effectiveFov = dist > 5.0D ? 80.0D : maximumFovAngle;
-            
-            if (!computeFovCheck(clientRef, living, effectiveFov)) continue;
-            if (!verifyLineOfSight(clientRef, living)) continue;
+            if (distSqr > (maximumReachBound * maximumReachBound)) continue;
 
             if (distSqr < minDistanceSqr) {
                 minDistanceSqr = distSqr;
@@ -522,10 +337,9 @@ public class AimAssist extends ClientBase.Module {
             }
         }
 
-        if (bestEntity != null && bestEntity != lockedTarget) {
+        if (bestEntity != null) {
             lockedTarget = bestEntity;
             targetLockTicks = 0;
-            targetLostTicks = 0;
         }
         return lockedTarget;
     }
@@ -549,42 +363,21 @@ public class AimAssist extends ClientBase.Module {
     }
 
     private static Vec3 computeResolvedTargetPosition(Minecraft clientRef, Entity target) {
-        double kx = kalmanX.update(target.getX());
-        double ky = kalmanY.update(target.getY());
-        double kz = kalmanZ.update(target.getZ());
-        Vec3 kalmanFilteredPos = new Vec3(kx, ky, kz);
-
-        String weaponKey = resolveWeaponKey(clientRef);
-        double profileSmooth = WEAPON_SMOOTHING_PROFILES.getOrDefault(weaponKey, 0.25D);
         double distanceToTarget = clientRef.player.distanceTo(target);
 
-        double baseSmooth = profileSmooth;
-        if (distanceToTarget < 2.5D) {
-            baseSmooth = 0.20D;
-        } else if (distanceToTarget > 5.0D) {
-            baseSmooth = 0.35D;
-        } else {
-            baseSmooth = profileSmooth;
-        }
-
-        if (clientRef.player.getDeltaMovement().horizontalDistanceSqr() > 0.01D) {
-            baseSmooth = Math.min(0.50D, baseSmooth + 0.08D);
+        double baseSmooth = distanceToTarget < 2.5D ? 0.55D : 0.65D;
+        if (distanceToTarget > 5.0D) {
+            baseSmooth = 0.50D;
         }
 
         kinematicSmoothingRate = baseSmooth;
 
         saccadeTimer++;
-        float maxOvershootYaw = distanceToTarget < 2.5D ? 0.01f : 0.08f;
-        float maxOvershootPitch = distanceToTarget < 2.5D ? 0.01f : 0.06f;
-        float decayRate = distanceToTarget < 2.5D ? 0.98f : 0.96f;
+        float maxOvershootYaw = distanceToTarget < 2.5D ? 0.005f : 0.04f;
+        float maxOvershootPitch = distanceToTarget < 2.5D ? 0.005f : 0.03f;
+        float decayRate = 0.95f;
 
-        if (saccadeTimer == 0) {
-            overshootYawOffset = (float) ((secureRandom.nextDouble() - 0.5) * 0.8D);
-            overshootPitchOffset = (float) ((secureRandom.nextDouble() - 0.5) * 0.3D);
-        } else if (saccadeTimer == 1) {
-            overshootYawOffset *= 0.2f;
-            overshootPitchOffset *= 0.2f;
-        } else if (saccadeTimer > 15 + secureRandom.nextInt(10)) {
+        if (saccadeTimer > 15 + secureRandom.nextInt(10)) {
             saccadeTimer = 0;
             overshootYawOffset = (float) ((secureRandom.nextDouble() - 0.5) * maxOvershootYaw * 2.0f);
             overshootPitchOffset = (float) ((secureRandom.nextDouble() - 0.5) * maxOvershootPitch * 2.0f);
@@ -608,7 +401,7 @@ public class AimAssist extends ClientBase.Module {
         }
         double pingCompensation = (latency / 50.0) * 0.02D;
 
-        Vec3 predictedPos = kalmanFilteredPos
+        Vec3 predictedPos = target.position()
                 .add(currentVel.scale(PREDICTION_TICKS * 0.05D + pingCompensation))
                 .add(acceleration.scale(0.5D * PREDICTION_TICKS * PREDICTION_TICKS * 0.0025D))
                 .add(jerk.scale((1.0 / 6.0) * PREDICTION_TICKS * PREDICTION_TICKS * PREDICTION_TICKS * 0.000125D));
@@ -617,9 +410,9 @@ public class AimAssist extends ClientBase.Module {
         previousTargetAcceleration = acceleration;
 
         return predictedPos.add(
-                (secureRandom.nextDouble() - 0.5) * 0.04D,
+                (secureRandom.nextDouble() - 0.5) * 0.02D,
                 target.getBbHeight() * 0.42D,
-                (secureRandom.nextDouble() - 0.5) * 0.04D
+                (secureRandom.nextDouble() - 0.5) * 0.02D
         );
     }
 
@@ -640,7 +433,7 @@ public class AimAssist extends ClientBase.Module {
         float rawPitchDiff = calculatedTargetPitch - currentPitch;
 
         double distanceToTarget = target != null ? clientRef.player.distanceTo(target) : 3.0D;
-        float deadzone = distanceToTarget < 2.5D ? 0.3f : 0.5f;
+        float deadzone = distanceToTarget < 2.5D ? 0.15f : 0.3f;
         float distanceFromCenter = (float) Math.sqrt(rawYawDiff * rawYawDiff + rawPitchDiff * rawPitchDiff);
         if (distanceFromCenter < deadzone) {
             return;
@@ -656,7 +449,7 @@ public class AimAssist extends ClientBase.Module {
 
         float finalYawDiff = rawYawDiff;
         float finalPitchDiff = rawPitchDiff;
-        if (distanceFromCenter > 0.8f) {
+        if (distanceFromCenter > 0.5f) {
             finalYawDiff += overshootYawOffset;
             finalPitchDiff += overshootPitchOffset;
         }
@@ -670,18 +463,18 @@ public class AimAssist extends ClientBase.Module {
         if (Float.isNaN(finalPitchDiff) || Float.isInfinite(finalPitchDiff)) finalPitchDiff = 0.0f;
 
         if (windMouseEngineActive) {
-            cumulativeWindX = cumulativeWindX * 0.97D + (secureRandom.nextGaussian() * 0.03D);
+            cumulativeWindX = cumulativeWindX * 0.95D + (secureRandom.nextGaussian() * 0.02D);
             if (!horizontalAxisOnly) {
-                cumulativeWindY = cumulativeWindY * 0.97D + (secureRandom.nextGaussian() * 0.03D * verticalSmoothingMultiplier);
+                cumulativeWindY = cumulativeWindY * 0.95D + (secureRandom.nextGaussian() * 0.02D * verticalSmoothingMultiplier);
             }
 
-            float curveStepYaw = (float) (finalYawDiff / 14.0D + cumulativeWindX * 0.0003D);
+            float curveStepYaw = (float) (finalYawDiff / 10.0D + cumulativeWindX * 0.0008D);
             float noiseYaw = (float) (secureRandom.nextGaussian() * stochasticJitterScale);
             float nextEvaluatedYaw = currentYaw + curveStepYaw + noiseYaw;
 
             float nextEvaluatedPitch = currentPitch;
             if (!horizontalAxisOnly) {
-                float curveStepPitch = (float) (finalPitchDiff / 14.0D + cumulativeWindY * 0.0003D);
+                float curveStepPitch = (float) (finalPitchDiff / 10.0D + cumulativeWindY * 0.0008D);
                 float noisePitch = (float) (secureRandom.nextGaussian() * stochasticJitterScale);
                 nextEvaluatedPitch = Mth.clamp(currentPitch + curveStepPitch + noisePitch, -89.0F, 89.0F);
             }
@@ -763,11 +556,91 @@ public class AimAssist extends ClientBase.Module {
     }
 
     private static void refreshAimRegistryState() {
-        MATH_AIM_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
-        MATH_AIM_REGISTRY.put("ActiveLockState", lockedTarget != null);
+        SWIGHT_SWIFT_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
+        SWIGHT_SWIFT_REGISTRY.put("ActiveLockState", lockedTarget != null);
+        SWIGHT_SWIFT_REGISTRY.put("WindOffset", cumulativeWindX);
+        SWIGHT_SWIFT_REGISTRY.put("HistorySize", YAW_HISTORY_QUEUE.size());
+    }
+
+    private static void pushTelemetryAuditQueue() {
+        if (!deepTelemetryAuditActive) return;
+        long now = System.currentTimeMillis();
+        if (now - lastTelemetryFlushEpoch > (telemetryFlushIntervalTicks * 50L)) {
+            lastTelemetryFlushEpoch = now;
+            if (YAW_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY / 2) {
+                YAW_HISTORY_QUEUE.clear();
+            }
+            if (PITCH_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY / 2) {
+                PITCH_HISTORY_QUEUE.clear();
+            }
+        }
     }
 
     public static UUID getSubsessionIdentity() {
         return SUBSESSION_IDENTITY;
+    }
+
+    public static long getGlobalExecutionCounter() {
+        return globalExecutionCounter;
+    }
+
+    public static void setKinematicSmoothing(double value) {
+        kinematicSmoothingRate = value;
+    }
+
+    public static double getKinematicSmoothing() {
+        return kinematicSmoothingRate;
+    }
+
+    public static void toggleWindMouseEngine(boolean state) {
+        windMouseEngineActive = state;
+    }
+
+    public static boolean isWindMouseEngineActive() {
+        return windMouseEngineActive;
+    }
+
+    public static void toggleHorizontalAxisOnly(boolean state) {
+        horizontalAxisOnly = state;
+    }
+
+    public static boolean isHorizontalAxisOnly() {
+        return horizontalAxisOnly;
+    }
+
+    public static void toggleGcdCorrection(boolean state) {
+        gcdCorrectionActive = state;
+    }
+
+    public static boolean isGcdCorrectionActive() {
+        return gcdCorrectionActive;
+    }
+
+    public static int getYawHistorySize() {
+        return YAW_HISTORY_QUEUE.size();
+    }
+
+    public static int getPitchHistorySize() {
+        return PITCH_HISTORY_QUEUE.size();
+    }
+
+    public static void runBaselineCalibration() {
+        kinematicSmoothingRate = 0.65D;
+        stochasticJitterScale = 0.00003D;
+        maximumFovAngle = 180.0F;
+        maximumReachBound = 7.0D;
+        windMouseEngineActive = true;
+        horizontalAxisOnly = false;
+        gcdCorrectionActive = true;
+        cumulativeWindX = 0.0D;
+        cumulativeWindY = 0.0D;
+    }
+
+    public static double getWindOffsetX() {
+        return cumulativeWindX;
+    }
+
+    public static double getWindOffsetY() {
+        return cumulativeWindY;
     }
 }
