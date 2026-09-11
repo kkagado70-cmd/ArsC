@@ -622,3 +622,152 @@ public class AimAssist extends ClientBase.Module {
                 (secureRandom.nextDouble() - 0.5) * 0.04D
         );
     }
+
+    private static void performAimInterpolation(Minecraft clientRef, Vec3 resolvedPos, Entity target) {
+        double deltaX = resolvedPos.x - clientRef.player.getX();
+        double deltaY = resolvedPos.y - clientRef.player.getEyeY();
+        double deltaZ = resolvedPos.z - clientRef.player.getZ();
+        double horizontalDistance = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
+        if (horizontalDistance < 0.001D) horizontalDistance = 0.001D;
+
+        float calculatedTargetYaw = (float) (Math.atan2(deltaZ, deltaX) * (180.0 / Math.PI)) - 90.0F;
+        float calculatedTargetPitch = (float) (-(Math.atan2(deltaY, horizontalDistance) * (180.0 / Math.PI)));
+        calculatedTargetPitch = Mth.clamp(calculatedTargetPitch, -89.0F, 89.0F);
+
+        float currentYaw = clientRef.player.getYRot();
+        float currentPitch = clientRef.player.getXRot();
+        float rawYawDiff = Mth.wrapDegrees(calculatedTargetYaw - currentYaw);
+        float rawPitchDiff = calculatedTargetPitch - currentPitch;
+
+        double distanceToTarget = target != null ? clientRef.player.distanceTo(target) : 3.0D;
+        float deadzone = distanceToTarget < 2.5D ? 0.3f : 0.5f;
+        float distanceFromCenter = (float) Math.sqrt(rawYawDiff * rawYawDiff + rawPitchDiff * rawPitchDiff);
+        if (distanceFromCenter < deadzone) {
+            return;
+        }
+
+        if (distanceFromCenter > containmentRadius) {
+            float pullFactor = (distanceFromCenter - containmentRadius) * containmentStrength;
+            float pullYaw = (rawYawDiff / distanceFromCenter) * pullFactor;
+            float pullPitch = (rawPitchDiff / distanceFromCenter) * pullFactor;
+            rawYawDiff -= pullYaw;
+            rawPitchDiff -= pullPitch;
+        }
+
+        float finalYawDiff = rawYawDiff;
+        float finalPitchDiff = rawPitchDiff;
+        if (distanceFromCenter > 0.8f) {
+            finalYawDiff += overshootYawOffset;
+            finalPitchDiff += overshootPitchOffset;
+        }
+
+        float t = Math.min(1.0f, distanceFromCenter / 10.0f);
+        float eased = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
+        finalYawDiff *= eased;
+        finalPitchDiff *= eased;
+
+        if (Float.isNaN(finalYawDiff) || Float.isInfinite(finalYawDiff)) finalYawDiff = 0.0f;
+        if (Float.isNaN(finalPitchDiff) || Float.isInfinite(finalPitchDiff)) finalPitchDiff = 0.0f;
+
+        if (windMouseEngineActive) {
+            cumulativeWindX = cumulativeWindX * 0.97D + (secureRandom.nextGaussian() * 0.03D);
+            if (!horizontalAxisOnly) {
+                cumulativeWindY = cumulativeWindY * 0.97D + (secureRandom.nextGaussian() * 0.03D * verticalSmoothingMultiplier);
+            }
+
+            float curveStepYaw = (float) (finalYawDiff / 14.0D + cumulativeWindX * 0.0003D);
+            float noiseYaw = (float) (secureRandom.nextGaussian() * stochasticJitterScale);
+            float nextEvaluatedYaw = currentYaw + curveStepYaw + noiseYaw;
+
+            float nextEvaluatedPitch = currentPitch;
+            if (!horizontalAxisOnly) {
+                float curveStepPitch = (float) (finalPitchDiff / 14.0D + cumulativeWindY * 0.0003D);
+                float noisePitch = (float) (secureRandom.nextGaussian() * stochasticJitterScale);
+                nextEvaluatedPitch = Mth.clamp(currentPitch + curveStepPitch + noisePitch, -89.0F, 89.0F);
+            }
+
+            if (gcdCorrectionActive) {
+                nextEvaluatedYaw = applyGcdGridSnap(clientRef, currentYaw, nextEvaluatedYaw);
+            }
+
+            clientRef.player.setYRot(nextEvaluatedYaw);
+            if (!horizontalAxisOnly) {
+                clientRef.player.setXRot(Mth.clamp(nextEvaluatedPitch, -89.0F, 89.0F));
+            }
+            applyGcdHardwareTurnSimulation(clientRef, currentYaw, nextEvaluatedYaw, horizontalAxisOnly ? 0.0D : (nextEvaluatedPitch - currentPitch));
+        } else {
+            float nextEvaluatedYaw = currentYaw + finalYawDiff * (float) kinematicSmoothingRate;
+            float nextEvaluatedPitch = currentPitch;
+            if (!horizontalAxisOnly) {
+                nextEvaluatedPitch = Mth.clamp(currentPitch + finalPitchDiff * (float) kinematicSmoothingRate, -89.0F, 89.0F);
+            }
+
+            if (gcdCorrectionActive) {
+                nextEvaluatedYaw = applyGcdGridSnap(clientRef, currentYaw, nextEvaluatedYaw);
+            }
+
+            clientRef.player.setYRot(nextEvaluatedYaw);
+            if (!horizontalAxisOnly) {
+                clientRef.player.setXRot(Mth.clamp(nextEvaluatedPitch, -89.0F, 89.0F));
+            }
+            applyGcdHardwareTurnSimulation(clientRef, currentYaw, nextEvaluatedYaw, horizontalAxisOnly ? 0.0D : (nextEvaluatedPitch - currentPitch));
+        }
+    }
+
+    private static void executeAutoCalibrationLearning() {
+        totalAttacks++;
+        if (totalAttacks >= 100) {
+            double hitRate = (double) hitCount / totalAttacks;
+            if (hitRate > 0.95D) {
+                stochasticJitterScale += 0.00001D;
+                randomMissProbability += 0.005D;
+            } else if (hitRate < 0.70D) {
+                stochasticJitterScale = Math.max(0.00001D, stochasticJitterScale - 0.00001D);
+                randomMissProbability = Math.max(0.005D, randomMissProbability - 0.005D);
+            }
+            hitCount = 0;
+            totalAttacks = 0;
+        }
+    }
+
+    public static void registerAttackResult(boolean hit) {
+        totalAttacks++;
+        if (hit) hitCount++;
+    }
+
+    public static void triggerSimulatedRecoil() {
+        recoilYaw = (float) ((secureRandom.nextDouble() - 0.5) * 0.3D);
+        recoilPitch = (float) ((secureRandom.nextDouble() - 0.5) * 0.2D);
+        recoilTicks = 3;
+    }
+
+    private static float applyGcdGridSnap(Minecraft clientRef, float currentYaw, float targetYaw) {
+        if (clientRef.options == null) return targetYaw;
+        double sensitivity = clientRef.options.sensitivity().get() * 0.6D + 0.2D;
+        double gcd = sensitivity * sensitivity * sensitivity * 8.0D;
+        if (gcd <= 0.0D) return targetYaw;
+        double deltaYaw = targetYaw - currentYaw;
+        double clampedDelta = Math.round(deltaYaw / (gcd * 0.15D)) * (gcd * 0.15D);
+        return currentYaw + (float) clampedDelta;
+    }
+
+    private static void applyGcdHardwareTurnSimulation(Minecraft clientRef, float currentYaw, float nextYaw, double deltaPitch) {
+        if (clientRef.options != null) {
+            double sensitivity = clientRef.options.sensitivity().get() * 0.6D + 0.2D;
+            double gcd = sensitivity * sensitivity * sensitivity * 8.0D;
+            if (gcd > 0.0D) {
+                double deltaYawAngle = (nextYaw - currentYaw);
+                clientRef.player.turn(deltaYawAngle / (gcd * 0.15D), deltaPitch / (gcd * 0.15D));
+            }
+        }
+    }
+
+    private static void refreshAimRegistryState() {
+        MATH_AIM_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
+        MATH_AIM_REGISTRY.put("ActiveLockState", lockedTarget != null);
+    }
+
+    public static UUID getSubsessionIdentity() {
+        return SUBSESSION_IDENTITY;
+    }
+}
