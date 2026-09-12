@@ -1,18 +1,19 @@
 package com.example;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.CrossbowItem;
-import net.minecraft.world.item.BowItem;
-import net.minecraft.world.phys.Vec3;
-import net.minecraft.util.Mth;
-import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.util.Mth;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.entity.vehicle.MinecartTNT;
 
 import java.security.SecureRandom;
 import java.util.UUID;
@@ -21,62 +22,58 @@ import java.util.Map;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
-public class AimAssist extends ClientBase.Module {
-    public static final String FILE_NAME = "AimAssist.java";
-    public static boolean enabled = true;
-    private static final SecureRandom secureRandom = new SecureRandom();
-    private static Entity lockedTarget = null;
-    private static int targetLockTicks = 0;
-    private static int targetLostTicks = 0;
+public class XbowCart extends ClientBase.Module {
+    public static final String FILE_NAME = "XbowCart.java";
+    public static boolean enabled = false;
 
-    private static final Map<String, Object> SWIGHT_CLEAN_REGISTRY = new ConcurrentHashMap<>();
+    private enum PipelinePhase { VOID, RAIL_ACTION, CART_ACTION, FLINT_ACTION, XBOW_ACTION, CLEANUP }
+
+    private static PipelinePhase currentPhase = PipelinePhase.VOID;
+    private static int actionTickCounter = 0;
+    private static BlockPos vectorReferencePos = null;
+    private static Direction vectorReferenceFace = Direction.UP;
+    private static Vec3 vectorHitRegistry = null;
+    private static BlockPos resolvedRailPos = null;
+    private static BlockPos resolvedCartPos = null;
+    private static BlockPos resolvedFirePos = null;
+    private static final SafetyWatchdog safetyWatchdog = new SafetyWatchdog();
+    private static final SecureRandom secureRandom = new SecureRandom();
+
+    private static final Map<String, Object> XBOW_TRANS_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
-    private static final Deque<Float> YAW_HISTORY_QUEUE = new ArrayDeque<>();
-    private static final Deque<Float> PITCH_HISTORY_QUEUE = new ArrayDeque<>();
-    private static final Deque<Vec3> VELOCITY_VECTOR_DEQUE = new ArrayDeque<>();
-    private static final Deque<Long> TIMING_LATENCY_QUEUE = new ArrayDeque<>();
-    private static final Deque<Double> ACCELERATION_SAMPLE_DEQUE = new ArrayDeque<>();
-    private static final Deque<Double> JERK_SAMPLE_DEQUE = new ArrayDeque<>();
-    private static final Deque<Float> OVERSHOOT_ERROR_DEQUE = new ArrayDeque<>();
-    private static final Deque<Long> SESSION_TIMESTAMP_DEQUE = new ArrayDeque<>();
-    private static final Deque<Double> STRAFE_VECTOR_DEQUE = new ArrayDeque<>();
-    private static final Deque<Float> SACCADE_HISTORY_DEQUE = new ArrayDeque<>();
-    private static final Deque<Double> RECOIL_BUFFER_DEQUE = new ArrayDeque<>();
+    private static final Deque<Long> EXECUTION_TIMESTAMP_QUEUE = new ArrayDeque<>();
+    private static final Deque<Double> STOCHASTIC_LATENCY_DEQUE = new ArrayDeque<>();
+    private static final Deque<Vec3> VECTOR_TRAJECTORY_HISTORY = new ArrayDeque<>();
+    private static final Deque<Integer> PIPELINE_ERROR_DEQUE = new ArrayDeque<>();
+    private static final Deque<Long> STAGE_DURATION_DEQUE = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 8192;
 
-    private static double kinematicSmoothingRate = 0.85D;
-    private static double stochasticJitterScale = 0.000002D;
-    private static float maximumFovAngle = 180.0F;
-    private static double maximumReachBound = 7.0D;
-    private static long globalExecutionCounter = 0L;
-    private static boolean windMouseEngineActive = true;
-    private static boolean horizontalAxisOnly = false;
-    private static boolean gcdCorrectionActive = true;
-    private static double cumulativeWindX = 0.0D;
-    private static double cumulativeWindY = 0.0D;
-    private static int targetSwitchThrottleTicks = 0;
-
-    private static Vec3 previousTargetVelocity = Vec3.ZERO;
-    private static Vec3 previousTargetAcceleration = Vec3.ZERO;
-    private static final float PREDICTION_TICKS = 2.0f;
-    private static float containmentStrength = 0.35f;
-    private static float containmentRadius = 0.4f;
-    private static float overshootYawOffset = 0.0f;
-    private static float overshootPitchOffset = 0.0f;
-    private static int saccadeTimer = 0;
-    private static double targetPredictionScalar = 1.35D;
-    private static long averagePing = 50L;
-    private static double verticalSmoothingMultiplier = 1.05D;
-    private static boolean errorInjectionActive = true;
-    private static double randomMissProbability = 0.005D;
-
-    private static Vec3 lastKnownTargetPos = null;
-    private static int memoryTicks = 0;
-    private static float recoilYaw = 0.0f;
-    private static float recoilPitch = 0.0f;
-    private static int recoilTicks = 0;
-    private static int hitCount = 0;
-    private static int totalAttacks = 0;
+    private static long pipelineExecutionCounter = 0L;
+    private static boolean strictComplianceFlag = true;
+    private static int maxPipelineRetries = 5;
+    private static int currentRetryAttempt = 0;
+    private static double stochasticDelayModifier = 1.0D;
+    private static boolean towerCartingModeActive = true;
+    private static boolean divebombBypassActive = true;
+    private static long globalWatchdogTimeoutMs = 1200L;
+    private static int internalSlotCacheIndex = -1;
+    private static boolean emergencyHaltFlag = false;
+    private static double humanMimeJitterFactor = 0.003D;
+    private static int packetThrottlingCounter = 0;
+    private static boolean adaptivePacingActive = true;
+    private static long subsessionEpochTracker = System.currentTimeMillis();
+    private static double spatialPrecisionTolerance = 0.01D;
+    private static boolean antiReplayHeuristicShield = true;
+    private static int pipelineAnomalyCounter = 0;
+    private static boolean tacticalRetreatMode = false;
+    private static double targetElevationOffset = 0.12D;
+    private static boolean dynamicAngleCorrection = true;
+    private static int successiveExecutionCount = 0;
+    private static boolean stealthProfileActive = true;
+    private static long lastPipelineInvocationEpoch = 0L;
+    private static double mouseInertiaWeight = 0.98D;
+    private static boolean packetOrderStrictSync = true;
+    private static int serverTickOffsetCalibration = 1;
 
     private static double sessionMetricAlpha = 0.5D;
     private static double sessionMetricBeta = 0.5D;
@@ -100,63 +97,36 @@ public class AimAssist extends ClientBase.Module {
     private static boolean rotationalFrictionActive = true;
     private static double frictionCoefficient = 0.04D;
 
-    private static final Map<String, Double> WEAPON_SMOOTHING_PROFILES = new ConcurrentHashMap<>();
-    private static final Map<String, Double> WEAPON_JITTER_PROFILES = new ConcurrentHashMap<>();
-    private static final Map<String, Double> WEAPON_REACH_PROFILES = new ConcurrentHashMap<>();
-
     static {
-        initializeCleanRegistry();
-        initializeWeaponProfiles();
+        initializeXbowTransRegistry();
     }
 
-    private static void initializeCleanRegistry() {
-        SWIGHT_CLEAN_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        SWIGHT_CLEAN_REGISTRY.put("Profile", "Swight-Clean-AimAssist-800Lines");
-        SWIGHT_CLEAN_REGISTRY.put("BypassEngine", "Human-Mime-CleanFlick-Enterprise");
-        SWIGHT_CLEAN_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
-        SWIGHT_CLEAN_REGISTRY.put("BufferFlushCounter", 0);
-        SWIGHT_CLEAN_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
-        SWIGHT_CLEAN_REGISTRY.put("WindMouseState", windMouseEngineActive);
-        SWIGHT_CLEAN_REGISTRY.put("GcdCorrectionState", gcdCorrectionActive);
-        SWIGHT_CLEAN_REGISTRY.put("SmoothingFactor", kinematicSmoothingRate);
-        SWIGHT_CLEAN_REGISTRY.put("JitterScale", stochasticJitterScale);
-        SWIGHT_CLEAN_REGISTRY.put("MaxFov", maximumFovAngle);
-        SWIGHT_CLEAN_REGISTRY.put("MaxReach", maximumReachBound);
-        SWIGHT_CLEAN_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
-        SWIGHT_CLEAN_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
-        SWIGHT_CLEAN_REGISTRY.put("BetaMetric", sessionMetricBeta);
-        SWIGHT_CLEAN_REGISTRY.put("GammaMetric", sessionMetricGamma);
-        SWIGHT_CLEAN_REGISTRY.put("DeltaMetric", sessionMetricDelta);
+    private static void initializeXbowTransRegistry() {
+        XBOW_TRANS_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        XBOW_TRANS_REGISTRY.put("ModuleState", "HT1-Transactional-XbowCart-800Lines");
+        XBOW_TRANS_REGISTRY.put("StrictCompliance", strictComplianceFlag);
+        XBOW_TRANS_REGISTRY.put("InitializationEpoch", subsessionEpochTracker);
+        XBOW_TRANS_REGISTRY.put("ExecutionHistorySize", 0);
+        XBOW_TRANS_REGISTRY.put("MaxRetries", maxPipelineRetries);
+        XBOW_TRANS_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
+        XBOW_TRANS_REGISTRY.put("TowerMode", towerCartingModeActive);
+        XBOW_TRANS_REGISTRY.put("DivebombMode", divebombBypassActive);
+        XBOW_TRANS_REGISTRY.put("JitterFactor", humanMimeJitterFactor);
+        XBOW_TRANS_REGISTRY.put("AdaptivePacing", adaptivePacingActive);
+        XBOW_TRANS_REGISTRY.put("AntiReplayShield", antiReplayHeuristicShield);
+        XBOW_TRANS_REGISTRY.put("StealthProfile", stealthProfileActive);
+        XBOW_TRANS_REGISTRY.put("MouseInertia", mouseInertiaWeight);
+        XBOW_TRANS_REGISTRY.put("PacketOrderSync", packetOrderStrictSync);
+        XBOW_TRANS_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
+        XBOW_TRANS_REGISTRY.put("BetaMetric", sessionMetricBeta);
+        XBOW_TRANS_REGISTRY.put("GammaMetric", sessionMetricGamma);
+        XBOW_TRANS_REGISTRY.put("DeltaMetric", sessionMetricDelta);
     }
 
-    private static void initializeWeaponProfiles() {
-        WEAPON_SMOOTHING_PROFILES.put("sword", 0.85D);
-        WEAPON_SMOOTHING_PROFILES.put("axe", 0.88D);
-        WEAPON_SMOOTHING_PROFILES.put("bow", 0.90D);
-        WEAPON_SMOOTHING_PROFILES.put("crossbow", 0.90D);
-        WEAPON_SMOOTHING_PROFILES.put("mace", 0.86D);
-        WEAPON_SMOOTHING_PROFILES.put("trident", 0.85D);
-
-        WEAPON_JITTER_PROFILES.put("sword", 0.000002D);
-        WEAPON_JITTER_PROFILES.put("axe", 0.000002D);
-        WEAPON_JITTER_PROFILES.put("bow", 0.000001D);
-        WEAPON_JITTER_PROFILES.put("crossbow", 0.000001D);
-        WEAPON_JITTER_PROFILES.put("mace", 0.000003D);
-        WEAPON_JITTER_PROFILES.put("trident", 0.000002D);
-
-        WEAPON_REACH_PROFILES.put("sword", 7.0D);
-        WEAPON_REACH_PROFILES.put("axe", 7.0D);
-        WEAPON_REACH_PROFILES.put("bow", 7.0D);
-        WEAPON_REACH_PROFILES.put("crossbow", 7.0D);
-        WEAPON_REACH_PROFILES.put("mace", 7.0D);
-        WEAPON_REACH_PROFILES.put("trident", 7.0D);
-    }
-
-    public AimAssist() {
-        super("AimAssist");
-        AimAssist.enabled = true;
-        initializeCleanRegistry();
-        initializeWeaponProfiles();
+    public XbowCart() {
+        super("XbowCart");
+        XbowCart.enabled = false;
+        initializeXbowTransRegistry();
     }
 
     @Override
@@ -168,45 +138,33 @@ public class AimAssist extends ClientBase.Module {
     public void toggle() {
         enabled = !enabled;
         super.enabled = enabled;
-        hardResetAimSubsystem();
+        if (!enabled) {
+            purgePipelineRegistry();
+        } else {
+            resetXbowInternalState();
+        }
     }
 
-    private static void hardResetAimSubsystem() {
-        lockedTarget = null;
-        targetLockTicks = 0;
-        targetLostTicks = 0;
-        targetSwitchThrottleTicks = 0;
-        cumulativeWindX = 0.0D;
-        cumulativeWindY = 0.0D;
-        overshootYawOffset = 0.0f;
-        overshootPitchOffset = 0.0f;
-        saccadeTimer = 0;
-        previousTargetVelocity = Vec3.ZERO;
-        previousTargetAcceleration = Vec3.ZERO;
-        lastKnownTargetPos = null;
-        memoryTicks = 0;
-        recoilYaw = 0.0f;
-        recoilPitch = 0.0f;
-        recoilTicks = 0;
-        hitCount = 0;
-        totalAttacks = 0;
-        YAW_HISTORY_QUEUE.clear();
-        PITCH_HISTORY_QUEUE.clear();
-        VELOCITY_VECTOR_DEQUE.clear();
-        TIMING_LATENCY_QUEUE.clear();
-        ACCELERATION_SAMPLE_DEQUE.clear();
-        JERK_SAMPLE_DEQUE.clear();
-        OVERSHOOT_ERROR_DEQUE.clear();
-        SESSION_TIMESTAMP_DEQUE.clear();
-        STRAFE_VECTOR_DEQUE.clear();
-        SACCADE_HISTORY_DEQUE.clear();
-        RECOIL_BUFFER_DEQUE.clear();
+    private static void resetXbowInternalState() {
+        currentPhase = PipelinePhase.VOID;
+        actionTickCounter = 0;
+        vectorReferencePos = null;
+        vectorReferenceFace = Direction.UP;
+        vectorHitRegistry = null;
+        resolvedRailPos = null;
+        resolvedCartPos = null;
+        resolvedFirePos = null;
+        currentRetryAttempt = 0;
+        emergencyHaltFlag = false;
+        pipelineAnomalyCounter = 0;
+        successiveExecutionCount = 0;
+        EXECUTION_TIMESTAMP_QUEUE.clear();
+        STOCHASTIC_LATENCY_DEQUE.clear();
+        VECTOR_TRAJECTORY_HISTORY.clear();
+        PIPELINE_ERROR_DEQUE.clear();
+        STAGE_DURATION_DEQUE.clear();
         purgeRegistry();
-        initializeCleanRegistry();
-    }
-
-    private static void purgeRegistry() {
-        SWIGHT_CLEAN_REGISTRY.clear();
+        initializeXbowTransRegistry();
     }
 
     @Override
@@ -214,300 +172,529 @@ public class AimAssist extends ClientBase.Module {
         onTick(clientRef);
     }
 
-    private static boolean isHoldingWeapon(Minecraft clientRef) {
-        if (clientRef.player == null) return false;
-        ItemStack stack = clientRef.player.getMainHandItem();
-        if (stack.isEmpty()) return false;
-        String name = stack.getItem().getDescriptionId().toLowerCase();
-        return name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace") || name.contains("bow") || name.contains("crossbow");
+    public static boolean validateRegistryItem(Item candidateItem) {
+        return candidateItem == Items.RAIL ||
+               candidateItem == Items.POWERED_RAIL ||
+               candidateItem == Items.DETECTOR_RAIL ||
+               candidateItem == Items.ACTIVATOR_RAIL;
     }
 
-    private static String resolveWeaponKey(Minecraft clientRef) {
-        if (clientRef.player == null) return "sword";
-        ItemStack stack = clientRef.player.getMainHandItem();
-        if (stack.isEmpty()) return "sword";
-        String name = stack.getItem().getDescriptionId().toLowerCase();
-        if (name.contains("axe")) return "axe";
-        if (name.contains("bow")) return "bow";
-        if (name.contains("crossbow")) return "crossbow";
-        if (name.contains("mace")) return "mace";
-        if (name.contains("trident")) return "trident";
-        return "sword";
-    }
-
-    private static boolean verifyLineOfSight(Minecraft clientRef, Entity target) {
-        if (clientRef.player == null || target == null) return false;
-        Vec3 start = clientRef.player.getEyePosition();
-        Vec3 end = target.getEyePosition();
-        BlockHitResult hit = clientRef.level.clip(
-            new ClipContext(
-                start, 
-                end, 
-                ClipContext.Block.COLLIDER, 
-                ClipContext.Fluid.NONE, 
-                clientRef.player
-            )
-        );
-        return hit.getType() == HitResult.Type.MISS;
+    private static boolean isRailBlock(BlockState state) {
+        return state.is(Blocks.RAIL) || state.is(Blocks.POWERED_RAIL) || state.is(Blocks.DETECTOR_RAIL) || state.is(Blocks.ACTIVATOR_RAIL);
     }
 
     public static void onTick(Minecraft clientRef) {
         if (!enabled || clientRef.player == null || clientRef.level == null) return;
-        if (!clientRef.player.isAlive()) return;
-        if (!isHoldingWeapon(clientRef)) {
-            lockedTarget = null;
-            targetLockTicks = 0;
-            return;
-        }
-        if (ShieldBreaker.isShieldStunActive()) {
+        if (emergencyHaltFlag || safetyWatchdog.isWatchdogLockout()) {
+            purgePipelineRegistry();
             return;
         }
 
-        globalExecutionCounter++;
-        if (targetSwitchThrottleTicks > 0) {
-            targetSwitchThrottleTicks--;
+        pipelineExecutionCounter++;
+        successiveExecutionCount++;
+        executeSubsystemSanitation();
+
+        if (actionTickCounter > 0) {
+            actionTickCounter--;
+            if (actionTickCounter == 0) {
+                advancePipelinePhase(clientRef);
+            }
+            return;
         }
 
-        Entity target = evaluateSmartTarget(clientRef);
-        if (target != null) {
-            lastKnownTargetPos = target.position();
-            memoryTicks = 0;
-            smoothAimToTarget(clientRef, target);
-        } else if (lastKnownTargetPos != null && memoryTicks < 5) {
-            memoryTicks++;
-            smoothAimToPosition(clientRef, lastKnownTargetPos);
-        } else {
-            lockedTarget = null;
-            targetLockTicks = 0;
-            cumulativeWindX = 0.0D;
-            cumulativeWindY = 0.0D;
-            previousTargetVelocity = Vec3.ZERO;
-            previousTargetAcceleration = Vec3.ZERO;
-            lastKnownTargetPos = null;
-            memoryTicks = 0;
+        if (safetyWatchdog.isTimedOut()) {
+            handlePipelineFailure(clientRef);
+            return;
         }
 
-        if (recoilTicks > 0) {
-            float currentYaw = clientRef.player.getYRot();
-            float currentPitch = clientRef.player.getXRot();
-            clientRef.player.setYRot(currentYaw + recoilYaw / recoilTicks);
-            clientRef.player.setXRot(Mth.clamp(currentPitch + recoilPitch / recoilTicks, -89.0F, 89.0F));
-            recoilTicks--;
-        }
+        switch (currentPhase) {
+            case VOID:
+                HitResult rawHit = clientRef.hitResult;
+                if (rawHit == null || rawHit.getType() != HitResult.Type.BLOCK) return;
+                if (!(rawHit instanceof BlockHitResult blockHit)) return;
+                
+                ItemStack mainHand = clientRef.player.getMainHandItem();
+                if (!validateRegistryItem(mainHand.getItem())) return;
+                if (InventoryManager.findChargedCrossbow(clientRef) == -1) return;
+                if (InventoryManager.findItem(clientRef, Items.TNT_MINECART) == -1) return;
 
-        refreshAimRegistryState();
+                vectorReferencePos = blockHit.getBlockPos();
+                vectorReferenceFace = blockHit.getDirection();
+                vectorHitRegistry = blockHit.getLocation();
+
+                BlockState hitState = clientRef.level.getBlockState(vectorReferencePos);
+                if (isRailBlock(hitState)) {
+                    resolvedRailPos = vectorReferencePos;
+                } else if (vectorReferenceFace == Direction.UP) {
+                    resolvedRailPos = vectorReferencePos.above();
+                } else if (vectorReferenceFace == Direction.DOWN) {
+                    resolvedRailPos = vectorReferencePos.below();
+                } else {
+                    resolvedRailPos = vectorReferencePos.relative(vectorReferenceFace);
+                    if (!clientRef.level.getBlockState(resolvedRailPos).isAir() && clientRef.level.getBlockState(resolvedRailPos.above()).isAir()) {
+                        resolvedRailPos = resolvedRailPos.above();
+                    }
+                }
+
+                resolvedCartPos = resolvedRailPos;
+                Direction playerFacing = clientRef.player.getDirection();
+                resolvedFirePos = resolvedRailPos.relative(playerFacing.getOpposite());
+                if (!clientRef.level.getBlockState(resolvedFirePos.below()).isSolid()) {
+                    resolvedFirePos = resolvedRailPos.relative(playerFacing);
+                }
+                if (!clientRef.level.getBlockState(resolvedFirePos.below()).isSolid()) {
+                    resolvedFirePos = resolvedRailPos.above();
+                }
+
+                safetyWatchdog.arm();
+                currentRetryAttempt = 0;
+                lastPipelineInvocationEpoch = System.currentTimeMillis();
+                currentPhase = PipelinePhase.RAIL_ACTION;
+                break;
+
+            case RAIL_ACTION:
+                int r = locateRailSlot(clientRef);
+                if (r == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                Vec3 railTarget = Vec3.atCenterOf(resolvedRailPos);
+                RotationManager.smoothTo(clientRef, railTarget, 0.99F);
+                if (!isRotationSynced(clientRef, railTarget)) return;
+
+                InventoryManager.selectSlot(clientRef, r);
+                InteractionManager.simulateClickUse(clientRef);
+                actionTickCounter = serverTickOffsetCalibration;
+                break;
+
+            case CART_ACTION:
+                if (!israilPresent(clientRef)) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                int c = InventoryManager.findItem(clientRef, Items.TNT_MINECART);
+                if (c == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                Vec3 cartTarget = Vec3.atCenterOf(resolvedCartPos);
+                RotationManager.smoothTo(clientRef, cartTarget, 0.99F);
+                if (!isRotationSynced(clientRef, cartTarget)) return;
+
+                InventoryManager.selectSlot(clientRef, c);
+                InteractionManager.simulateClickUse(clientRef);
+                actionTickCounter = serverTickOffsetCalibration;
+                break;
+
+            case FLINT_ACTION:
+                if (!isCartPresent(clientRef)) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                int f = InventoryManager.findItem(clientRef, Items.FLINT_AND_STEEL);
+                if (f == -1) f = InventoryManager.findItem(clientRef, Items.FIRE_CHARGE);
+                if (f == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                Vec3 fireTarget = Vec3.atCenterOf(resolvedFirePos);
+                RotationManager.smoothTo(clientRef, fireTarget, 0.99F);
+                if (!isRotationSynced(clientRef, fireTarget)) return;
+
+                InventoryManager.selectSlot(clientRef, f);
+                InteractionManager.simulateClickUse(clientRef);
+                actionTickCounter = serverTickOffsetCalibration;
+                break;
+
+            case XBOW_ACTION:
+                if (!isFirePresent(clientRef)) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                int x = InventoryManager.findChargedCrossbow(clientRef);
+                if (x == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                Vec3 cartCenter = Vec3.atCenterOf(resolvedCartPos);
+                Vec3 fireCenter = Vec3.atCenterOf(resolvedFirePos);
+                Vec3 trajectoryMidpoint = cartCenter.add(fireCenter).scale(0.5D);
+                double distanceToCart = clientRef.player.position().distanceTo(cartCenter);
+                double dynamicElevation = targetElevationOffset + (distanceToCart * 0.025D);
+                Vec3 shootTarget = trajectoryMidpoint.add(0.0D, dynamicElevation, 0.0D);
+
+                RotationManager.smoothTo(clientRef, shootTarget, 0.99F);
+                if (!isRotationSynced(clientRef, shootTarget)) return;
+
+                InventoryManager.selectSlot(clientRef, x);
+                InteractionManager.simulateClickUse(clientRef);
+                actionTickCounter = serverTickOffsetCalibration + 1;
+                break;
+
+            case CLEANUP:
+                purgePipelineRegistry();
+                break;
+        }
+        updateRegistryState();
     }
 
-    private static Entity evaluateSmartTarget(Minecraft clientRef) {
-        if (lockedTarget != null) {
-            if (lockedTarget.isAlive() && clientRef.player.distanceToSqr(lockedTarget) <= (maximumReachBound * maximumReachBound)) {
-                targetLockTicks++;
-                return lockedTarget;
-            }
-            lockedTarget = null;
-            targetLockTicks = 0;
-        }
+    private static boolean isRotationSynced(Minecraft clientRef, Vec3 target) {
+        double deltaX = target.x - clientRef.player.getX();
+        double deltaY = target.y - clientRef.player.getEyeY();
+        double deltaZ = target.z - clientRef.player.getZ();
+        double hDist = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
+        if (hDist < 0.001D) hDist = 0.001D;
 
-        Entity bestEntity = null;
-        double minDistanceSqr = (maximumReachBound * maximumReachBound) + 1.0D;
-
-        for (Entity entity : clientRef.level.entitiesForRendering()) {
-            if (!(entity instanceof LivingEntity living) || living == clientRef.player || !living.isAlive()) continue;
-            if (living instanceof Player player && (player.isSpectator() || player.isCreative())) continue;
-            
-            double distSqr = clientRef.player.distanceToSqr(living);
-            if (distSqr > (maximumReachBound * maximumReachBound)) continue;
-
-            if (distSqr < minDistanceSqr) {
-                minDistanceSqr = distSqr;
-                bestEntity = living;
-            }
-        }
-
-        if (bestEntity != null) {
-            lockedTarget = bestEntity;
-            targetLockTicks = 0;
-        }
-        return lockedTarget;
-    }
-
-    private static boolean computeFovCheck(Minecraft clientRef, Entity entity, double maxAngle) {
-        Vec3 targetPos = entity.position();
-        double deltaX = targetPos.x - clientRef.player.getX();
-        double deltaZ = targetPos.z - clientRef.player.getZ();
         float targetYaw = (float) (Math.atan2(deltaZ, deltaX) * (180.0 / Math.PI)) - 90.0F;
-        float currentYaw = clientRef.player.getYRot();
-        return Math.abs(Mth.wrapDegrees(targetYaw - currentYaw)) <= maxAngle;
+        float targetPitch = (float) (-(Math.atan2(deltaY, hDist) * (180.0 / Math.PI)));
+
+        float yawDiff = Math.abs(Mth.wrapDegrees(targetYaw - clientRef.player.getYRot()));
+        float pitchDiff = Math.abs(targetPitch - clientRef.player.getXRot());
+
+        return yawDiff < 2.5f && pitchDiff < 2.5f;
     }
 
-    public static void smoothAimToTarget(Minecraft clientRef, Entity target) {
-        Vec3 resolvedPos = computeResolvedTargetPosition(clientRef, target);
-        performAimInterpolation(clientRef, resolvedPos, target);
+    private static boolean israilPresent(Minecraft clientRef) {
+        if (clientRef.level == null || resolvedRailPos == null) return false;
+        return isRailBlock(clientRef.level.getBlockState(resolvedRailPos));
     }
 
-    private static void smoothAimToPosition(Minecraft clientRef, Vec3 position) {
-        performAimInterpolation(clientRef, position, null);
-    }
-
-    private static Vec3 computeResolvedTargetPosition(Minecraft clientRef, Entity target) {
-        double distanceToTarget = clientRef.player.distanceTo(target);
-        double baseSmooth = 0.85D;
-        kinematicSmoothingRate = baseSmooth;
-
-        Vec3 currentVel = target.getDeltaMovement();
-        Vec3 predictedPos = target.position().add(currentVel.scale(PREDICTION_TICKS * 0.05D));
-
-        previousTargetVelocity = currentVel;
-
-        return predictedPos.add(
-                (secureRandom.nextDouble() - 0.5) * 0.01D,
-                target.getBbHeight() * 0.42D,
-                (secureRandom.nextDouble() - 0.5) * 0.01D
-        );
-    }
-
-    private static void performAimInterpolation(Minecraft clientRef, Vec3 resolvedPos, Entity target) {
-        double deltaX = resolvedPos.x - clientRef.player.getX();
-        double deltaY = resolvedPos.y - clientRef.player.getEyeY();
-        double deltaZ = resolvedPos.z - clientRef.player.getZ();
-        double horizontalDistance = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
-        if (horizontalDistance < 0.001D) horizontalDistance = 0.001D;
-
-        float calculatedTargetYaw = (float) (Math.atan2(deltaZ, deltaX) * (180.0 / Math.PI)) - 90.0F;
-        float calculatedTargetPitch = (float) (-(Math.atan2(deltaY, horizontalDistance) * (180.0 / Math.PI)));
-        calculatedTargetPitch = Mth.clamp(calculatedTargetPitch, -89.0F, 89.0F);
-
-        float currentYaw = clientRef.player.getYRot();
-        float currentPitch = clientRef.player.getXRot();
-        float rawYawDiff = Mth.wrapDegrees(calculatedTargetYaw - currentYaw);
-        float rawPitchDiff = calculatedTargetPitch - currentPitch;
-
-        float distanceFromCenter = (float) Math.sqrt(rawYawDiff * rawYawDiff + rawPitchDiff * rawPitchDiff);
-        if (distanceFromCenter < 0.1f) {
-            return;
-        }
-
-        if (distanceFromCenter > containmentRadius) {
-            float pullFactor = (distanceFromCenter - containmentRadius) * containmentStrength;
-            float pullYaw = (rawYawDiff / distanceFromCenter) * pullFactor;
-            float pullPitch = (rawPitchDiff / distanceFromCenter) * pullFactor;
-            rawYawDiff -= pullYaw;
-            rawPitchDiff -= pullPitch;
-        }
-
-        float finalYawDiff = rawYawDiff * (float) kinematicSmoothingRate;
-        float finalPitchDiff = rawPitchDiff * (float) kinematicSmoothingRate;
-
-        if (Float.isNaN(finalYawDiff) || Float.isInfinite(finalYawDiff)) finalYawDiff = 0.0f;
-        if (Float.isNaN(finalPitchDiff) || Float.isInfinite(finalPitchDiff)) finalPitchDiff = 0.0f;
-
-        float nextEvaluatedYaw = currentYaw + finalYawDiff;
-        float nextEvaluatedPitch = Mth.clamp(currentPitch + finalPitchDiff, -89.0F, 89.0F);
-
-        if (gcdCorrectionActive) {
-            nextEvaluatedYaw = applyGcdGridSnap(clientRef, currentYaw, nextEvaluatedYaw);
-        }
-
-        clientRef.player.setYRot(nextEvaluatedYaw);
-        if (!horizontalAxisOnly) {
-            clientRef.player.setXRot(Mth.clamp(nextEvaluatedPitch, -89.0F, 89.0F));
-        }
-        applyGcdHardwareTurnSimulation(clientRef, currentYaw, nextEvaluatedYaw, horizontalAxisOnly ? 0.0D : (nextEvaluatedPitch - currentPitch));
-    }
-
-    private static float applyGcdGridSnap(Minecraft clientRef, float currentYaw, float targetYaw) {
-        if (clientRef.options == null) return targetYaw;
-        double sensitivity = clientRef.options.sensitivity().get() * 0.6D + 0.2D;
-        double gcd = sensitivity * sensitivity * sensitivity * 8.0D;
-        if (gcd <= 0.0D) return targetYaw;
-        double deltaYaw = targetYaw - currentYaw;
-        double clampedDelta = Math.round(deltaYaw / (gcd * 0.15D)) * (gcd * 0.15D);
-        return currentYaw + (float) clampedDelta;
-    }
-
-    private static void applyGcdHardwareTurnSimulation(Minecraft clientRef, float currentYaw, float nextYaw, double deltaPitch) {
-        if (clientRef.options != null) {
-            double sensitivity = clientRef.options.sensitivity().get() * 0.6D + 0.2D;
-            double gcd = sensitivity * sensitivity * sensitivity * 8.0D;
-            if (gcd > 0.0D) {
-                double deltaYawAngle = (nextYaw - currentYaw);
-                clientRef.player.turn(deltaYawAngle / (gcd * 0.15D), deltaPitch / (gcd * 0.15D));
+    private static boolean isCartPresent(Minecraft clientRef) {
+        if (clientRef.level == null || resolvedCartPos == null) return false;
+        for (Entity e : clientRef.level.entitiesForRendering()) {
+            if (e instanceof MinecartTNT && e.blockPosition().closerThan(resolvedCartPos, 1.5D)) {
+                return true;
             }
         }
+        return israilPresent(clientRef);
     }
 
-    private static void refreshAimRegistryState() {
-        SWIGHT_CLEAN_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
-        SWIGHT_CLEAN_REGISTRY.put("ActiveLockState", lockedTarget != null);
-        SWIGHT_CLEAN_REGISTRY.put("WindOffset", cumulativeWindX);
-        SWIGHT_CLEAN_REGISTRY.put("HistorySize", YAW_HISTORY_QUEUE.size());
+    private static boolean isFirePresent(Minecraft clientRef) {
+        if (clientRef.level == null || resolvedFirePos == null) return false;
+        BlockState state = clientRef.level.getBlockState(resolvedFirePos);
+        return state.is(Blocks.FIRE) || state.is(Blocks.SOUL_FIRE);
+    }
+
+    private static void handlePipelineFailure(Minecraft clientRef) {
+        currentRetryAttempt++;
+        pipelineAnomalyCounter++;
+        PIPELINE_ERROR_DEQUE.offerLast(currentPhase.ordinal());
+        if (PIPELINE_ERROR_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            PIPELINE_ERROR_DEQUE.pollFirst();
+        }
+        if (currentRetryAttempt <= maxPipelineRetries) {
+            actionTickCounter = 1;
+        } else {
+            emergencyHaltFlag = true;
+            purgePipelineRegistry();
+        }
+    }
+
+    private static void advancePipelinePhase(Minecraft clientRef) {
+        if (clientRef != null && clientRef.options != null) {
+            clientRef.options.keyUse.setDown(false);
+        }
+        long stageDuration = System.currentTimeMillis() - lastPipelineInvocationEpoch;
+        STAGE_DURATION_DEQUE.offerLast(stageDuration);
+        if (STAGE_DURATION_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            STAGE_DURATION_DEQUE.pollFirst();
+        }
+
+        switch (currentPhase) {
+            case RAIL_ACTION:
+                if (israilPresent(clientRef)) currentPhase = PipelinePhase.CART_ACTION;
+                else handlePipelineFailure(clientRef);
+                break;
+            case CART_ACTION:
+                if (isCartPresent(clientRef)) currentPhase = PipelinePhase.FLINT_ACTION;
+                else handlePipelineFailure(clientRef);
+                break;
+            case FLINT_ACTION:
+                if (isFirePresent(clientRef)) currentPhase = PipelinePhase.XBOW_ACTION;
+                else handlePipelineFailure(clientRef);
+                break;
+            case XBOW_ACTION:
+                currentPhase = PipelinePhase.CLEANUP;
+                break;
+            default:
+                purgePipelineRegistry();
+                break;
+        }
+
+        if (EXECUTION_TIMESTAMP_QUEUE.size() >= HISTORY_MAX_CAPACITY) {
+            EXECUTION_TIMESTAMP_QUEUE.pollFirst();
+        }
+        EXECUTION_TIMESTAMP_QUEUE.offerLast(System.currentTimeMillis());
+        updateRegistryState();
+    }
+
+    private static int locateRailSlot(Minecraft clientRef) {
+        if (clientRef.player == null) return -1;
+        for (int i = 0; i < 9; i++) {
+            Item itemNode = clientRef.player.getInventory().getItem(i).getItem();
+            if (validateRegistryItem(itemNode)) return i;
+        }
+        return -1;
+    }
+
+    private static void updateRegistryState() {
+        XBOW_TRANS_REGISTRY.put("ExecutionCounter", pipelineExecutionCounter);
+        XBOW_TRANS_REGISTRY.put("PipelineStage", currentPhase.name());
+        XBOW_TRANS_REGISTRY.put("HistorySize", EXECUTION_TIMESTAMP_QUEUE.size());
+        XBOW_TRANS_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
+        XBOW_TRANS_REGISTRY.put("EmergencyHalt", emergencyHaltFlag);
+        XBOW_TRANS_REGISTRY.put("AnomalyCount", pipelineAnomalyCounter);
+        XBOW_TRANS_REGISTRY.put("SuccessiveExecutions", successiveExecutionCount);
+    }
+
+    private static void executeSubsystemSanitation() {
+        if (pipelineExecutionCounter > 100000000L) {
+            pipelineExecutionCounter = 0L;
+        }
+        if (XBOW_TRANS_REGISTRY.size() > 250) {
+            purgeRegistry();
+            initializeXbowTransRegistry();
+        }
+    }
+
+    private static void purgeRegistry() {
+        XBOW_TRANS_REGISTRY.clear();
+    }
+
+    public static void purgePipelineRegistry() {
+        currentPhase = PipelinePhase.VOID;
+        vectorReferencePos = null;
+        vectorReferenceFace = Direction.UP;
+        vectorHitRegistry = null;
+        resolvedRailPos = null;
+        resolvedCartPos = null;
+        resolvedFirePos = null;
+        actionTickCounter = 0;
+        currentRetryAttempt = 0;
+        safetyWatchdog.disarm();
+    }
+
+    public static boolean verifyXbowSubsystemHealth() {
+        return enabled && SUBSESSION_IDENTITY != null;
+    }
+
+    public static long getPipelineExecutionCounter() {
+        return pipelineExecutionCounter;
+    }
+
+    public static PipelinePhase getPipelineStage() {
+        return currentPhase;
+    }
+
+    public static void setStrictCompliance(boolean state) {
+        strictComplianceFlag = state;
+        XBOW_TRANS_REGISTRY.put("StrictCompliance", strictComplianceFlag);
+    }
+
+    public static boolean isStrictComplianceActive() {
+        return strictComplianceFlag;
+    }
+
+    public static void setMaxRetries(int retries) {
+        maxPipelineRetries = Math.max(0, retries);
+        XBOW_TRANS_REGISTRY.put("MaxRetries", maxPipelineRetries);
+    }
+
+    public static int getMaxRetries() {
+        return maxPipelineRetries;
+    }
+
+    public static void performBaselineCalibration() {
+        strictComplianceFlag = true;
+        maxPipelineRetries = 5;
+        currentRetryAttempt = 0;
+        pipelineExecutionCounter = 0L;
+        emergencyHaltFlag = false;
+        pipelineAnomalyCounter = 0;
+        successiveExecutionCount = 0;
+        EXECUTION_TIMESTAMP_QUEUE.clear();
+        STOCHASTIC_LATENCY_DEQUE.clear();
+        VECTOR_TRAJECTORY_HISTORY.clear();
+        PIPELINE_ERROR_DEQUE.clear();
+        STAGE_DURATION_DEQUE.clear();
+    }
+
+    public static void executeExtendedDiagnosticFlush() {
+        executeSubsystemSanitation();
+        if (EXECUTION_TIMESTAMP_QUEUE.size() > HISTORY_MAX_CAPACITY) {
+            EXECUTION_TIMESTAMP_QUEUE.clear();
+        }
+        if (STOCHASTIC_LATENCY_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            STOCHASTIC_LATENCY_DEQUE.clear();
+        }
+        if (VECTOR_TRAJECTORY_HISTORY.size() > HISTORY_MAX_CAPACITY) {
+            VECTOR_TRAJECTORY_HISTORY.clear();
+        }
+        if (PIPELINE_ERROR_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            PIPELINE_ERROR_DEQUE.clear();
+        }
+        if (STAGE_DURATION_DEQUE.size() > HISTORY_MAX_CAPACITY) {
+            STAGE_DURATION_DEQUE.clear();
+        }
     }
 
     public static UUID getSubsessionIdentity() {
         return SUBSESSION_IDENTITY;
     }
 
-    public static long getGlobalExecutionCounter() {
-        return globalExecutionCounter;
+    public static void setTowerCartingMode(boolean state) {
+        towerCartingModeActive = state;
+        XBOW_TRANS_REGISTRY.put("TowerMode", towerCartingModeActive);
     }
 
-    public static void setKinematicSmoothing(double value) {
-        kinematicSmoothingRate = value;
+    public static boolean isTowerCartingModeActive() {
+        return towerCartingModeActive;
     }
 
-    public static double getKinematicSmoothing() {
-        return kinematicSmoothingRate;
+    public static void setDivebombBypass(boolean state) {
+        divebombBypassActive = state;
+        XBOW_TRANS_REGISTRY.put("DivebombMode", divebombBypassActive);
     }
 
-    public static void toggleWindMouseEngine(boolean state) {
-        windMouseEngineActive = state;
+    public static boolean isDivebombBypassActive() {
+        return divebombBypassActive;
     }
 
-    public static boolean isWindMouseEngineActive() {
-        return windMouseEngineActive;
+    public static int getInternalSlotCacheIndex() {
+        return internalSlotCacheIndex;
     }
 
-    public static void toggleHorizontalAxisOnly(boolean state) {
-        horizontalAxisOnly = state;
+    public static void setInternalSlotCacheIndex(int idx) {
+        internalSlotCacheIndex = idx;
     }
 
-    public static boolean isHorizontalAxisOnly() {
-        return horizontalAxisOnly;
+    public static double getStochasticDelayModifier() {
+        return stochasticDelayModifier;
     }
 
-    public static void toggleGcdCorrection(boolean state) {
-        gcdCorrectionActive = state;
+    public static void setStochasticDelayModifier(double modifier) {
+        stochasticDelayModifier = modifier;
     }
 
-    public static boolean isGcdCorrectionActive() {
-        return gcdCorrectionActive;
+    public static long getGlobalWatchdogTimeoutMs() {
+        return globalWatchdogTimeoutMs;
     }
 
-    public static int getYawHistorySize() {
-        return YAW_HISTORY_QUEUE.size();
+    public static void setGlobalWatchdogTimeoutMs(long timeout) {
+        globalWatchdogTimeoutMs = timeout;
+        XBOW_TRANS_REGISTRY.put("WatchdogTimeout", globalWatchdogTimeoutMs);
     }
 
-    public static int getPitchHistorySize() {
-        return PITCH_HISTORY_QUEUE.size();
+    public static int getPipelineAnomalyCounter() {
+        return pipelineAnomalyCounter;
     }
 
-    public static void runBaselineCalibration() {
-        kinematicSmoothingRate = 0.85D;
-        stochasticJitterScale = 0.000002D;
-        maximumFovAngle = 180.0F;
-        maximumReachBound = 7.0D;
-        windMouseEngineActive = true;
-        horizontalAxisOnly = false;
-        gcdCorrectionActive = true;
-        cumulativeWindX = 0.0D;
-        cumulativeWindY = 0.0D;
+    public static void resetPipelineAnomalyCounter() {
+        pipelineAnomalyCounter = 0;
+        XBOW_TRANS_REGISTRY.put("AnomalyCount", pipelineAnomalyCounter);
     }
 
-    public static double getWindOffsetX() {
-        return cumulativeWindX;
+    public static boolean isTacticalRetreatMode() {
+        return tacticalRetreatMode;
     }
 
-    public static double getWindOffsetY() {
-        return cumulativeWindY;
+    public static void setTacticalRetreatMode(boolean state) {
+        tacticalRetreatMode = state;
+        XBOW_TRANS_REGISTRY.put("TacticalRetreat", tacticalRetreatMode);
+    }
+
+    public static double getTargetElevationOffset() {
+        return targetElevationOffset;
+    }
+
+    public static void setTargetElevationOffset(double offset) {
+        targetElevationOffset = offset;
+        XBOW_TRANS_REGISTRY.put("ElevationOffset", targetElevationOffset);
+    }
+
+    public static boolean isDynamicAngleCorrectionActive() {
+        return dynamicAngleCorrection;
+    }
+
+    public static void setDynamicAngleCorrection(boolean state) {
+        dynamicAngleCorrection = state;
+        XBOW_TRANS_REGISTRY.put("DynamicAngleCorrection", dynamicAngleCorrection);
+    }
+
+    public static int getSuccessiveExecutionCount() {
+        return successiveExecutionCount;
+    }
+
+    public static void resetSuccessiveExecutionCount() {
+        successiveExecutionCount = 0;
+        XBOW_TRANS_REGISTRY.put("SuccessiveExecutions", successiveExecutionCount);
+    }
+
+    public static boolean isStealthProfileActive() {
+        return stealthProfileActive;
+    }
+
+    public static void setStealthProfileActive(boolean state) {
+        stealthProfileActive = state;
+        XBOW_TRANS_REGISTRY.put("StealthProfile", stealthProfileActive);
+    }
+
+    public static double getMouseInertiaWeight() {
+        return mouseInertiaWeight;
+    }
+
+    public static void setMouseInertiaWeight(double weight) {
+        mouseInertiaWeight = weight;
+        XBOW_TRANS_REGISTRY.put("MouseInertia", mouseInertiaWeight);
+    }
+
+    public static boolean isPacketOrderStrictSyncActive() {
+        return packetOrderStrictSync;
+    }
+
+    public static void setPacketOrderStrictSync(boolean state) {
+        packetOrderStrictSync = state;
+        XBOW_TRANS_REGISTRY.put("PacketOrderSync", packetOrderStrictSync);
+    }
+
+    public static int getServerTickOffsetCalibration() {
+        return serverTickOffsetCalibration;
+    }
+
+    public static void setServerTickOffsetCalibration(int offset) {
+        serverTickOffsetCalibration = Math.max(0, offset);
+        XBOW_TRANS_REGISTRY.put("TickOffsetCalibration", serverTickOffsetCalibration);
+    }
+
+    public static int getExecutionTimestampQueueSize() {
+        return EXECUTION_TIMESTAMP_QUEUE.size();
+    }
+
+    public static int getStochasticLatencyQueueSize() {
+        return STOCHASTIC_LATENCY_DEQUE.size();
+    }
+
+    public static int getVectorTrajectoryHistorySize() {
+        return VECTOR_TRAJECTORY_HISTORY.size();
+    }
+
+    public static int getPipelineErrorDequeSize() {
+        return PIPELINE_ERROR_DEQUE.size();
+    }
+
+    public static int getStageDurationDequeSize() {
+        return STAGE_DURATION_DEQUE.size();
+    }
+
+    public static void clearAllXbowHistoryQueues() {
+        EXECUTION_TIMESTAMP_QUEUE.clear();
+        STOCHASTIC_LATENCY_DEQUE.clear();
+        VECTOR_TRAJECTORY_HISTORY.clear();
+        PIPELINE_ERROR_DEQUE.clear();
+        STAGE_DURATION_DEQUE.clear();
+    }
+
+    public static void forceXbowSubsystemReset() {
+        resetXbowInternalState();
     }
 }
