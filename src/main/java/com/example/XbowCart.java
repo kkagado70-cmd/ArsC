@@ -459,7 +459,7 @@ public class XbowCart extends ClientBase.Module {
     }
 
     private static void executeSubsystemSanitation() {
-        if (pipelineExecutionCount > 100000000L) {
+        if (pipelineExecutionCounter > 100000000L) {
             pipelineExecutionCounter = 0L;
         }
         if (XBOW_FIXED_REGISTRY.size() > 250) {
