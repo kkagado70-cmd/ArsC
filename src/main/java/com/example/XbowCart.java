@@ -218,7 +218,15 @@ public class XbowCart extends ClientBase.Module {
         switch (currentPhase) {
             case VOID:
                 HitResult rawHit = clientRef.hitResult;
-                if (rawHit == null || rawHit.getType() != HitResult.Type.BLOCK) return;
+                if (rawHit == null || rawHit.getType() != HitResult.Type.BLOCK) {
+                    HitResult fallbackHit = clientRef.player.pick(4.5D, 0.0F, false);
+                    if (fallbackHit.getType() == HitResult.Type.BLOCK) {
+                        rawHit = fallbackHit;
+                    } else {
+                        return;
+                    }
+                }
+
                 if (!(rawHit instanceof BlockHitResult blockHit)) return;
                 
                 ItemStack mainHand = clientRef.player.getMainHandItem();
@@ -235,8 +243,6 @@ public class XbowCart extends ClientBase.Module {
                     resolvedRailPos = vectorReferencePos;
                 } else if (vectorReferenceFace == Direction.UP) {
                     resolvedRailPos = vectorReferencePos.above();
-                } else if (vectorReferenceFace == Direction.DOWN) {
-                    resolvedRailPos = vectorReferencePos.below();
                 } else {
                     resolvedRailPos = vectorReferencePos.relative(vectorReferenceFace);
                     if (!clientRef.level.getBlockState(resolvedRailPos).isAir() && clientRef.level.getBlockState(resolvedRailPos.above()).isAir()) {
@@ -249,9 +255,6 @@ public class XbowCart extends ClientBase.Module {
                 resolvedFirePos = resolvedRailPos.relative(playerFacing.getOpposite());
                 if (!clientRef.level.getBlockState(resolvedFirePos.below()).isSolid()) {
                     resolvedFirePos = resolvedRailPos.relative(playerFacing);
-                }
-                if (!clientRef.level.getBlockState(resolvedFirePos.below()).isSolid()) {
-                    resolvedFirePos = resolvedRailPos.above();
                 }
 
                 safetyWatchdog.arm();
@@ -268,7 +271,6 @@ public class XbowCart extends ClientBase.Module {
                 }
                 Vec3 railTarget = Vec3.atCenterOf(resolvedRailPos);
                 RotationManager.smoothTo(clientRef, railTarget, 0.99F);
-                if (!isRotationSynced(clientRef, railTarget)) return;
 
                 InventoryManager.selectSlot(clientRef, r);
                 InteractionManager.simulateClickUse(clientRef);
@@ -276,10 +278,6 @@ public class XbowCart extends ClientBase.Module {
                 break;
 
             case CART_ACTION:
-                if (!israilPresent(clientRef)) {
-                    handlePipelineFailure(clientRef);
-                    return;
-                }
                 int c = InventoryManager.findItem(clientRef, Items.TNT_MINECART);
                 if (c == -1) {
                     handlePipelineFailure(clientRef);
@@ -287,7 +285,6 @@ public class XbowCart extends ClientBase.Module {
                 }
                 Vec3 cartTarget = Vec3.atCenterOf(resolvedCartPos);
                 RotationManager.smoothTo(clientRef, cartTarget, 0.99F);
-                if (!isRotationSynced(clientRef, cartTarget)) return;
 
                 InventoryManager.selectSlot(clientRef, c);
                 InteractionManager.simulateClickUse(clientRef);
@@ -295,10 +292,6 @@ public class XbowCart extends ClientBase.Module {
                 break;
 
             case FLINT_ACTION:
-                if (!isCartPresent(clientRef)) {
-                    handlePipelineFailure(clientRef);
-                    return;
-                }
                 int f = InventoryManager.findItem(clientRef, Items.FLINT_AND_STEEL);
                 if (f == -1) f = InventoryManager.findItem(clientRef, Items.FIRE_CHARGE);
                 if (f == -1) {
@@ -307,7 +300,6 @@ public class XbowCart extends ClientBase.Module {
                 }
                 Vec3 fireTarget = Vec3.atCenterOf(resolvedFirePos);
                 RotationManager.smoothTo(clientRef, fireTarget, 0.99F);
-                if (!isRotationSynced(clientRef, fireTarget)) return;
 
                 InventoryManager.selectSlot(clientRef, f);
                 InteractionManager.simulateClickUse(clientRef);
@@ -315,10 +307,6 @@ public class XbowCart extends ClientBase.Module {
                 break;
 
             case XBOW_ACTION:
-                if (!isFirePresent(clientRef)) {
-                    handlePipelineFailure(clientRef);
-                    return;
-                }
                 int x = InventoryManager.findChargedCrossbow(clientRef);
                 if (x == -1) {
                     handlePipelineFailure(clientRef);
@@ -332,11 +320,10 @@ public class XbowCart extends ClientBase.Module {
                 Vec3 shootTarget = trajectoryMidpoint.add(0.0D, dynamicElevation, 0.0D);
 
                 RotationManager.smoothTo(clientRef, shootTarget, 0.99F);
-                if (!isRotationSynced(clientRef, shootTarget)) return;
 
                 InventoryManager.selectSlot(clientRef, x);
                 InteractionManager.simulateClickUse(clientRef);
-                actionTickCounter = uniformTickDelay;
+                actionTickCounter = 2;
                 break;
 
             case CLEANUP:
@@ -344,46 +331,6 @@ public class XbowCart extends ClientBase.Module {
                 break;
         }
         updateRegistryState();
-    }
-
-    private static boolean isRotationSynced(Minecraft clientRef, Vec3 target) {
-        double deltaX = target.x - clientRef.player.getX();
-        double deltaY = target.y - clientRef.player.getEyeY();
-        double deltaZ = target.z - clientRef.player.getZ();
-        double hDist = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
-        if (hDist < 0.001D) hDist = 0.001D;
-
-        float targetYaw = (float) (Math.atan2(deltaZ, deltaX) * (180.0 / Math.PI)) - 90.0F;
-        float targetPitch = (float) (-(Math.atan2(deltaY, hDist) * (180.0 / Math.PI)));
-
-        float yawDiff = Math.abs(Mth.wrapDegrees(targetYaw - clientRef.player.getYRot()));
-        float pitchDiff = Math.abs(targetPitch - clientRef.player.getXRot());
-
-        return yawDiff < 15.0f && pitchDiff < 15.0f;
-    }
-
-    private static boolean israilPresent(Minecraft clientRef) {
-        if (clientRef.level == null || resolvedRailPos == null) return false;
-        return isRailBlock(clientRef.level.getBlockState(resolvedRailPos));
-    }
-
-    private static boolean isCartPresent(Minecraft clientRef) {
-        if (clientRef.level == null || resolvedCartPos == null) return false;
-        for (Entity e : clientRef.level.entitiesForRendering()) {
-            if (e != null && e.blockPosition().closerThan(resolvedCartPos, 1.5D)) {
-                String id = e.getType().getDescriptionId().toLowerCase();
-                if (id.contains("tnt_minecart") || id.contains("minecart")) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private static boolean isFirePresent(Minecraft clientRef) {
-        if (clientRef.level == null || resolvedFirePos == null) return false;
-        BlockState state = clientRef.level.getBlockState(resolvedFirePos);
-        return state.is(Blocks.FIRE) || state.is(Blocks.SOUL_FIRE);
     }
 
     private static void handlePipelineFailure(Minecraft clientRef) {
@@ -413,16 +360,13 @@ public class XbowCart extends ClientBase.Module {
 
         switch (currentPhase) {
             case RAIL_ACTION:
-                if (israilPresent(clientRef)) currentPhase = PipelinePhase.CART_ACTION;
-                else handlePipelineFailure(clientRef);
+                currentPhase = PipelinePhase.CART_ACTION;
                 break;
             case CART_ACTION:
-                if (isCartPresent(clientRef)) currentPhase = PipelinePhase.FLINT_ACTION;
-                else handlePipelineFailure(clientRef);
+                currentPhase = PipelinePhase.FLINT_ACTION;
                 break;
             case FLINT_ACTION:
-                if (isFirePresent(clientRef)) currentPhase = PipelinePhase.XBOW_ACTION;
-                else handlePipelineFailure(clientRef);
+                currentPhase = PipelinePhase.XBOW_ACTION;
                 break;
             case XBOW_ACTION:
                 currentPhase = PipelinePhase.CLEANUP;
