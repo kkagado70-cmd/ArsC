@@ -82,11 +82,6 @@ public class InventoryManager {
     public static void performHumanizedSwap(Minecraft client, int slot) {
         if (client.player == null || slot < 0 || slot > 8) return;
         selectSlot(client, slot);
-        try {
-            Thread.sleep(1 + secureRandom.nextInt(4));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     public static int fetchCachedSlot() { return cachedSelectedSlot; }
