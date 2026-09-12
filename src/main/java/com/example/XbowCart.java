@@ -1,5 +1,6 @@
 package com.example;
 
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -20,7 +21,7 @@ import java.util.Deque;
 
 public class XbowCart extends ClientBase.Module {
     public static final String FILE_NAME = "XbowCart.java";
-    public static boolean enabled = false;
+    public static boolean enabled = true;
 
     private enum PipelinePhase { VOID, RAIL_ACTION, CART_ACTION, FLINT_ACTION, XBOW_ACTION, CLEANUP }
 
@@ -40,9 +41,17 @@ public class XbowCart extends ClientBase.Module {
     private static int maxPipelineRetries = 3;
     private static int currentRetryAttempt = 0;
 
+    static {
+        ClientTickEvents.START_CLIENT_TICK.register(client -> {
+            if (enabled && client.player != null && client.level != null) {
+                onTick(client);
+            }
+        });
+    }
+
     public XbowCart() {
         super("XbowCart");
-        XbowCart.enabled = false;
+        XbowCart.enabled = true;
         initializeXbowEnterpriseRegistry();
     }
 
@@ -94,10 +103,6 @@ public class XbowCart extends ClientBase.Module {
                candidateItem == Items.POWERED_RAIL ||
                candidateItem == Items.DETECTOR_RAIL ||
                candidateItem == Items.ACTIVATOR_RAIL;
-    }
-
-    public static boolean isRail(Item candidateItem) {
-        return validateRegistryItem(candidateItem);
     }
 
     public static void onTick(Minecraft clientRef) {
@@ -299,4 +304,4 @@ public class XbowCart extends ClientBase.Module {
     public static UUID getSubsessionIdentity() {
         return SUBSESSION_IDENTITY;
     }
-                }
+}
