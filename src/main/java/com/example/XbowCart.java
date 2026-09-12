@@ -13,7 +13,8 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.entity.vehicle.MinecartTNT;
+import net.minecraft.world.entity.vehicle.TntMinecart;
+import net.minecraft.world.entity.Entity;
 
 import java.security.SecureRandom;
 import java.util.UUID;
@@ -362,7 +363,7 @@ public class XbowCart extends ClientBase.Module {
     private static boolean isCartPresent(Minecraft clientRef) {
         if (clientRef.level == null || resolvedCartPos == null) return false;
         for (Entity e : clientRef.level.entitiesForRendering()) {
-            if (e instanceof MinecartTNT && e.blockPosition().closerThan(resolvedCartPos, 1.5D)) {
+            if (e instanceof TntMinecart && e.blockPosition().closerThan(resolvedCartPos, 1.5D)) {
                 return true;
             }
         }
