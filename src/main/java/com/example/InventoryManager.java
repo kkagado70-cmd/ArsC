@@ -4,9 +4,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.CrossbowItem;
-import net.minecraft.world.item.SwordItem;
-import net.minecraft.world.item.AxeItem;
-import net.minecraft.world.item.MaceItem;
 import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Map;
@@ -14,7 +11,7 @@ import java.util.Map;
 public class InventoryManager {
     public static final String FILE_NAME = "InventoryManager.java";
     private static final SecureRandom secureRandom = new SecureRandom();
-    private static int cachedSelectedSlot = -1;
+    private static int cachedSelectedSlot = 0;
     private static long lastSwapEpoch = 0L;
     private static final Map<Item, Integer> itemSlotCache = new HashMap<>();
     private static boolean inventoryLocked = false;
@@ -33,9 +30,20 @@ public class InventoryManager {
 
     public static int findItem(Minecraft client, Item targetItem) {
         if (client.player == null) return -1;
+        if (itemSlotCache.containsKey(targetItem)) {
+            int cachedSlot = itemSlotCache.get(targetItem);
+            if (cachedSlot >= 0 && cachedSlot < 9) {
+                ItemStack stack = client.player.getInventory().getItem(cachedSlot);
+                if (!stack.isEmpty() && stack.getItem() == targetItem) {
+                    return cachedSlot;
+                }
+            }
+        }
+
         for (int i = 0; i < 9; i++) {
             ItemStack stack = client.player.getInventory().getItem(i);
             if (!stack.isEmpty() && stack.getItem() == targetItem) {
+                itemSlotCache.put(targetItem, i);
                 return i;
             }
         }
@@ -59,8 +67,32 @@ public class InventoryManager {
         return -1;
     }
 
+    public static int findItemFuzzy(Minecraft client, String nameQuery) {
+        if (client.player == null || nameQuery == null) return -1;
+        String query = nameQuery.toLowerCase();
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = client.player.getInventory().getItem(i);
+            if (!stack.isEmpty() && stack.getItem().getDescriptionId().toLowerCase().contains(query)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public static void performHumanizedSwap(Minecraft client, int slot) {
+        if (client.player == null || slot < 0 || slot > 8) return;
+        selectSlot(client, slot);
+        try {
+            Thread.sleep(1 + secureRandom.nextInt(4));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    public static int fetchCachedSlot() { return cachedSelectedSlot; }
+
     public static void purgeInventoryState() {
-        cachedSelectedSlot = -1;
+        cachedSelectedSlot = 0;
         lastSwapEpoch = 0L;
         itemSlotCache.clear();
         inventoryLocked = false;
@@ -68,7 +100,7 @@ public class InventoryManager {
 
     public static boolean verifySlotIntegrity(Minecraft client, int expectedSlot) {
         if (client.player == null) return false;
-        return client.player.getInventory().selected == expectedSlot;
+        return cachedSelectedSlot == expectedSlot;
     }
 
     public static void emergencyRestore(Minecraft client, int fallbackSlot) {
@@ -91,7 +123,9 @@ public class InventoryManager {
 
     public static void stepCycle(Minecraft client) {
         if (client != null && client.player != null) {
-            cachedSelectedSlot = client.player.getInventory().selected;
+            if (secureRandom.nextInt(100) == 0) {
+                itemSlotCache.clear();
+            }
         }
     }
 
@@ -103,12 +137,43 @@ public class InventoryManager {
         return inventoryLocked;
     }
 
+    public static int findEmptyHotbarSlot(Minecraft client) {
+        if (client.player == null) return -1;
+        for (int i = 0; i < 9; i++) {
+            if (client.player.getInventory().getItem(i).isEmpty()) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public static boolean hasItemInOffhand(Minecraft client, Item targetItem) {
+        if (client.player == null) return false;
+        return client.player.getOffhandItem().getItem() == targetItem;
+    }
+
+    public static boolean validateHotbarIndex(int index) {
+        return index >= 0 && index < 9;
+    }
+
+    public static ItemStack fetchCurrentItemStack(Minecraft client) {
+        if (client.player == null) return ItemStack.EMPTY;
+        return client.player.getMainHandItem();
+    }
+
+    public static void clearSlotCache() {
+        itemSlotCache.clear();
+    }
+
     public static int findFirstAvailableWeapon(Minecraft client) {
         if (client.player == null) return -1;
         for (int i = 0; i < 9; i++) {
             ItemStack stack = client.player.getInventory().getItem(i);
-            if (!stack.isEmpty() && (stack.getItem() instanceof SwordItem || stack.getItem() instanceof AxeItem || stack.getItem() instanceof MaceItem)) {
-                return i;
+            if (!stack.isEmpty()) {
+                String id = stack.getItem().getDescriptionId().toLowerCase();
+                if (id.contains("sword") || id.contains("axe") || id.contains("mace") || id.contains("trident")) {
+                    return i;
+                }
             }
         }
         return -1;
