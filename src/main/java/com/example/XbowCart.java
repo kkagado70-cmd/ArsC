@@ -13,7 +13,6 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.entity.vehicle.TntMinecart;
 import net.minecraft.world.entity.Entity;
 
 import java.security.SecureRandom;
@@ -363,8 +362,11 @@ public class XbowCart extends ClientBase.Module {
     private static boolean isCartPresent(Minecraft clientRef) {
         if (clientRef.level == null || resolvedCartPos == null) return false;
         for (Entity e : clientRef.level.entitiesForRendering()) {
-            if (e instanceof TntMinecart && e.blockPosition().closerThan(resolvedCartPos, 1.5D)) {
-                return true;
+            if (e != null && e.blockPosition().closerThan(resolvedCartPos, 1.5D)) {
+                String id = e.getType().getDescriptionId().toLowerCase();
+                if (id.contains("tnt_minecart") || id.contains("minecart")) {
+                    return true;
+                }
             }
         }
         return israilPresent(clientRef);
