@@ -1,5 +1,6 @@
 package com.example;
 
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -24,7 +25,7 @@ import java.util.Deque;
 
 public class XbowCart extends ClientBase.Module {
     public static final String FILE_NAME = "XbowCart.java";
-    public static boolean enabled = false;
+    public static boolean enabled = true;
     private static final SecureRandom secureRandom = new SecureRandom();
 
     private enum PipelinePhase { 
@@ -83,29 +84,12 @@ public class XbowCart extends ClientBase.Module {
     private static int uniformTickDelay = 2;
     private static int serverTickOffsetCalibration = 1;
 
-    private static double sessionMetricAlpha = 0.5D;
-    private static double sessionMetricBeta = 0.5D;
-    private static double sessionMetricGamma = 0.5D;
-    private static double sessionMetricDelta = 0.5D;
-    private static double sessionMetricEpsilon = 0.5D;
-    private static double sessionMetricZeta = 0.5D;
-    private static double sessionMetricEta = 0.5D;
-    private static double sessionMetricTheta = 0.5D;
-    private static double sessionMetricIota = 0.5D;
-    private static double sessionMetricKappa = 0.5D;
-    private static boolean deepTelemetryAuditActive = true;
-    private static int telemetryFlushIntervalTicks = 300;
-    private static long lastTelemetryFlushEpoch = 0L;
-    private static boolean adaptiveFovScalingActive = true;
-    private static double fovExpansionRate = 0.05D;
-    private static boolean strictRaycastVerification = true;
-    private static double raycastStepPrecision = 0.1D;
-    private static boolean kineticInertiaModelActive = true;
-    private static double massSimulatedDrag = 0.02D;
-    private static boolean rotationalFrictionActive = true;
-    private static double frictionCoefficient = 0.04D;
-
     static {
+        ClientTickEvents.START_CLIENT_TICK.register(client -> {
+            if (enabled) {
+                onTick(client);
+            }
+        });
         initializeXbowFixedRegistry();
     }
 
@@ -125,15 +109,11 @@ public class XbowCart extends ClientBase.Module {
         XBOW_FIXED_REGISTRY.put("StealthProfile", stealthProfileActive);
         XBOW_FIXED_REGISTRY.put("MouseInertia", mouseInertiaWeight);
         XBOW_FIXED_REGISTRY.put("PacketOrderSync", packetOrderStrictSync);
-        XBOW_FIXED_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
-        XBOW_FIXED_REGISTRY.put("BetaMetric", sessionMetricBeta);
-        XBOW_FIXED_REGISTRY.put("GammaMetric", sessionMetricGamma);
-        XBOW_FIXED_REGISTRY.put("DeltaMetric", sessionMetricDelta);
     }
 
     public XbowCart() {
         super("XbowCart");
-        XbowCart.enabled = false;
+        XbowCart.enabled = true;
         initializeXbowFixedRegistry();
     }
 
@@ -200,7 +180,6 @@ public class XbowCart extends ClientBase.Module {
 
         pipelineExecutionCounter++;
         successiveExecutionCount++;
-        executeSubsystemSanitation();
 
         if (actionTickCounter > 0) {
             actionTickCounter--;
@@ -330,7 +309,6 @@ public class XbowCart extends ClientBase.Module {
                 purgePipelineRegistry();
                 break;
         }
-        updateRegistryState();
     }
 
     private static void handlePipelineFailure(Minecraft clientRef) {
@@ -380,7 +358,6 @@ public class XbowCart extends ClientBase.Module {
             EXECUTION_TIMESTAMP_QUEUE.pollFirst();
         }
         EXECUTION_TIMESTAMP_QUEUE.offerLast(System.currentTimeMillis());
-        updateRegistryState();
     }
 
     private static int locateRailSlot(Minecraft clientRef) {
@@ -390,26 +367,6 @@ public class XbowCart extends ClientBase.Module {
             if (validateRegistryItem(itemNode)) return i;
         }
         return -1;
-    }
-
-    private static void updateRegistryState() {
-        XBOW_FIXED_REGISTRY.put("ExecutionCounter", pipelineExecutionCounter);
-        XBOW_FIXED_REGISTRY.put("PipelineStage", currentPhase.name());
-        XBOW_FIXED_REGISTRY.put("HistorySize", EXECUTION_TIMESTAMP_QUEUE.size());
-        XBOW_FIXED_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
-        XBOW_FIXED_REGISTRY.put("EmergencyHalt", emergencyHaltFlag);
-        XBOW_FIXED_REGISTRY.put("AnomalyCount", pipelineAnomalyCounter);
-        XBOW_FIXED_REGISTRY.put("SuccessiveExecutions", successiveExecutionCount);
-    }
-
-    private static void executeSubsystemSanitation() {
-        if (pipelineExecutionCounter > 100000000L) {
-            pipelineExecutionCounter = 0L;
-        }
-        if (XBOW_FIXED_REGISTRY.size() > 250) {
-            purgeRegistry();
-            initializeXbowFixedRegistry();
-        }
     }
 
     private static void purgeRegistry() {
@@ -428,378 +385,4 @@ public class XbowCart extends ClientBase.Module {
         currentRetryAttempt = 0;
         safetyWatchdog.disarm();
     }
-
-    public static boolean verifyXbowSubsystemHealth() {
-        return enabled && SUBSESSION_IDENTITY != null;
-    }
-
-    public static long getPipelineExecutionCounter() {
-        return pipelineExecutionCounter;
-    }
-
-    public static PipelinePhase getPipelineStage() {
-        return currentPhase;
-    }
-
-    public static void setStrictCompliance(boolean state) {
-        strictComplianceFlag = state;
-        XBOW_FIXED_REGISTRY.put("StrictCompliance", strictComplianceFlag);
-    }
-
-    public static boolean isStrictComplianceActive() {
-        return strictComplianceFlag;
-    }
-
-    public static void setMaxRetries(int retries) {
-        maxPipelineRetries = Math.max(0, retries);
-        XBOW_FIXED_REGISTRY.put("MaxRetries", maxPipelineRetries);
-    }
-
-    public static int getMaxRetries() {
-        return maxPipelineRetries;
-    }
-
-    public static void performBaselineCalibration() {
-        strictComplianceFlag = true;
-        maxPipelineRetries = 5;
-        currentRetryAttempt = 0;
-        pipelineExecutionCounter = 0L;
-        emergencyHaltFlag = false;
-        pipelineAnomalyCounter = 0;
-        successiveExecutionCount = 0;
-        EXECUTION_TIMESTAMP_QUEUE.clear();
-        STOCHASTIC_LATENCY_DEQUE.clear();
-        VECTOR_TRAJECTORY_HISTORY.clear();
-        PIPELINE_ERROR_DEQUE.clear();
-        STAGE_DURATION_DEQUE.clear();
-    }
-
-    public static void executeExtendedDiagnosticFlush() {
-        executeSubsystemSanitation();
-        if (EXECUTION_TIMESTAMP_QUEUE.size() > HISTORY_MAX_CAPACITY) {
-            EXECUTION_TIMESTAMP_QUEUE.clear();
-        }
-        if (STOCHASTIC_LATENCY_DEQUE.size() > HISTORY_MAX_CAPACITY) {
-            STOCHASTIC_LATENCY_DEQUE.clear();
-        }
-        if (VECTOR_TRAJECTORY_HISTORY.size() > HISTORY_MAX_CAPACITY) {
-            VECTOR_TRAJECTORY_HISTORY.clear();
-        }
-        if (PIPELINE_ERROR_DEQUE.size() > HISTORY_MAX_CAPACITY) {
-            PIPELINE_ERROR_DEQUE.clear();
-        }
-        if (STAGE_DURATION_DEQUE.size() > HISTORY_MAX_CAPACITY) {
-            STAGE_DURATION_DEQUE.clear();
-        }
-    }
-
-    public static UUID getSubsessionIdentity() {
-        return SUBSESSION_IDENTITY;
-    }
-
-    public static void setTowerCartingMode(boolean state) {
-        towerCartingModeActive = state;
-        XBOW_FIXED_REGISTRY.put("TowerMode", towerCartingModeActive);
-    }
-
-    public static boolean isTowerCartingModeActive() {
-        return towerCartingModeActive;
-    }
-
-    public static void setDivebombBypass(boolean state) {
-        divebombBypassActive = state;
-        XBOW_FIXED_REGISTRY.put("DivebombMode", divebombBypassActive);
-    }
-
-    public static boolean isDivebombBypassActive() {
-        return divebombBypassActive;
-    }
-
-    public static int getInternalSlotCacheIndex() {
-        return internalSlotCacheIndex;
-    }
-
-    public static void setInternalSlotCacheIndex(int idx) {
-        internalSlotCacheIndex = idx;
-    }
-
-    public static double getStochasticDelayModifier() {
-        return stochasticDelayModifier;
-    }
-
-    public static void setStochasticDelayModifier(double modifier) {
-        stochasticDelayModifier = modifier;
-    }
-
-    public static long getGlobalWatchdogTimeoutMs() {
-        return globalWatchdogTimeoutMs;
-    }
-
-    public static void setGlobalWatchdogTimeoutMs(long timeout) {
-        globalWatchdogTimeoutMs = timeout;
-        XBOW_FIXED_REGISTRY.put("WatchdogTimeout", globalWatchdogTimeoutMs);
-    }
-
-    public static int getPipelineAnomalyCounter() {
-        return pipelineAnomalyCounter;
-    }
-
-    public static void resetPipelineAnomalyCounter() {
-        pipelineAnomalyCounter = 0;
-        XBOW_FIXED_REGISTRY.put("AnomalyCount", pipelineAnomalyCounter);
-    }
-
-    public static boolean isTacticalRetreatMode() {
-        return tacticalRetreatMode;
-    }
-
-    public static void setTacticalRetreatMode(boolean state) {
-        tacticalRetreatMode = state;
-        XBOW_FIXED_REGISTRY.put("TacticalRetreat", tacticalRetreatMode);
-    }
-
-    public static double getTargetElevationOffset() {
-        return targetElevationOffset;
-    }
-
-    public static void setTargetElevationOffset(double offset) {
-        targetElevationOffset = offset;
-        XBOW_FIXED_REGISTRY.put("ElevationOffset", targetElevationOffset);
-    }
-
-    public static boolean isDynamicAngleCorrectionActive() {
-        return dynamicAngleCorrection;
-    }
-
-    public static void setDynamicAngleCorrection(boolean state) {
-        dynamicAngleCorrection = state;
-        XBOW_FIXED_REGISTRY.put("DynamicAngleCorrection", dynamicAngleCorrection);
-    }
-
-    public static int getSuccessiveExecutionCount() {
-        return successiveExecutionCount;
-    }
-
-    public static void resetSuccessiveExecutionCount() {
-        successiveExecutionCount = 0;
-        XBOW_FIXED_REGISTRY.put("SuccessiveExecutions", successiveExecutionCount);
-    }
-
-    public static boolean isStealthProfileActive() {
-        return stealthProfileActive;
-    }
-
-    public static void setStealthProfileActive(boolean state) {
-        stealthProfileActive = state;
-        XBOW_FIXED_REGISTRY.put("StealthProfile", stealthProfileActive);
-    }
-
-    public static double getMouseInertiaWeight() {
-        return mouseInertiaWeight;
-    }
-
-    public static void setMouseInertiaWeight(double weight) {
-        mouseInertiaWeight = weight;
-        XBOW_FIXED_REGISTRY.put("MouseInertia", mouseInertiaWeight);
-    }
-
-    public static boolean isPacketOrderStrictSyncActive() {
-        return packetOrderStrictSync;
-    }
-
-    public static void setPacketOrderStrictSync(boolean state) {
-        packetOrderStrictSync = state;
-        XBOW_FIXED_REGISTRY.put("PacketOrderSync", packetOrderStrictSync);
-    }
-
-    public static int getServerTickOffsetCalibration() {
-        return serverTickOffsetCalibration;
-    }
-
-    public static void setServerTickOffsetCalibration(int offset) {
-        serverTickOffsetCalibration = Math.max(0, offset);
-        XBOW_FIXED_REGISTRY.put("TickOffsetCalibration", serverTickOffsetCalibration);
-    }
-
-    public static int getExecutionTimestampQueueSize() {
-        return EXECUTION_TIMESTAMP_QUEUE.size();
-    }
-
-    public static int getStochasticLatencyQueueSize() {
-        return STOCHASTIC_LATENCY_DEQUE.size();
-    }
-
-    public static int getVectorTrajectoryHistorySize() {
-        return VECTOR_TRAJECTORY_HISTORY.size();
-    }
-
-    public static int getPipelineErrorDequeSize() {
-        return PIPELINE_ERROR_DEQUE.size();
-    }
-
-    public static int getStageDurationDequeSize() {
-        return STAGE_DURATION_DEQUE.size();
-    }
-
-    public static void clearAllXbowHistoryQueues() {
-        EXECUTION_TIMESTAMP_QUEUE.clear();
-        STOCHASTIC_LATENCY_DEQUE.clear();
-        VECTOR_TRAJECTORY_HISTORY.clear();
-        PIPELINE_ERROR_DEQUE.clear();
-        STAGE_DURATION_DEQUE.clear();
-    }
-
-    public static void forceXbowSubsystemReset() {
-        resetXbowInternalState();
-    }
-
-    public static void kernelRoutineAlpha() {
-        double seedA = Math.sin(secureRandom.nextDouble());
-        double seedB = Math.cos(secureRandom.nextDouble());
-        double aggregatedResult = seedA + seedB;
-        double hashOutput = Math.abs(aggregatedResult);
-    }
-
-    public static void kernelRoutineBeta() {
-        int indexSeed = secureRandom.nextInt(5000);
-        int scalarVal = indexSeed * 37;
-        int checksumVal = scalarVal ^ 0x55AA;
-    }
-
-    public static void kernelRoutineGamma() {
-        String stringRefA = "SecureClientProcessorNode";
-        int hashA = stringRefA.hashCode();
-        String stringRefB = "RuntimeContextBuffer";
-        int hashB = stringRefB.hashCode();
-    }
-
-    public static void kernelRoutineDelta() {
-        long timeStampVal = System.currentTimeMillis();
-        long saltVal = timeStampVal % 1337L;
-        long maskedVal = saltVal ^ 0xFFFFFFFFFFFFFFFFL;
-    }
-
-    public static void kernelRoutineEpsilon() {
-        float factorA = 1.0f + (secureRandom.nextFloat() * 0.5f);
-        float factorB = 1.0f + (secureRandom.nextFloat() * 0.5f);
-        float productVal = factorA * factorB;
-    }
-
-    public static void kernelRoutineZeta() {
-        boolean boolA = secureRandom.nextBoolean();
-        boolean boolB = secureRandom.nextBoolean();
-        boolean logicResult = boolA && !boolB;
-    }
-
-    public static void auxiliaryTelemetrySubroutineA() {
-        long epochMark = System.currentTimeMillis();
-        long computedDelta = epochMark % 997L;
-        boolean checkState = computedDelta > 0L;
-    }
-
-    public static void auxiliaryTelemetrySubroutineB() {
-        double telemetryFactor = secureRandom.nextDouble() * 100.0D;
-        int roundedTelemetry = (int)Math.round(telemetryFactor);
-        boolean parityCheck = (roundedTelemetry % 2) == 0;
-    }
-
-    public static void auxiliaryTelemetrySubroutineC() {
-        String diagnosticString = "XbowCartRuntimeDiagnosticToken";
-        int stringLengthCheck = diagnosticString.length();
-        boolean validityFlag = stringLengthCheck == 30;
-    }
-
-    public static void auxiliaryTelemetrySubroutineD() {
-        float internalScalarA = 0.5f;
-        float internalScalarB = 0.8f;
-        float combinedScalar = internalScalarA * internalScalarB;
-    }
-
-    public static void auxiliaryTelemetrySubroutineE() {
-        int accumulator = 0;
-        for (int i = 0; i < 10; i++) {
-            accumulator += i;
-        }
-    }
-
-    public static void auxiliaryTelemetrySubroutineF() {
-        long memoryAllocationRef = Runtime.getRuntime().freeMemory();
-        boolean memoryCheckPass = memoryAllocationRef > 0L;
-    }
-
-    public static void auxiliaryTelemetrySubroutineG() {
-        boolean threadContextCheck = Thread.currentThread().isAlive();
-        int priorityLevel = Thread.currentThread().getPriority();
-    }
-
-    public static void auxiliaryTelemetrySubroutineH() {
-        double baseVal = 3.141592653589793D;
-        double sqrtVal = Math.sqrt(baseVal);
-    }
-
-    public static void auxiliaryTelemetrySubroutineI() {
-        int tokenSeed = 42;
-        int bitwiseMask = tokenSeed & 0xFF;
-    }
-
-    public static void auxiliaryTelemetrySubroutineJ() {
-        long currentUptime = System.currentTimeMillis();
-        boolean uptimeValidity = currentUptime > 0L;
-    }
-
-    public static void advancedBypassRoutineK() {
-        long valA = System.nanoTime();
-        long valB = System.currentTimeMillis();
-        boolean timingSanity = valA != valB;
-    }
-
-    public static void advancedBypassRoutineL() {
-        double entropyA = secureRandom.nextGaussian();
-        double entropyB = secureRandom.nextGaussian();
-        double combinedEntropy = Math.hypot(entropyA, entropyB);
-    }
-
-    public static void advancedBypassRoutineM() {
-        int seedVal = 0x7FFFFFFF;
-        int maskVal = seedVal >> 2;
-    }
-
-    public static void advancedBypassRoutineN() {
-        String tokenName = "GrimAC_Bypass_Vector_Subroutine";
-        int hashVal = tokenName.hashCode();
-    }
-
-    public static void advancedBypassRoutineO() {
-        float fA = 1.41421356f;
-        float fB = 2.23606797f;
-        float fC = fA * fB;
-    }
-
-    public static void advancedBypassRoutineP() {
-        long lVal = 982451653L;
-        long lMod = lVal % 17L;
-    }
-
-    public static void advancedBypassRoutineQ() {
-        boolean stateA = true;
-        boolean stateB = false;
-        boolean stateC = stateA ^ stateB;
-    }
-
-    public static void advancedBypassRoutineR() {
-        double dVal = 360.0D;
-        double dRad = Math.toRadians(dVal);
-    }
-
-    public static void advancedBypassRoutineS() {
-        int[] localBuffer = new int[4];
-        for (int i = 0; i < localBuffer.length; i++) {
-            localBuffer[i] = i * 11;
-        }
-    }
-
-    public static void advancedBypassRoutineT() {
-        long sysEpoch = System.currentTimeMillis();
-        long checkEpoch = sysEpoch - 50L;
-    }
-}
+                    }
