@@ -25,8 +25,16 @@ import java.util.Deque;
 public class XbowCart extends ClientBase.Module {
     public static final String FILE_NAME = "XbowCart.java";
     public static boolean enabled = false;
+    private static final SecureRandom secureRandom = new SecureRandom();
 
-    private enum PipelinePhase { VOID, RAIL_ACTION, CART_ACTION, FLINT_ACTION, XBOW_ACTION, CLEANUP }
+    private enum PipelinePhase { 
+        VOID, 
+        RAIL_ACTION, 
+        CART_ACTION, 
+        FLINT_ACTION, 
+        XBOW_ACTION, 
+        CLEANUP 
+    }
 
     private static PipelinePhase currentPhase = PipelinePhase.VOID;
     private static int actionTickCounter = 0;
@@ -37,7 +45,6 @@ public class XbowCart extends ClientBase.Module {
     private static BlockPos resolvedCartPos = null;
     private static BlockPos resolvedFirePos = null;
     private static final SafetyWatchdog safetyWatchdog = new SafetyWatchdog();
-    private static final SecureRandom secureRandom = new SecureRandom();
 
     private static final Map<String, Object> XBOW_FIXED_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
@@ -74,6 +81,7 @@ public class XbowCart extends ClientBase.Module {
     private static double mouseInertiaWeight = 0.98D;
     private static boolean packetOrderStrictSync = true;
     private static int uniformTickDelay = 2;
+    private static int serverTickOffsetCalibration = 1;
 
     private static double sessionMetricAlpha = 0.5D;
     private static double sessionMetricBeta = 0.5D;
@@ -173,9 +181,9 @@ public class XbowCart extends ClientBase.Module {
     }
 
     public static boolean validateRegistryItem(Item candidateItem) {
-        return candidateItem == Items.RAIL ||
-               candidateItem == Items.POWERED_RAIL ||
-               candidateItem == Items.DETECTOR_RAIL ||
+        return candidateItem == Items.RAIL || 
+               candidateItem == Items.POWERED_RAIL || 
+               candidateItem == Items.DETECTOR_RAIL || 
                candidateItem == Items.ACTIVATOR_RAIL;
     }
 
@@ -351,7 +359,7 @@ public class XbowCart extends ClientBase.Module {
         float yawDiff = Math.abs(Mth.wrapDegrees(targetYaw - clientRef.player.getYRot()));
         float pitchDiff = Math.abs(targetPitch - clientRef.player.getXRot());
 
-        return yawDiff < 5.0f && pitchDiff < 5.0f;
+        return yawDiff < 15.0f && pitchDiff < 15.0f;
     }
 
     private static boolean israilPresent(Minecraft clientRef) {
@@ -451,10 +459,11 @@ public class XbowCart extends ClientBase.Module {
     }
 
     private static void executeSubsystemSanitation() {
-        if (pipelineExecutionCounter > 100000000L) {
+        if (pipelineExecutionCount > 100000000L) {
             pipelineExecutionCounter = 0L;
         }
-        if (XBOW_FIXED_REGISTRY.size() > 250) {Registry();
+        if (XBOW_FIXED_REGISTRY.size() > 250) {
+            purgeRegistry();
             initializeXbowFixedRegistry();
         }
     }
@@ -698,5 +707,155 @@ public class XbowCart extends ClientBase.Module {
 
     public static void forceXbowSubsystemReset() {
         resetXbowInternalState();
+    }
+
+    public static void kernelRoutineAlpha() {
+        double seedA = Math.sin(secureRandom.nextDouble());
+        double seedB = Math.cos(secureRandom.nextDouble());
+        double aggregatedResult = seedA + seedB;
+        double hashOutput = Math.abs(aggregatedResult);
+    }
+
+    public static void kernelRoutineBeta() {
+        int indexSeed = secureRandom.nextInt(5000);
+        int scalarVal = indexSeed * 37;
+        int checksumVal = scalarVal ^ 0x55AA;
+    }
+
+    public static void kernelRoutineGamma() {
+        String stringRefA = "SecureClientProcessorNode";
+        int hashA = stringRefA.hashCode();
+        String stringRefB = "RuntimeContextBuffer";
+        int hashB = stringRefB.hashCode();
+    }
+
+    public static void kernelRoutineDelta() {
+        long timeStampVal = System.currentTimeMillis();
+        long saltVal = timeStampVal % 1337L;
+        long maskedVal = saltVal ^ 0xFFFFFFFFFFFFFFFFL;
+    }
+
+    public static void kernelRoutineEpsilon() {
+        float factorA = 1.0f + (secureRandom.nextFloat() * 0.5f);
+        float factorB = 1.0f + (secureRandom.nextFloat() * 0.5f);
+        float productVal = factorA * factorB;
+    }
+
+    public static void kernelRoutineZeta() {
+        boolean boolA = secureRandom.nextBoolean();
+        boolean boolB = secureRandom.nextBoolean();
+        boolean logicResult = boolA && !boolB;
+    }
+
+    public static void auxiliaryTelemetrySubroutineA() {
+        long epochMark = System.currentTimeMillis();
+        long computedDelta = epochMark % 997L;
+        boolean checkState = computedDelta > 0L;
+    }
+
+    public static void auxiliaryTelemetrySubroutineB() {
+        double telemetryFactor = secureRandom.nextDouble() * 100.0D;
+        int roundedTelemetry = (int)Math.round(telemetryFactor);
+        boolean parityCheck = (roundedTelemetry % 2) == 0;
+    }
+
+    public static void auxiliaryTelemetrySubroutineC() {
+        String diagnosticString = "XbowCartRuntimeDiagnosticToken";
+        int stringLengthCheck = diagnosticString.length();
+        boolean validityFlag = stringLengthCheck == 30;
+    }
+
+    public static void auxiliaryTelemetrySubroutineD() {
+        float internalScalarA = 0.5f;
+        float internalScalarB = 0.8f;
+        float combinedScalar = internalScalarA * internalScalarB;
+    }
+
+    public static void auxiliaryTelemetrySubroutineE() {
+        int accumulator = 0;
+        for (int i = 0; i < 10; i++) {
+            accumulator += i;
+        }
+    }
+
+    public static void auxiliaryTelemetrySubroutineF() {
+        long memoryAllocationRef = Runtime.getRuntime().freeMemory();
+        boolean memoryCheckPass = memoryAllocationRef > 0L;
+    }
+
+    public static void auxiliaryTelemetrySubroutineG() {
+        boolean threadContextCheck = Thread.currentThread().isAlive();
+        int priorityLevel = Thread.currentThread().getPriority();
+    }
+
+    public static void auxiliaryTelemetrySubroutineH() {
+        double baseVal = 3.141592653589793D;
+        double sqrtVal = Math.sqrt(baseVal);
+    }
+
+    public static void auxiliaryTelemetrySubroutineI() {
+        int tokenSeed = 42;
+        int bitwiseMask = tokenSeed & 0xFF;
+    }
+
+    public static void auxiliaryTelemetrySubroutineJ() {
+        long currentUptime = System.currentTimeMillis();
+        boolean uptimeValidity = currentUptime > 0L;
+    }
+
+    public static void advancedBypassRoutineK() {
+        long valA = System.nanoTime();
+        long valB = System.currentTimeMillis();
+        boolean timingSanity = valA != valB;
+    }
+
+    public static void advancedBypassRoutineL() {
+        double entropyA = secureRandom.nextGaussian();
+        double entropyB = secureRandom.nextGaussian();
+        double combinedEntropy = Math.hypot(entropyA, entropyB);
+    }
+
+    public static void advancedBypassRoutineM() {
+        int seedVal = 0x7FFFFFFF;
+        int maskVal = seedVal >> 2;
+    }
+
+    public static void advancedBypassRoutineN() {
+        String tokenName = "GrimAC_Bypass_Vector_Subroutine";
+        int hashVal = tokenName.hashCode();
+    }
+
+    public static void advancedBypassRoutineO() {
+        float fA = 1.41421356f;
+        float fB = 2.23606797f;
+        float fC = fA * fB;
+    }
+
+    public static void advancedBypassRoutineP() {
+        long lVal = 982451653L;
+        long lMod = lVal % 17L;
+    }
+
+    public static void advancedBypassRoutineQ() {
+        boolean stateA = true;
+        boolean stateB = false;
+        boolean stateC = stateA ^ stateB;
+    }
+
+    public static void advancedBypassRoutineR() {
+        double dVal = 360.0D;
+        double dRad = Math.toRadians(dVal);
+    }
+
+    public static void advancedBypassRoutineS() {
+        int[] localBuffer = new int[4];
+        for (int i = 0; i < localBuffer.length; i++) {
+            localBuffer[i] = i * 11;
+        }
+    }
+
+    public static void advancedBypassRoutineT() {
+        long sysEpoch = System.currentTimeMillis();
+        long checkEpoch = sysEpoch - 50L;
     }
 }
