@@ -29,7 +29,7 @@ public class AimAssist extends ClientBase.Module {
     private static int targetLockTicks = 0;
     private static int targetLostTicks = 0;
 
-    private static final Map<String, Object> SWIGHT_SWIFT_REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, Object> SWIGHT_CLEAN_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
     private static final Deque<Float> YAW_HISTORY_QUEUE = new ArrayDeque<>();
     private static final Deque<Float> PITCH_HISTORY_QUEUE = new ArrayDeque<>();
@@ -42,15 +42,9 @@ public class AimAssist extends ClientBase.Module {
     private static final Deque<Double> STRAFE_VECTOR_DEQUE = new ArrayDeque<>();
     private static final Deque<Float> SACCADE_HISTORY_DEQUE = new ArrayDeque<>();
     private static final Deque<Double> RECOIL_BUFFER_DEQUE = new ArrayDeque<>();
-    private static final Deque<Float> DELTA_YAW_SAMPLE_DEQUE = new ArrayDeque<>();
-    private static final Deque<Float> DELTA_PITCH_SAMPLE_DEQUE = new ArrayDeque<>();
-    private static final Deque<Double> DISTANCE_SAMPLE_DEQUE = new ArrayDeque<>();
-    private static final Deque<Integer> TICK_DURATION_DEQUE = new ArrayDeque<>();
-    private static final Deque<Boolean> LINE_OF_SIGHT_DEQUE = new ArrayDeque<>();
-    private static final Deque<Double> SMOOTHING_TRACE_DEQUE = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 8192;
 
-    private static double kinematicSmoothingRate = 0.65D;
+    private static double kinematicSmoothingRate = 0.55D;
     private static double stochasticJitterScale = 0.00003D;
     private static float maximumFovAngle = 180.0F;
     private static double maximumReachBound = 7.0D;
@@ -64,17 +58,17 @@ public class AimAssist extends ClientBase.Module {
 
     private static Vec3 previousTargetVelocity = Vec3.ZERO;
     private static Vec3 previousTargetAcceleration = Vec3.ZERO;
-    private static final float PREDICTION_TICKS = 2.5f;
-    private static float containmentStrength = 0.28f;
-    private static float containmentRadius = 0.6f;
+    private static final float PREDICTION_TICKS = 2.0f;
+    private static float containmentStrength = 0.12f;
+    private static float containmentRadius = 1.8f;
     private static float overshootYawOffset = 0.0f;
     private static float overshootPitchOffset = 0.0f;
     private static int saccadeTimer = 0;
-    private static double targetPredictionScalar = 1.45D;
+    private static double targetPredictionScalar = 1.35D;
     private static long averagePing = 50L;
-    private static double verticalSmoothingMultiplier = 1.1D;
+    private static double verticalSmoothingMultiplier = 1.05D;
     private static boolean errorInjectionActive = true;
-    private static double randomMissProbability = 0.015D;
+    private static double randomMissProbability = 0.01D;
 
     private static Vec3 lastKnownTargetPos = null;
     private static int memoryTicks = 0;
@@ -111,44 +105,44 @@ public class AimAssist extends ClientBase.Module {
     private static final Map<String, Double> WEAPON_REACH_PROFILES = new ConcurrentHashMap<>();
 
     static {
-        initializeSwiftRegistry();
+        initializeCleanRegistry();
         initializeWeaponProfiles();
     }
 
-    private static void initializeSwiftRegistry() {
-        SWIGHT_SWIFT_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        SWIGHT_SWIFT_REGISTRY.put("Profile", "Swight-AimAssist-800Lines");
-        SWIGHT_SWIFT_REGISTRY.put("BypassEngine", "Human-Mime-FastShift-Enterprise");
-        SWIGHT_SWIFT_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
-        SWIGHT_SWIFT_REGISTRY.put("BufferFlushCounter", 0);
-        SWIGHT_SWIFT_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
-        SWIGHT_SWIFT_REGISTRY.put("WindMouseState", windMouseEngineActive);
-        SWIGHT_SWIFT_REGISTRY.put("GcdCorrectionState", gcdCorrectionActive);
-        SWIGHT_SWIFT_REGISTRY.put("SmoothingFactor", kinematicSmoothingRate);
-        SWIGHT_SWIFT_REGISTRY.put("JitterScale", stochasticJitterScale);
-        SWIGHT_SWIFT_REGISTRY.put("MaxFov", maximumFovAngle);
-        SWIGHT_SWIFT_REGISTRY.put("MaxReach", maximumReachBound);
-        SWIGHT_SWIFT_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
-        SWIGHT_SWIFT_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
-        SWIGHT_SWIFT_REGISTRY.put("BetaMetric", sessionMetricBeta);
-        SWIGHT_SWIFT_REGISTRY.put("GammaMetric", sessionMetricGamma);
-        SWIGHT_SWIFT_REGISTRY.put("DeltaMetric", sessionMetricDelta);
+    private static void initializeCleanRegistry() {
+        SWIGHT_CLEAN_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        SWIGHT_CLEAN_REGISTRY.put("Profile", "Swight-Clean-AimAssist-800Lines");
+        SWIGHT_CLEAN_REGISTRY.put("BypassEngine", "Human-Mime-FastShift-Enterprise");
+        SWIGHT_CLEAN_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        SWIGHT_CLEAN_REGISTRY.put("BufferFlushCounter", 0);
+        SWIGHT_CLEAN_REGISTRY.put("HorizontalOnlyMode", horizontalAxisOnly);
+        SWIGHT_CLEAN_REGISTRY.put("WindMouseState", windMouseEngineActive);
+        SWIGHT_CLEAN_REGISTRY.put("GcdCorrectionState", gcdCorrectionActive);
+        SWIGHT_CLEAN_REGISTRY.put("SmoothingFactor", kinematicSmoothingRate);
+        SWIGHT_CLEAN_REGISTRY.put("JitterScale", stochasticJitterScale);
+        SWIGHT_CLEAN_REGISTRY.put("MaxFov", maximumFovAngle);
+        SWIGHT_CLEAN_REGISTRY.put("MaxReach", maximumReachBound);
+        SWIGHT_CLEAN_REGISTRY.put("ExecutionTicks", globalExecutionCounter);
+        SWIGHT_CLEAN_REGISTRY.put("AlphaMetric", sessionMetricAlpha);
+        SWIGHT_CLEAN_REGISTRY.put("BetaMetric", sessionMetricBeta);
+        SWIGHT_CLEAN_REGISTRY.put("GammaMetric", sessionMetricGamma);
+        SWIGHT_CLEAN_REGISTRY.put("DeltaMetric", sessionMetricDelta);
     }
 
     private static void initializeWeaponProfiles() {
-        WEAPON_SMOOTHING_PROFILES.put("sword", 0.60D);
-        WEAPON_SMOOTHING_PROFILES.put("axe", 0.65D);
+        WEAPON_SMOOTHING_PROFILES.put("sword", 0.55D);
+        WEAPON_SMOOTHING_PROFILES.put("axe", 0.60D);
         WEAPON_SMOOTHING_PROFILES.put("bow", 0.70D);
         WEAPON_SMOOTHING_PROFILES.put("crossbow", 0.70D);
-        WEAPON_SMOOTHING_PROFILES.put("mace", 0.62D);
-        WEAPON_SMOOTHING_PROFILES.put("trident", 0.60D);
+        WEAPON_SMOOTHING_PROFILES.put("mace", 0.58D);
+        WEAPON_SMOOTHING_PROFILES.put("trident", 0.55D);
 
-        WEAPON_JITTER_PROFILES.put("sword", 0.00003D);
-        WEAPON_JITTER_PROFILES.put("axe", 0.00004D);
-        WEAPON_JITTER_PROFILES.put("bow", 0.00001D);
-        WEAPON_JITTER_PROFILES.put("crossbow", 0.00001D);
-        WEAPON_JITTER_PROFILES.put("mace", 0.00005D);
-        WEAPON_JITTER_PROFILES.put("trident", 0.00003D);
+        WEAPON_JITTER_PROFILES.put("sword", 0.000002D);
+        WEAPON_JITTER_PROFILES.put("axe", 0.000002D);
+        WEAPON_JITTER_PROFILES.put("bow", 0.000001D);
+        WEAPON_JITTER_PROFILES.put("crossbow", 0.000001D);
+        WEAPON_JITTER_PROFILES.put("mace", 0.000003D);
+        WEAPON_JITTER_PROFILES.put("trident", 0.000002D);
 
         WEAPON_REACH_PROFILES.put("sword", 7.0D);
         WEAPON_REACH_PROFILES.put("axe", 7.0D);
@@ -161,7 +155,7 @@ public class AimAssist extends ClientBase.Module {
     public AimAssist() {
         super("AimAssist");
         AimAssist.enabled = true;
-        initializeSwiftRegistry();
+        initializeCleanRegistry();
         initializeWeaponProfiles();
     }
 
@@ -207,18 +201,12 @@ public class AimAssist extends ClientBase.Module {
         STRAFE_VECTOR_DEQUE.clear();
         SACCADE_HISTORY_DEQUE.clear();
         RECOIL_BUFFER_DEQUE.clear();
-        DELTA_YAW_SAMPLE_DEQUE.clear();
-        DELTA_PITCH_SAMPLE_DEQUE.clear();
-        DISTANCE_SAMPLE_DEQUE.clear();
-        TICK_DURATION_DEQUE.clear();
-        LINE_OF_SIGHT_DEQUE.clear();
-        SMOOTHING_TRACE_DEQUE.clear();
         purgeRegistry();
-        initializeSwiftRegistry();
+        initializeCleanRegistry();
     }
 
     private static void purgeRegistry() {
-        SWIGHT_SWIFT_REGISTRY.clear();
+        SWIGHT_CLEAN_REGISTRY.clear();
     }
 
     @Override
@@ -308,7 +296,6 @@ public class AimAssist extends ClientBase.Module {
         }
 
         refreshAimRegistryState();
-        pushTelemetryAuditQueue();
     }
 
     private static Entity evaluateSmartTarget(Minecraft clientRef) {
@@ -364,8 +351,7 @@ public class AimAssist extends ClientBase.Module {
 
     private static Vec3 computeResolvedTargetPosition(Minecraft clientRef, Entity target) {
         double distanceToTarget = clientRef.player.distanceTo(target);
-
-        double baseSmooth = distanceToTarget < 2.5D ? 0.55D : 0.65D;
+        double baseSmooth = distanceToTarget < 2.5D ? 0.45D : 0.65D;
         if (distanceToTarget > 5.0D) {
             baseSmooth = 0.50D;
         }
@@ -462,76 +448,20 @@ public class AimAssist extends ClientBase.Module {
         if (Float.isNaN(finalYawDiff) || Float.isInfinite(finalYawDiff)) finalYawDiff = 0.0f;
         if (Float.isNaN(finalPitchDiff) || Float.isInfinite(finalPitchDiff)) finalPitchDiff = 0.0f;
 
-        if (windMouseEngineActive) {
-            cumulativeWindX = cumulativeWindX * 0.95D + (secureRandom.nextGaussian() * 0.02D);
-            if (!horizontalAxisOnly) {
-                cumulativeWindY = cumulativeWindY * 0.95D + (secureRandom.nextGaussian() * 0.02D * verticalSmoothingMultiplier);
-            }
-
-            float curveStepYaw = (float) (finalYawDiff / 10.0D + cumulativeWindX * 0.0008D);
-            float noiseYaw = (float) (secureRandom.nextGaussian() * stochasticJitterScale);
-            float nextEvaluatedYaw = currentYaw + curveStepYaw + noiseYaw;
-
-            float nextEvaluatedPitch = currentPitch;
-            if (!horizontalAxisOnly) {
-                float curveStepPitch = (float) (finalPitchDiff / 10.0D + cumulativeWindY * 0.0008D);
-                float noisePitch = (float) (secureRandom.nextGaussian() * stochasticJitterScale);
-                nextEvaluatedPitch = Mth.clamp(currentPitch + curveStepPitch + noisePitch, -89.0F, 89.0F);
-            }
-
-            if (gcdCorrectionActive) {
-                nextEvaluatedYaw = applyGcdGridSnap(clientRef, currentYaw, nextEvaluatedYaw);
-            }
-
-            clientRef.player.setYRot(nextEvaluatedYaw);
-            if (!horizontalAxisOnly) {
-                clientRef.player.setXRot(Mth.clamp(nextEvaluatedPitch, -89.0F, 89.0F));
-            }
-            applyGcdHardwareTurnSimulation(clientRef, currentYaw, nextEvaluatedYaw, horizontalAxisOnly ? 0.0D : (nextEvaluatedPitch - currentPitch));
-        } else {
-            float nextEvaluatedYaw = currentYaw + finalYawDiff * (float) kinematicSmoothingRate;
-            float nextEvaluatedPitch = currentPitch;
-            if (!horizontalAxisOnly) {
-                nextEvaluatedPitch = Mth.clamp(currentPitch + finalPitchDiff * (float) kinematicSmoothingRate, -89.0F, 89.0F);
-            }
-
-            if (gcdCorrectionActive) {
-                nextEvaluatedYaw = applyGcdGridSnap(clientRef, currentYaw, nextEvaluatedYaw);
-            }
-
-            clientRef.player.setYRot(nextEvaluatedYaw);
-            if (!horizontalAxisOnly) {
-                clientRef.player.setXRot(Mth.clamp(nextEvaluatedPitch, -89.0F, 89.0F));
-            }
-            applyGcdHardwareTurnSimulation(clientRef, currentYaw, nextEvaluatedYaw, horizontalAxisOnly ? 0.0D : (nextEvaluatedPitch - currentPitch));
+        float nextEvaluatedYaw = currentYaw + finalYawDiff * (float) kinematicSmoothingRate;
+        float nextEvaluatedPitch = currentPitch;
+        if (!horizontalAxisOnly) {
+            nextEvaluatedPitch = Mth.clamp(currentPitch + finalPitchDiff * (float) kinematicSmoothingRate, -89.0F, 89.0F);
         }
-    }
 
-    private static void executeAutoCalibrationLearning() {
-        totalAttacks++;
-        if (totalAttacks >= 100) {
-            double hitRate = (double) hitCount / totalAttacks;
-            if (hitRate > 0.95D) {
-                stochasticJitterScale += 0.00001D;
-                randomMissProbability += 0.005D;
-            } else if (hitRate < 0.70D) {
-                stochasticJitterScale = Math.max(0.00001D, stochasticJitterScale - 0.00001D);
-                randomMissProbability = Math.max(0.005D, randomMissProbability - 0.005D);
-            }
-            hitCount = 0;
-            totalAttacks = 0;
+        if (gcdCorrectionActive) {
+            nextEvaluatedYaw = applyGcdGridSnap(clientRef, currentYaw, nextEvaluatedYaw);
         }
-    }
 
-    public static void registerAttackResult(boolean hit) {
-        totalAttacks++;
-        if (hit) hitCount++;
-    }
-
-    public static void triggerSimulatedRecoil() {
-        recoilYaw = (float) ((secureRandom.nextDouble() - 0.5) * 0.3D);
-        recoilPitch = (float) ((secureRandom.nextDouble() - 0.5) * 0.2D);
-        recoilTicks = 3;
+        clientRef.player.setYRot(nextEvaluatedYaw);
+        if (!horizontalAxisOnly) {
+            clientRef.player.setXRot(Mth.clamp(nextEvaluatedPitch, -89.0F, 89.0F));
+        }
     }
 
     private static float applyGcdGridSnap(Minecraft clientRef, float currentYaw, float targetYaw) {
@@ -626,7 +556,7 @@ public class AimAssist extends ClientBase.Module {
 
     public static void runBaselineCalibration() {
         kinematicSmoothingRate = 0.65D;
-        stochasticJitterScale = 0.00003D;
+        stochasticJitterScale = 0.000002D;
         maximumFovAngle = 180.0F;
         maximumReachBound = 7.0D;
         windMouseEngineActive = true;
