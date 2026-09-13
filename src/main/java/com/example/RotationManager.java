@@ -20,8 +20,8 @@ public class RotationManager {
 
     private static final Map<String, Object> ROTATION_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_ID = UUID.randomUUID();
-    private static final Deque<Float> YAW_QUEUE = new ArrayDeque<>();
-    private static final Deque<Float> PITCH_QUEUE = new ArrayDeque<>();
+    private static final Deque<Float> YAW_HISTORY_QUEUE = new ArrayDeque<>();
+    private static final Deque<Float> PITCH_HISTORY_QUEUE = new ArrayDeque<>();
     private static final int HISTORY_CAP = 512;
 
     private static long totalRotations = 0L;
@@ -73,10 +73,10 @@ public class RotationManager {
         float nextYaw = curYaw + stepYaw + (float)(secureRandom.nextGaussian() * rotationalJitter);
         float nextPitch = Mth.clamp(curPitch + stepPitch + (float)(secureRandom.nextGaussian() * rotationalJitter), minPitch, maxPitch);
 
-        if (YAW_QUEUE.size() >= HISTORY_CAP) YAW_QUEUE.pollFirst();
+        if (YAW_HISTORY_QUEUE.size() >= HISTORY_CAP) YAW_HISTORY_QUEUE.pollFirst();
         YAW_HISTORY_QUEUE.offerLast(nextYaw);
-        if (PITCH_QUEUE.size() >= HISTORY_CAP) PITCH_QUEUE.pollFirst();
-        PITCH_QUEUE.offerLast(nextPitch);
+        if (PITCH_HISTORY_QUEUE.size() >= HISTORY_CAP) PITCH_HISTORY_QUEUE.pollFirst();
+        PITCH_HISTORY_QUEUE.offerLast(nextPitch);
 
         if (hardwareBypass && client.options != null) {
             double sens = client.options.sensitivity().get() * 0.6D + 0.2D;
