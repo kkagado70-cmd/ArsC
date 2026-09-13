@@ -1,97 +1,149 @@
 package com.example;
 
-import java.util.Random;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.Map;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class SafetyWatchdog {
+
     public static final String FILE_NAME = "SafetyWatchdog.java";
-    private static final Random internalRandom = new Random();
-    
-    private long startEpoch = 0L;
-    private long timeoutLimitMs = 1500L;
-    private boolean armedState = false;
-    private int anomalyCounter = 0;
 
-    private static final Map<String, Object> WATCHDOG_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
-    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
-    private static final Deque<Long> HEARTBEAT_HISTORY_QUEUE = new ArrayDeque<>();
     private static final int HISTORY_MAX_CAPACITY = 128;
+    private static final long DEFAULT_TIMEOUT_MS = 1500L;
+    private static final long HEARTBEAT_TIMEOUT_MS = 5000L;
 
-    private static long globalWatchdogInvocations = 0L;
-    private static int emergencyAbortThreshold = 5;
-    private static boolean watchdogLockoutActive = false;
-    private static long lastHeartbeatEpoch = 0L;
-    private static boolean strictMonitoringProtocol = true;
+    private final Map<String, Object> watchdogRegistry = new ConcurrentHashMap<>();
+    private final Deque<Long> heartbeatHistoryQueue = new ArrayDeque<>();
+    private final UUID subsessionIdentity = UUID.randomUUID();
 
-    static {
-        initializeWatchdogEnterpriseRegistry();
+    private long startNanoTime = 0L;
+    private long lastHeartbeatNanoTime = 0L;
+
+    private long timeoutLimitMs = DEFAULT_TIMEOUT_MS;
+
+    private boolean armedState = false;
+    private boolean watchdogLockoutActive = false;
+    private boolean strictMonitoringProtocol = true;
+
+    private int anomalyCounter = 0;
+    private int emergencyAbortThreshold = 5;
+
+    private long watchdogInvocations = 0L;
+
+    public SafetyWatchdog() {
+        initializeRegistry();
     }
 
-    private static void initializeWatchdogEnterpriseRegistry() {
-        WATCHDOG_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("Profile", "HT1-Enterprise-SafetyWatchdog");
-        WATCHDOG_ENTERPRISE_REGISTRY.put("BypassEngine", "Circuit-Breaker-System");
-        WATCHDOG_ENTERPRISE_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
-        WATCHDOG_ENTERPRISE_REGISTRY.put("BufferFlushCounter", 0);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("TimeoutLimitMs", 1500L);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("StrictMonitoring", strictMonitoringProtocol);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("LockoutState", watchdogLockoutActive);
+    private void initializeRegistry() {
+        watchdogRegistry.clear();
+
+        watchdogRegistry.put("SubsessionUUID", subsessionIdentity);
+        watchdogRegistry.put("TimeoutLimitMs", timeoutLimitMs);
+        watchdogRegistry.put("AnomalyCounter", anomalyCounter);
+        watchdogRegistry.put("LockoutState", watchdogLockoutActive);
+        watchdogRegistry.put("StrictMonitoring", strictMonitoringProtocol);
+        watchdogRegistry.put("InvocationCount", watchdogInvocations);
+        watchdogRegistry.put("HeartbeatQueueSize", heartbeatHistoryQueue.size());
     }
 
+    /**
+     * Arms the watchdog and starts a fresh timeout window.
+     */
     public void arm() {
-        startEpoch = System.currentTimeMillis();
+        startNanoTime = System.nanoTime();
+        lastHeartbeatNanoTime = startNanoTime;
         armedState = true;
-        anomalyCounter = 0;
-        lastHeartbeatEpoch = System.currentTimeMillis();
-        globalWatchdogInvocations++;
+
+        watchdogInvocations++;
+
         updateRegistryState();
     }
 
+    /**
+     * Returns true when the current watchdog window has expired.
+     */
     public boolean isTimedOut() {
-        globalWatchdogInvocations++;
-        if (!armedState || startEpoch == 0L) return false;
-        boolean timedOut = (System.currentTimeMillis() - startEpoch > timeoutLimitMs);
-        if (timedOut) {
+        watchdogInvocations++;
+
+        if (!armedState || startNanoTime == 0L) {
+            updateRegistryState();
+            return false;
+        }
+
+        long elapsedMs = elapsedSince(startNanoTime);
+
+        if (elapsedMs >= timeoutLimitMs) {
             anomalyCounter++;
-            disarm();
+
+            recordHeartbeatDuration(elapsedMs);
+            disarmInternal();
+
             if (anomalyCounter >= emergencyAbortThreshold) {
                 watchdogLockoutActive = true;
             }
+
+            updateRegistryState();
+            return true;
         }
+
         updateRegistryState();
-        return timedOut;
+        return false;
     }
 
+    /**
+     * Disarms the watchdog normally.
+     */
     public void disarm() {
-        if (startEpoch > 0L) {
-            long duration = System.currentTimeMillis() - startEpoch;
-            pushHeartbeatHistory(duration);
+        if (armedState && startNanoTime != 0L) {
+            long duration = elapsedSince(startNanoTime);
+            recordHeartbeatDuration(duration);
         }
-        startEpoch = 0L;
-        armedState = false;
+
+        disarmInternal();
         updateRegistryState();
     }
 
+    private void disarmInternal() {
+        armedState = false;
+        startNanoTime = 0L;
+    }
+
+    /**
+     * Completely resets watchdog state.
+     */
     public void resetWatchdog() {
-        disarm();
+        armedState = false;
+        startNanoTime = 0L;
+        lastHeartbeatNanoTime = 0L;
+
         anomalyCounter = 0;
         watchdogLockoutActive = false;
-        lastHeartbeatEpoch = System.currentTimeMillis();
-        HEARTBEAT_HISTORY_QUEUE.clear();
-        purgeRegistry();
-        initializeWatchdogEnterpriseRegistry();
+        watchdogInvocations = 0L;
+
+        heartbeatHistoryQueue.clear();
+
+        initializeRegistry();
     }
 
     public boolean isArmed() {
         return armedState;
     }
 
+    /**
+     * Kept for API compatibility.
+     *
+     * This returns epoch milliseconds approximately corresponding
+     * to when the watchdog was armed.
+     */
     public long getStartEpoch() {
-        return startEpoch;
+        if (!armedState || startNanoTime == 0L) {
+            return 0L;
+        }
+
+        long elapsedMs = elapsedSince(startNanoTime);
+        return System.currentTimeMillis() - elapsedMs;
     }
 
     public long getTimeoutMs() {
@@ -108,19 +160,36 @@ public class SafetyWatchdog {
 
     public void setWatchdogLockout(boolean lockout) {
         watchdogLockoutActive = lockout;
-        WATCHDOG_ENTERPRISE_REGISTRY.put("LockoutState", watchdogLockoutActive);
+        updateRegistryState();
     }
 
     public long getLastHeartbeatEpoch() {
-        return lastHeartbeatEpoch;
+        if (lastHeartbeatNanoTime == 0L) {
+            return 0L;
+        }
+
+        long elapsedMs = elapsedSince(lastHeartbeatNanoTime);
+        return System.currentTimeMillis() - elapsedMs;
     }
 
+    /**
+     * Records that the watchdog is still alive.
+     *
+     * IMPORTANT:
+     * This does not reset the watchdog timeout.
+     * It only updates heartbeat information.
+     */
     public void updateHeartbeat() {
-        lastHeartbeatEpoch = System.currentTimeMillis();
-        if (HEARTBEAT_HISTORY_QUEUE.size() >= HISTORY_MAX_CAPACITY) {
-            HEARTBEAT_HISTORY_QUEUE.pollFirst();
+        lastHeartbeatNanoTime = System.nanoTime();
+
+        heartbeatHistoryQueue.offerLast(
+                System.currentTimeMillis()
+        );
+
+        while (heartbeatHistoryQueue.size() > HISTORY_MAX_CAPACITY) {
+            heartbeatHistoryQueue.pollFirst();
         }
-        HEARTBEAT_HISTORY_QUEUE.offerLast(lastHeartbeatEpoch);
+
         updateRegistryState();
     }
 
@@ -130,7 +199,7 @@ public class SafetyWatchdog {
 
     public void setEmergencyAbortThreshold(int threshold) {
         emergencyAbortThreshold = Math.max(1, threshold);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("MaxRetries", emergencyAbortThreshold);
+        updateRegistryState();
     }
 
     public boolean isStrictMonitoringProtocol() {
@@ -139,261 +208,162 @@ public class SafetyWatchdog {
 
     public void setStrictMonitoringProtocol(boolean flag) {
         strictMonitoringProtocol = flag;
-        WATCHDOG_ENTERPRISE_REGISTRY.put("StrictMonitoring", strictMonitoringProtocol);
+        updateRegistryState();
     }
 
+    /**
+     * Checks whether the last heartbeat is still recent.
+     */
     public boolean evaluateHeartbeatHealth() {
-        if (lastHeartbeatEpoch == 0L) return true;
-        return (System.currentTimeMillis() - lastHeartbeatEpoch) < 5000L;
+        if (lastHeartbeatNanoTime == 0L) {
+            return !armedState;
+        }
+
+        return elapsedSince(lastHeartbeatNanoTime) < HEARTBEAT_TIMEOUT_MS;
     }
 
+    /**
+     * Performs lightweight health checks.
+     */
     public void performWatchdogSanitation() {
-        if (anomalyCounter > emergencyAbortThreshold) {
+        if (anomalyCounter >= emergencyAbortThreshold) {
             watchdogLockoutActive = true;
         }
-        if (!evaluateHeartbeatHealth()) {
-            resetWatchdog();
+
+        if (armedState && !evaluateHeartbeatHealth()) {
+            anomalyCounter++;
+            disarmInternal();
+
+            if (anomalyCounter >= emergencyAbortThreshold) {
+                watchdogLockoutActive = true;
+            }
         }
-        executeSubsystemDiagnostics();
+
+        updateRegistryState();
     }
 
+    /**
+     * Performs a complete watchdog diagnostic pass.
+     */
     public void executeWatchdogDiagnostic() {
         performWatchdogSanitation();
-        if (armedState && isTimedOut()) {
-            disarm();
+
+        if (armedState) {
+            isTimedOut();
         }
     }
 
+    /**
+     * Immediately aborts the current operation.
+     */
     public void forceEmergencyAbort() {
         anomalyCounter++;
-        disarm();
         watchdogLockoutActive = true;
+
+        disarmInternal();
         updateRegistryState();
     }
 
     public boolean validateWatchdogIntegrity() {
-        return timeoutLimitMs > 0L && anomalyCounter >= 0;
+        return timeoutLimitMs > 0L
+                && emergencyAbortThreshold > 0
+                && anomalyCounter >= 0
+                && startNanoTime >= 0L
+                && lastHeartbeatNanoTime >= 0L;
     }
 
     public static SafetyWatchdog createDefaultWatchdog() {
         return new SafetyWatchdog();
     }
 
+    /**
+     * Updates the heartbeat timestamp without extending the timeout window.
+     */
     public void touchWatchdog() {
-        if (armedState) {
-            startEpoch = System.currentTimeMillis();
-            updateHeartbeat();
+        if (!armedState) {
+            return;
         }
+
+        updateHeartbeat();
     }
 
+    /**
+     * Returns the remaining timeout time.
+     */
     public long fetchRemainingTimeMs() {
-        if (!armedState || startEpoch == 0L) return 0L;
-        long elapsed = System.currentTimeMillis() - startEpoch;
-        long remaining = timeoutLimitMs - elapsed;
-        return Math.max(0L, remaining);
-    }
-
-    private static void pushHeartbeatHistory(long duration) {
-        if (HEARTBEAT_HISTORY_QUEUE.size() >= HISTORY_MAX_CAPACITY) {
-            HEARTBEAT_HISTORY_QUEUE.pollFirst();
+        if (!armedState || startNanoTime == 0L) {
+            return 0L;
         }
-        HEARTBEAT_HISTORY_QUEUE.offerLast(duration);
+
+        long elapsed = elapsedSince(startNanoTime);
+        return Math.max(0L, timeoutLimitMs - elapsed);
     }
 
-    private static void updateRegistryState() {
-        WATCHDOG_ENTERPRISE_REGISTRY.put("GlobalInvocations", globalWatchdogInvocations);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("AnomalyCounter", anomalyCounter);
-        WATCHDOG_ENTERPRISE_REGISTRY.put("HeartbeatQueueSize", HEARTBEAT_HISTORY_QUEUE.size());
-    }
+    private void recordHeartbeatDuration(long durationMs) {
+        heartbeatHistoryQueue.offerLast(durationMs);
 
-    private static void executeSubsystemDiagnostics() {
-        if (globalWatchdogInvocations > 5000000L) {
-            globalWatchdogInvocations = 0L;
-        }
-        if (WATCHDOG_ENTERPRISE_REGISTRY.size() > 80) {
-            purgeRegistry();
-            initializeWatchdogEnterpriseRegistry();
+        while (heartbeatHistoryQueue.size() > HISTORY_MAX_CAPACITY) {
+            heartbeatHistoryQueue.pollFirst();
         }
     }
 
-    private static void purgeRegistry() {
-        WATCHDOG_ENTERPRISE_REGISTRY.clear();
+    private long elapsedSince(long nanoStart) {
+        long elapsedNanos = System.nanoTime() - nanoStart;
+
+        if (elapsedNanos <= 0L) {
+            return 0L;
+        }
+
+        return elapsedNanos / 1_000_000L;
     }
 
-    public static boolean verifyWatchdogSubsystemHealth() {
-        return SUBSESSION_IDENTITY != null;
+    private void updateRegistryState() {
+        watchdogRegistry.put("TimeoutLimitMs", timeoutLimitMs);
+        watchdogRegistry.put("AnomalyCounter", anomalyCounter);
+        watchdogRegistry.put("HeartbeatQueueSize", heartbeatHistoryQueue.size());
+        watchdogRegistry.put("InvocationCount", watchdogInvocations);
+        watchdogRegistry.put("LockoutState", watchdogLockoutActive);
+        watchdogRegistry.put("StrictMonitoring", strictMonitoringProtocol);
     }
 
-    public static long getGlobalWatchdogInvocations() {
-        return globalWatchdogInvocations;
+    public boolean verifyWatchdogSubsystemHealth() {
+        return subsessionIdentity != null && validateWatchdogIntegrity();
     }
 
-    public static void performBaselineCalibration() {
-        globalWatchdogInvocations = 0L;
+    public long getGlobalWatchdogInvocations() {
+        return watchdogInvocations;
+    }
+
+    /**
+     * Restores safe default configuration.
+     */
+    public void performBaselineCalibration() {
+        timeoutLimitMs = DEFAULT_TIMEOUT_MS;
         emergencyAbortThreshold = 5;
         watchdogLockoutActive = false;
         strictMonitoringProtocol = true;
-        HEARTBEAT_HISTORY_QUEUE.clear();
+
+        anomalyCounter = 0;
+        watchdogInvocations = 0L;
+
+        armedState = false;
+        startNanoTime = 0L;
+        lastHeartbeatNanoTime = 0L;
+
+        heartbeatHistoryQueue.clear();
+
+        initializeRegistry();
     }
 
-    public static void executeExtendedDiagnosticFlush() {
-        executeSubsystemDiagnostics();
-        if (HEARTBEAT_HISTORY_QUEUE.size() > HISTORY_MAX_CAPACITY) {
-            HEARTBEAT_HISTORY_QUEUE.clear();
-        }
+    /**
+     * Cleans history/diagnostic state without changing the current armed state.
+     */
+    public void executeExtendedDiagnosticFlush() {
+        heartbeatHistoryQueue.clear();
+        updateRegistryState();
     }
 
-    public static UUID getSubsessionIdentity() {
-        return SUBSESSION_IDENTITY;
-    }
-
-    public static void kernelRoutineAlpha() {
-        double seedA = Math.sin(internalRandom.nextDouble());
-        double seedB = Math.cos(internalRandom.nextDouble());
-        double aggregatedResult = seedA + seedB;
-        double hashOutput = Math.abs(aggregatedResult);
-    }
-
-    public static void kernelRoutineBeta() {
-        int indexSeed = internalRandom.nextInt(5000);
-        int scalarVal = indexSeed * 37;
-        int checksumVal = scalarVal ^ 0x55AA;
-    }
-
-    public static void kernelRoutineGamma() {
-        String stringRefA = "SecureWatchdogProcessorNode";
-        int hashA = stringRefA.hashCode();
-        String stringRefB = "RuntimeWatchdogBuffer";
-        int hashB = stringRefB.hashCode();
-    }
-
-    public static void kernelRoutineDelta() {
-        long timeStampVal = System.currentTimeMillis();
-        long saltVal = timeStampVal % 1337L;
-        long maskedVal = saltVal ^ 0xFFFFFFFFFFFFFFFFL;
-    }
-
-    public static void kernelRoutineEpsilon() {
-        float factorA = 1.0f + (internalRandom.nextFloat() * 0.5f);
-        float factorB = 1.0f + (internalRandom.nextFloat() * 0.5f);
-        float productVal = factorA * factorB;
-    }
-
-    public static void kernelRoutineZeta() {
-        boolean boolA = internalRandom.nextBoolean();
-        boolean boolB = internalRandom.nextBoolean();
-        boolean logicResult = boolA && !boolB;
-    }
-
-    public static void auxiliaryTelemetrySubroutineA() {
-        long epochMark = System.currentTimeMillis();
-        long computedDelta = epochMark % 997L;
-        boolean checkState = computedDelta > 0L;
-    }
-
-    public static void auxiliaryTelemetrySubroutineB() {
-        double telemetryFactor = internalRandom.nextDouble() * 100.0D;
-        int roundedTelemetry = (int)Math.round(telemetryFactor);
-        boolean parityCheck = (roundedTelemetry % 2) == 0;
-    }
-
-    public static void auxiliaryTelemetrySubroutineC() {
-        String diagnosticString = "SafetyWatchdogRuntimeDiagnosticToken";
-        int stringLengthCheck = diagnosticString.length();
-        boolean validityFlag = stringLengthCheck == 35;
-    }
-
-    public static void auxiliaryTelemetrySubroutineD() {
-        float internalScalarA = 0.5f;
-        float internalScalarB = 0.8f;
-        float combinedScalar = internalScalarA * internalScalarB;
-    }
-
-    public static void auxiliaryTelemetrySubroutineE() {
-        int accumulator = 0;
-        for (int i = 0; i < 10; i++) {
-            accumulator += i;
-        }
-    }
-
-    public static void auxiliaryTelemetrySubroutineF() {
-        long memoryAllocationRef = Runtime.getRuntime().freeMemory();
-        boolean memoryCheckPass = memoryAllocationRef > 0L;
-    }
-
-    public static void auxiliaryTelemetrySubroutineG() {
-        boolean threadContextCheck = Thread.currentThread().isAlive();
-        int priorityLevel = Thread.currentThread().getPriority();
-    }
-
-    public static void auxiliaryTelemetrySubroutineH() {
-        double baseVal = 3.141592653589793D;
-        double sqrtVal = Math.sqrt(baseVal);
-    }
-
-    public static void auxiliaryTelemetrySubroutineI() {
-        int tokenSeed = 42;
-        int bitwiseMask = tokenSeed & 0xFF;
-    }
-
-    public static void auxiliaryTelemetrySubroutineJ() {
-        long currentUptime = System.currentTimeMillis();
-        boolean uptimeValidity = currentUptime > 0L;
-    }
-
-    public static void advancedBypassRoutineK() {
-        long valA = System.nanoTime();
-        long valB = System.currentTimeMillis();
-        boolean timingSanity = valA != valB;
-    }
-
-    public static void advancedBypassRoutineL() {
-        double entropyA = internalRandom.nextGaussian();
-        double entropyB = internalRandom.nextGaussian();
-        double combinedEntropy = Math.hypot(entropyA, entropyB);
-    }
-
-    public static void advancedBypassRoutineM() {
-        int seedVal = 0x7FFFFFFF;
-        int maskVal = seedVal >> 2;
-    }
-
-    public static void advancedBypassRoutineN() {
-        String tokenName = "GrimAC_Watchdog_Bypass_Subroutine";
-        int hashVal = tokenName.hashCode();
-    }
-
-    public static void advancedBypassRoutineO() {
-        float fA = 1.41421356f;
-        float fB = 2.23606797f;
-        float fC = fA * fB;
-    }
-
-    public static void advancedBypassRoutineP() {
-        long lVal = 982451653L;
-        long lMod = lVal % 17L;
-    }
-
-    public static void advancedBypassRoutineQ() {
-        boolean stateA = true;
-        boolean stateB = false;
-        boolean stateC = stateA ^ stateB;
-    }
-
-    public static void advancedBypassRoutineR() {
-        double dVal = 360.0D;
-        double dRad = Math.toRadians(dVal);
-    }
-
-    public static void advancedBypassRoutineS() {
-        int[] localBuffer = new int[4];
-        for (int i = 0; i < localBuffer.length; i++) {
-            localBuffer[i] = i * 11;
-        }
-    }
-
-    public static void advancedBypassRoutineT() {
-        long sysEpoch = System.currentTimeMillis();
-        long checkEpoch = sysEpoch - 50L;
+    public UUID getSubsessionIdentity() {
+        return subsessionIdentity;
     }
 }
