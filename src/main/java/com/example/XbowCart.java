@@ -1,6 +1,5 @@
 package com.example;
 
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -41,14 +40,6 @@ public class XbowCart extends ClientBase.Module {
     private static boolean strictComplianceFlag = true;
     private static int maxPipelineRetries = 3;
     private static int currentRetryAttempt = 0;
-
-    static {
-        ClientTickEvents.START_CLIENT_TICK.register(client -> {
-            if (enabled && client.player != null && client.level != null) {
-                onTick(client);
-            }
-        });
-    }
 
     public XbowCart() {
         super("XbowCart");
@@ -107,6 +98,13 @@ public class XbowCart extends ClientBase.Module {
                candidateItem == Items.ACTIVATOR_RAIL;
     }
 
+    private static BlockPos resolveMultiAnglePlacement(BlockPos basePos, Direction faceDir) {
+        if (faceDir == Direction.UP) {
+            return basePos;
+        }
+        return basePos.above();
+    }
+
     public static void onTick(Minecraft clientRef) {
         if (!enabled || clientRef.player == null || clientRef.level == null) return;
 
@@ -148,7 +146,8 @@ public class XbowCart extends ClientBase.Module {
                     handlePipelineFailure(clientRef);
                     return;
                 }
-                RotationManager.smoothTo(clientRef, vectorHitRegistry != null ? vectorHitRegistry : Vec3.atCenterOf(vectorReferencePos), 0.99F);
+                BlockPos targetRailPos = resolveMultiAnglePlacement(vectorReferencePos, vectorReferenceFace);
+                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(targetRailPos), 0.99F);
                 InventoryManager.selectSlot(clientRef, r);
                 InteractionManager.simulateClickUse(clientRef);
                 actionTickCounter = 2;
@@ -159,7 +158,7 @@ public class XbowCart extends ClientBase.Module {
                     handlePipelineFailure(clientRef);
                     return;
                 }
-                BlockPos cartPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
+                BlockPos cartPos = resolveMultiAnglePlacement(vectorReferencePos, vectorReferenceFace);
                 RotationManager.smoothTo(clientRef, Vec3.atCenterOf(cartPos), 0.99F);
                 InventoryManager.selectSlot(clientRef, c);
                 InteractionManager.simulateClickUse(clientRef);
@@ -172,7 +171,7 @@ public class XbowCart extends ClientBase.Module {
                     handlePipelineFailure(clientRef);
                     return;
                 }
-                BlockPos firePos = vectorReferenceFace == Direction.UP ? vectorReferencePos.relative(clientRef.player.getDirection().getOpposite()) : vectorReferencePos;
+                BlockPos firePos = resolveMultiAnglePlacement(vectorReferencePos, vectorReferenceFace);
                 RotationManager.smoothTo(clientRef, Vec3.atCenterOf(firePos), 0.99F);
                 InventoryManager.selectSlot(clientRef, f);
                 InteractionManager.simulateClickUse(clientRef);
@@ -184,8 +183,8 @@ public class XbowCart extends ClientBase.Module {
                     handlePipelineFailure(clientRef);
                     return;
                 }
-                BlockPos shootPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
-                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(shootPos).add(0.0D, 0.2D, 0.0D), 0.99F);
+                BlockPos shootPos = resolveMultiAnglePlacement(vectorReferencePos, vectorReferenceFace);
+                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(shootPos).add(0.0D, 0.25D, 0.0D), 0.99F);
                 InventoryManager.selectSlot(clientRef, x);
                 InteractionManager.simulateClickUse(clientRef);
                 actionTickCounter = 2;
