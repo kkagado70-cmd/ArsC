@@ -450,7 +450,7 @@ public class XbowCart extends ClientBase.Module {
         XBOW_FIXED_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
         XBOW_FIXED_REGISTRY.put("EmergencyHalt", emergencyHaltFlag);
         XBOW_FIXED_REGISTRY.put("AnomalyCount", pipelineAnomalyCounter);
-        XBOW_FIXED_REGISTRY.put("SuccessiveExecutions", successiveExecutions, successiveExecutionCount);
+        XBOW_FIXED_REGISTRY.put("SuccessiveExecutions", successiveExecutionCount);
     }
 
     private static void executeSubsystemSanitation() {
