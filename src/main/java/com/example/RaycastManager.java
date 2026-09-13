@@ -9,59 +9,56 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.core.BlockPos;
 
-import java.security.SecureRandom;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.Map;
-
 public class RaycastManager {
     public static final String FILE_NAME = "RaycastManager.java";
-    private static final SecureRandom secureRandom = new SecureRandom();
-    private static BlockHitResult cachedHit = null;
-    private static BlockPos lastValidPos = null;
-
-    private static final Map<String, Object> RAYCAST_REGISTRY = new ConcurrentHashMap<>();
-    private static final UUID SUBSESSION_ID = UUID.randomUUID();
-    private static long totalRaycasts = 0L;
-    private static int retryAttempts = 5;
-
-    static {
-        RAYCAST_REGISTRY.put("SubsessionUUID", SUBSESSION_ID);
-        RAYCAST_REGISTRY.put("Profile", "Enterprise-RaycastManager");
-    }
 
     public static BlockHitResult getValidHit(Minecraft client) {
         if (client == null || client.hitResult == null) return null;
-        totalRaycasts++;
-
+        
         if (client.hitResult.getType() == HitResult.Type.BLOCK) {
             if (client.hitResult instanceof BlockHitResult blockHit) {
                 if (blockHit.getDirection() != Direction.DOWN) {
-                    cachedHit = blockHit;
-                    lastValidPos = blockHit.getBlockPos();
                     return blockHit;
                 }
             }
         }
-        return attemptRetryHit(client);
-    }
-
-    private static BlockHitResult attemptRetryHit(Minecraft client) {
-        for (int i = 0; i < retryAttempts; i++) {
-            if (client.hitResult instanceof BlockHitResult bHit) {
-                if (secureRandom.nextDouble() >= 0.03D) return bHit;
+        
+        HitResult freshHit = client.player.pick(6.0D, 1.0F, false);
+        if (freshHit.getType() == HitResult.Type.BLOCK && freshHit instanceof BlockHitResult freshBlockHit) {
+            if (freshBlockHit.getDirection() != Direction.DOWN) {
+                return freshBlockHit;
             }
         }
-        return cachedHit;
+        return null;
     }
 
     public static EntityHitResult getEntityHit(Minecraft client) {
         if (client == null || client.hitResult == null) return null;
         if (client.hitResult.getType() == HitResult.Type.ENTITY) {
-            if (client.hitResult instanceof EntityHitResult entityHit) return entityHit;
+            if (client.hitResult instanceof EntityHitResult entityHit) {
+                return entityHit;
+            }
         }
         return null;
     }
 
-    public static UUID getSubsessionIdentity() { return SUBSESSION_ID; }
+    public static boolean isLookingAtValidSurface(Minecraft client) {
+        return getValidHit(client) != null;
+    }
+
+    public static Vec3 fetchRaycastPosition(Minecraft client) {
+        BlockHitResult hit = getValidHit(client);
+        if (hit != null) {
+            return hit.getLocation();
+        }
+        return null;
+    }
+
+    public static void purgeRaycastCache() {
+    }
+
+    public static Direction fetchTargetFace(Minecraft client) {
+        BlockHitResult hit = getValidHit(client);
+        return hit != null ? hit.getDirection() : Direction.UP;
+    }
 }

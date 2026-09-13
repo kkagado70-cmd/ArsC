@@ -9,6 +9,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -119,11 +120,12 @@ public class ClientBase implements ClientModInitializer {
         }
 
         public List<Module> getModules() {
-            return modules;
+            return Collections.unmodifiableList(modules);
         }
 
         public void tick(Minecraft client) {
-            for (Module m : modules) {
+            List<Module> snapshot = new ArrayList<>(modules);
+            for (Module m : snapshot) {
                 if (m != null) {
                     m.executeTickWrapper(client);
                 }
@@ -138,6 +140,15 @@ public class ClientBase implements ClientModInitializer {
         }
 
         @Override
+        public void toggle() {
+            super.toggle();
+            XbowCart.enabled = this.enabled;
+            if (!this.enabled) {
+                XbowCart.purgePipelineRegistry();
+            }
+        }
+
+        @Override
         public void tick(Minecraft client) {
             XbowCart.onTick(client);
         }
@@ -146,7 +157,13 @@ public class ClientBase implements ClientModInitializer {
     public static class AimAssistModule extends Module {
         public AimAssistModule() {
             super("AimAssist");
-            this.enabled = true;
+            this.enabled = false;
+        }
+
+        @Override
+        public void toggle() {
+            super.toggle();
+            AimAssist.enabled = this.enabled;
         }
 
         @Override
@@ -158,7 +175,13 @@ public class ClientBase implements ClientModInitializer {
     public static class TriggerBotModule extends Module {
         public TriggerBotModule() {
             super("TriggerBot");
-            this.enabled = true;
+            this.enabled = false;
+        }
+
+        @Override
+        public void toggle() {
+            super.toggle();
+            TriggerBot.enabled = this.enabled;
         }
 
         @Override
@@ -170,12 +193,11 @@ public class ClientBase implements ClientModInitializer {
     public static class ShieldBreakerModule extends Module {
         public ShieldBreakerModule() {
             super("ShieldBreaker");
-            this.enabled = true;
+            this.enabled = false;
         }
 
         @Override
         public void tick(Minecraft client) {
-            ShieldBreaker.onTick(client);
         }
     }
 
@@ -183,6 +205,12 @@ public class ClientBase implements ClientModInitializer {
         public AutoMaceModule() {
             super("AutoMace");
             this.enabled = false;
+        }
+
+        @Override
+        public void toggle() {
+            super.toggle();
+            AutoMace.enabled = this.enabled;
         }
 
         @Override
