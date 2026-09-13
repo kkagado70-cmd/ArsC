@@ -1,5 +1,6 @@
 package com.example;
 
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -10,39 +11,59 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.util.Mth;
 
 import java.util.Random;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 public class XbowCart extends ClientBase.Module {
     public static final String FILE_NAME = "XbowCart.java";
     public static boolean enabled = true;
-    private static final Random internalRandom = new Random();
 
-    private enum PipelinePhase {
-        INACTIVE,
-        RAIL_SLOT,
-        RAIL_USE,
-        CART_SLOT,
-        CART_USE,
-        FLINT_SLOT,
-        FLINT_USE,
-        XBOW_SLOT,
-        XBOW_USE,
-        CLEANUP
-    }
+    private enum PipelinePhase { VOID, RAIL_ACTION, CART_ACTION, FLINT_ACTION, XBOW_ACTION, CLEANUP }
 
-    private static PipelinePhase currentPhase = PipelinePhase.INACTIVE;
-    private static int tickIntervalCounter = 0;
+    private static PipelinePhase currentPhase = PipelinePhase.VOID;
+    private static int actionTickCounter = 0;
     private static int globalCooldownTicks = 0;
-    private static BlockPos targetBasePos = null;
-    private static Direction targetFace = Direction.UP;
-    private static int originalSelectedSlot = 0;
+    private static BlockPos vectorReferencePos = null;
+    private static Direction vectorReferenceFace = Direction.UP;
+    private static Vec3 vectorHitRegistry = null;
     private static final SafetyWatchdog safetyWatchdog = new SafetyWatchdog();
+
+    private static final Map<String, Object> XBOW_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
+    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
+    private static final Deque<Long> EXECUTION_TIMESTAMP_QUEUE = new ArrayDeque<>();
+    private static final int HISTORY_MAX_LIMIT = 128;
+    private static long pipelineExecutionCounter = 0L;
+    private static boolean strictComplianceFlag = true;
+    private static int maxPipelineRetries = 3;
+    private static int currentRetryAttempt = 0;
+
+    static {
+        ClientTickEvents.START_CLIENT_TICK.register(client -> {
+            if (enabled && client.player != null && client.level != null) {
+                onTick(client);
+            }
+        });
+    }
 
     public XbowCart() {
         super("XbowCart");
         XbowCart.enabled = true;
+        initializeXbowEnterpriseRegistry();
+    }
+
+    private static void initializeXbowEnterpriseRegistry() {
+        XBOW_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        XBOW_ENTERPRISE_REGISTRY.put("ModuleState", "HT1-Enterprise-XbowCart-Engine");
+        XBOW_ENTERPRISE_REGISTRY.put("StrictCompliance", strictComplianceFlag);
+        XBOW_ENTERPRISE_REGISTRY.put("InitializationEpoch", System.currentTimeMillis());
+        XBOW_ENTERPRISE_REGISTRY.put("ExecutionHistorySize", 0);
+        XBOW_ENTERPRISE_REGISTRY.put("MaxRetries", maxPipelineRetries);
+        XBOW_ENTERPRISE_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
     }
 
     @Override
@@ -54,7 +75,24 @@ public class XbowCart extends ClientBase.Module {
     public void toggle() {
         enabled = !enabled;
         super.enabled = enabled;
-        if (!enabled) resetPipeline();
+        if (!enabled) {
+            purgePipelineRegistry();
+        } else {
+            resetXbowInternalState();
+        }
+    }
+
+    private static void resetXbowInternalState() {
+        currentPhase = PipelinePhase.VOID;
+        actionTickCounter = 0;
+        globalCooldownTicks = 0;
+        vectorReferencePos = null;
+        vectorReferenceFace = Direction.UP;
+        vectorHitRegistry = null;
+        currentRetryAttempt = 0;
+        EXECUTION_TIMESTAMP_QUEUE.clear();
+        purgeRegistry();
+        initializeXbowEnterpriseRegistry();
     }
 
     @Override
@@ -69,13 +107,6 @@ public class XbowCart extends ClientBase.Module {
                candidateItem == Items.ACTIVATOR_RAIL;
     }
 
-    private static BlockPos resolvePlacementPos(BlockPos basePos, Direction faceDir) {
-        if (faceDir == Direction.UP) {
-            return basePos;
-        }
-        return basePos.above();
-    }
-
     public static void onTick(Minecraft clientRef) {
         if (!enabled || clientRef.player == null || clientRef.level == null) return;
 
@@ -84,208 +115,202 @@ public class XbowCart extends ClientBase.Module {
             return;
         }
 
+        pipelineExecutionCounter++;
+        executeSubsystemSanitation();
+
+        if (actionTickCounter > 0) {
+            actionTickCounter--;
+            if (actionTickCounter == 0) {
+                advancePipelinePhase(clientRef);
+            }
+            return;
+        }
+
         if (safetyWatchdog.isTimedOut()) {
-            resetPipeline();
+            purgePipelineRegistry();
             return;
         }
 
-        if (currentPhase != PipelinePhase.INACTIVE && !clientRef.player.isAlive()) {
-            resetPipeline();
-            return;
-        }
-
-        if (tickIntervalCounter > 0) {
-            tickIntervalCounter--;
-            return;
-        }
-
-        executePipelineCycle(clientRef);
-    }
-
-    private static void executePipelineCycle(Minecraft clientRef) {
         switch (currentPhase) {
-            case INACTIVE:
-                checkForActivation(clientRef);
+            case VOID:
+                BlockHitResult hit = RaycastManager.getValidHit(clientRef);
+                if (hit == null || !validateRegistryItem(clientRef.player.getMainHandItem().getItem()) || InventoryManager.findChargedCrossbow(clientRef) == -1) return;
+                vectorReferencePos = hit.getBlockPos();
+                vectorReferenceFace = hit.getDirection();
+                vectorHitRegistry = hit.getLocation();
+                safetyWatchdog.arm();
+                currentRetryAttempt = 0;
+                currentPhase = PipelinePhase.RAIL_ACTION;
                 break;
-            case RAIL_SLOT:
-                int railSlot = locateRailSlot(clientRef);
-                if (railSlot == -1) { resetPipeline(); return; }
-                selectSlotDirect(clientRef, railSlot);
-                currentPhase = PipelinePhase.RAIL_USE;
-                tickIntervalCounter = 1;
+            case RAIL_ACTION:
+                int r = locateRailSlot(clientRef);
+                if (r == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                RotationManager.smoothTo(clientRef, vectorHitRegistry != null ? vectorHitRegistry : Vec3.atCenterOf(vectorReferencePos), 0.99F);
+                InventoryManager.selectSlot(clientRef, r);
+                InteractionManager.simulateClickUse(clientRef);
+                actionTickCounter = 2;
                 break;
-            case RAIL_USE:
-                BlockPos railTarget = resolvePlacementPos(targetBasePos, targetFace);
-                aimAndForceHit(clientRef, Vec3.atCenterOf(railTarget), targetFace, railTarget);
-                clientRef.options.keyUse.setDown(true);
-                currentPhase = PipelinePhase.CART_SLOT;
-                tickIntervalCounter = 1;
+            case CART_ACTION:
+                int c = InventoryManager.findItem(clientRef, Items.TNT_MINECART);
+                if (c == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                BlockPos cartPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
+                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(cartPos), 0.99F);
+                InventoryManager.selectSlot(clientRef, c);
+                InteractionManager.simulateClickUse(clientRef);
+                actionTickCounter = 2;
                 break;
-            case CART_SLOT:
-                clientRef.options.keyUse.setDown(false);
-                int cartSlot = locateItemInInventory(clientRef, Items.TNT_MINECART);
-                if (cartSlot == -1) { resetPipeline(); return; }
-                selectSlotDirect(clientRef, cartSlot);
-                currentPhase = PipelinePhase.CART_USE;
-                tickIntervalCounter = 1;
+            case FLINT_ACTION:
+                int f = InventoryManager.findItem(clientRef, Items.FLINT_AND_STEEL);
+                if (f == -1) f = InventoryManager.findItem(clientRef, Items.FIRE_CHARGE);
+                if (f == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                BlockPos firePos = vectorReferenceFace == Direction.UP ? vectorReferencePos.relative(clientRef.player.getDirection().getOpposite()) : vectorReferencePos;
+                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(firePos), 0.99F);
+                InventoryManager.selectSlot(clientRef, f);
+                InteractionManager.simulateClickUse(clientRef);
+                actionTickCounter = 2;
                 break;
-            case CART_USE:
-                BlockPos cartTarget = resolvePlacementPos(targetBasePos, targetFace);
-                aimAndForceHit(clientRef, Vec3.atCenterOf(cartTarget), Direction.UP, cartTarget);
-                clientRef.options.keyUse.setDown(true);
-                currentPhase = PipelinePhase.FLINT_SLOT;
-                tickIntervalCounter = 1;
-                break;
-            case FLINT_SLOT:
-                clientRef.options.keyUse.setDown(false);
-                int flintSlot = locateItemInInventory(clientRef, Items.FLINT_AND_STEEL);
-                if (flintSlot == -1) flintSlot = locateItemInInventory(clientRef, Items.FIRE_CHARGE);
-                if (flintSlot == -1) { resetPipeline(); return; }
-                selectSlotDirect(clientRef, flintSlot);
-                currentPhase = PipelinePhase.FLINT_USE;
-                tickIntervalCounter = 1;
-                break;
-            case FLINT_USE:
-                BlockPos fireTarget = resolvePlacementPos(targetBasePos, targetFace);
-                aimAndForceHit(clientRef, Vec3.atCenterOf(fireTarget), targetFace, fireTarget);
-                clientRef.options.keyUse.setDown(true);
-                currentPhase = PipelinePhase.XBOW_SLOT;
-                tickIntervalCounter = 1;
-                break;
-            case XBOW_SLOT:
-                clientRef.options.keyUse.setDown(false);
-                int xbowSlot = locateCrossbowSlot(clientRef);
-                if (xbowSlot == -1) { resetPipeline(); return; }
-                selectSlotDirect(clientRef, xbowSlot);
-                currentPhase = PipelinePhase.XBOW_USE;
-                tickIntervalCounter = 1;
-                break;
-            case XBOW_USE:
-                BlockPos shootTarget = resolvePlacementPos(targetBasePos, targetFace);
-                Vec3 shootVec = Vec3.atCenterOf(shootTarget).add(0.0D, 0.25D, 0.0D);
-                aimAndForceHit(clientRef, shootVec, Direction.UP, shootTarget);
-                clientRef.options.keyUse.setDown(true);
-                currentPhase = PipelinePhase.CLEANUP;
-                tickIntervalCounter = 2;
+            case XBOW_ACTION:
+                int x = InventoryManager.findChargedCrossbow(clientRef);
+                if (x == -1) {
+                    handlePipelineFailure(clientRef);
+                    return;
+                }
+                BlockPos shootPos = vectorReferenceFace == Direction.UP ? vectorReferencePos : vectorReferencePos.relative(vectorReferenceFace);
+                RotationManager.smoothTo(clientRef, Vec3.atCenterOf(shootPos).add(0.0D, 0.2D, 0.0D), 0.99F);
+                InventoryManager.selectSlot(clientRef, x);
+                InteractionManager.simulateClickUse(clientRef);
+                actionTickCounter = 2;
                 break;
             case CLEANUP:
-                clientRef.options.keyUse.setDown(false);
-                globalCooldownTicks = 10;
-                resetPipeline();
-                break;
-            default:
-                resetPipeline();
+                globalCooldownTicks = 15;
+                purgePipelineRegistry();
                 break;
         }
+        updateRegistryState();
     }
 
-    private static void checkForActivation(Minecraft clientRef) {
-        ItemStack mainHandItem = clientRef.player.getMainHandItem();
-        if (!validateRegistryItem(mainHandItem.getItem())) return;
-
-        HitResult rawHit = clientRef.hitResult;
-        if (rawHit == null || rawHit.getType() != HitResult.Type.BLOCK) {
-            rawHit = clientRef.player.pick(4.5D, 1.0F, false);
-            if (rawHit == null || rawHit.getType() != HitResult.Type.BLOCK) return;
-        }
-
-        if (rawHit instanceof BlockHitResult blockHit) {
-            double distSqr = clientRef.player.getEyePosition().distanceToSqr(blockHit.getLocation());
-            if (distSqr > 20.25D) return;
-            if (!clientRef.level.getBlockState(blockHit.getBlockPos()).isSolid()) return;
-
-            int railSlot = locateRailSlot(clientRef);
-            int cartSlot = locateItemInInventory(clientRef, Items.TNT_MINECART);
-            int flintSlot = locateItemInInventory(clientRef, Items.FLINT_AND_STEEL);
-            if (flintSlot == -1) flintSlot = locateItemInInventory(clientRef, Items.FIRE_CHARGE);
-            int xbowSlot = locateCrossbowSlot(clientRef);
-
-            if (railSlot == -1 || cartSlot == -1 || flintSlot == -1 || xbowSlot == -1) return;
-
-            originalSelectedSlot = clientRef.player.getInventory().getSelectedSlot();
-            targetBasePos = blockHit.getBlockPos();
-            targetFace = blockHit.getDirection();
-
-            safetyWatchdog.arm();
-            currentPhase = PipelinePhase.RAIL_SLOT;
-            tickIntervalCounter = 0;
+    private static void handlePipelineFailure(Minecraft clientRef) {
+        currentRetryAttempt++;
+        if (currentRetryAttempt <= maxPipelineRetries) {
+            actionTickCounter = 2;
+        } else {
+            globalCooldownTicks = 15;
+            purgePipelineRegistry();
         }
     }
 
-    private static void selectSlotDirect(Minecraft clientRef, int slot) {
-        if (clientRef.player == null || slot < 0 || slot > 8) return;
-        clientRef.player.getInventory().setSelectedSlot(slot);
-        if (clientRef.options.keyHotbarSlots[slot] != null) {
-            clientRef.options.keyHotbarSlots[slot].setDown(true);
-            clientRef.options.keyHotbarSlots[slot].setDown(false);
+    private static void advancePipelinePhase(Minecraft clientRef) {
+        clientRef.options.keyUse.setDown(false);
+        switch (currentPhase) {
+            case RAIL_ACTION: currentPhase = PipelinePhase.CART_ACTION; break;
+            case CART_ACTION: currentPhase = PipelinePhase.FLINT_ACTION; break;
+            case FLINT_ACTION: currentPhase = PipelinePhase.XBOW_ACTION; break;
+            case XBOW_ACTION: currentPhase = PipelinePhase.CLEANUP; break;
+            default: purgePipelineRegistry(); break;
         }
-    }
 
-    private static void aimAndForceHit(Minecraft clientRef, Vec3 targetVec, Direction face, BlockPos blockPos) {
-        if (clientRef.player == null || targetVec == null || blockPos == null) return;
-        clientRef.hitResult = new BlockHitResult(targetVec, face, blockPos, false);
-
-        double deltaX = targetVec.x - clientRef.player.getX();
-        double deltaY = targetVec.y - clientRef.player.getEyeY();
-        double deltaZ = targetVec.z - clientRef.player.getZ();
-        double hDist = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
-
-        float targetYaw = (float) (Math.atan2(deltaZ, deltaX) * (180.0 / Math.PI)) - 90.0F;
-        float targetPitch = (float) (-(Math.atan2(deltaY, hDist) * (180.0 / Math.PI)));
-        targetPitch = Mth.clamp(targetPitch, -89.0F, 89.0F);
-
-        clientRef.player.setYRot(targetYaw);
-        clientRef.player.setXRot(targetPitch);
-
-        if (clientRef.options != null) {
-            double sensitivity = clientRef.options.sensitivity().get() * 0.6D + 0.2D;
-            double gcd = sensitivity * sensitivity * sensitivity * 8.0D;
-            if (gcd > 0.0D) {
-                double deltaYawAngle = (targetYaw - clientRef.player.getYRot());
-                double deltaPitchAngle = (targetPitch - clientRef.player.getXRot());
-                clientRef.player.turn(deltaYawAngle / (gcd * 0.15D), deltaPitchAngle / (gcd * 0.15D));
-            }
+        if (EXECUTION_TIMESTAMP_QUEUE.size() >= HISTORY_MAX_LIMIT) {
+            EXECUTION_TIMESTAMP_QUEUE.pollFirst();
         }
+        EXECUTION_TIMESTAMP_QUEUE.offerLast(System.currentTimeMillis());
+        updateRegistryState();
     }
 
     private static int locateRailSlot(Minecraft clientRef) {
         if (clientRef.player == null) return -1;
         for (int i = 0; i < 9; i++) {
-            if (validateRegistryItem(clientRef.player.getInventory().getItem(i).getItem())) return i;
+            Item itemNode = clientRef.player.getInventory().getItem(i).getItem();
+            if (validateRegistryItem(itemNode)) return i;
         }
         return -1;
     }
 
-    private static int locateItemInInventory(Minecraft clientRef, Item targetItem) {
-        if (clientRef.player == null) return -1;
-        for (int i = 0; i < 9; i++) {
-            ItemStack stack = clientRef.player.getInventory().getItem(i);
-            if (!stack.isEmpty() && stack.getItem() == targetItem) return i;
-        }
-        return -1;
+    private static void updateRegistryState() {
+        XBOW_ENTERPRISE_REGISTRY.put("ExecutionCounter", pipelineExecutionCounter);
+        XBOW_ENTERPRISE_REGISTRY.put("PipelineStage", currentPhase.name());
+        XBOW_ENTERPRISE_REGISTRY.put("HistorySize", EXECUTION_TIMESTAMP_QUEUE.size());
+        XBOW_ENTERPRISE_REGISTRY.put("CurrentRetryAttempt", currentRetryAttempt);
     }
 
-    private static int locateCrossbowSlot(Minecraft clientRef) {
-        if (clientRef.player == null) return -1;
-        for (int i = 0; i < 9; i++) {
-            ItemStack stack = clientRef.player.getInventory().getItem(i);
-            if (stack.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(stack)) return i;
+    private static void executeSubsystemSanitation() {
+        if (pipelineExecutionCounter > 5000000L) {
+            pipelineExecutionCounter = 0L;
         }
-        for (int i = 0; i < 9; i++) {
-            ItemStack stack = clientRef.player.getInventory().getItem(i);
-            if (!stack.isEmpty() && stack.getItem() == Items.CROSSBOW) return i;
+        if (XBOW_ENTERPRISE_REGISTRY.size() > 80) {
+            purgeRegistry();
+            initializeXbowEnterpriseRegistry();
         }
-        return -1;
     }
 
-    public static void resetPipeline() {
-        currentPhase = PipelinePhase.INACTIVE;
-        tickIntervalCounter = 0;
-        targetBasePos = null;
-        targetFace = Direction.UP;
-        if (Minecraft.getInstance() != null && Minecraft.getInstance().options != null) {
-            Minecraft.getInstance().options.keyUse.setDown(false);
-        }
+    private static void purgeRegistry() {
+        XBOW_ENTERPRISE_REGISTRY.clear();
+    }
+
+    public static void purgePipelineRegistry() {
+        currentPhase = PipelinePhase.VOID;
+        vectorReferencePos = null;
+        vectorReferenceFace = Direction.UP;
+        vectorHitRegistry = null;
+        actionTickCounter = 0;
+        currentRetryAttempt = 0;
         safetyWatchdog.disarm();
+    }
+
+    public static boolean verifyXbowSubsystemHealth() {
+        return enabled && SUBSESSION_IDENTITY != null;
+    }
+
+    public static long getPipelineExecutionCounter() {
+        return pipelineExecutionCounter;
+    }
+
+    public static PipelinePhase getPipelineStage() {
+        return currentPhase;
+    }
+
+    public static void setStrictCompliance(boolean state) {
+        strictComplianceFlag = state;
+        XBOW_ENTERPRISE_REGISTRY.put("StrictCompliance", strictComplianceFlag);
+    }
+
+    public static boolean isStrictComplianceActive() {
+        return strictComplianceFlag;
+    }
+
+    public static void setMaxRetries(int retries) {
+        maxPipelineRetries = Math.max(0, retries);
+        XBOW_ENTERPRISE_REGISTRY.put("MaxRetries", maxPipelineRetries);
+    }
+
+    public static int getMaxRetries() {
+        return maxPipelineRetries;
+    }
+
+    public static void performBaselineCalibration() {
+        strictComplianceFlag = true;
+        maxPipelineRetries = 3;
+        currentRetryAttempt = 0;
+        pipelineExecutionCounter = 0L;
+        EXECUTION_TIMESTAMP_QUEUE.clear();
+    }
+
+    public static void executeExtendedDiagnosticFlush() {
+        executeSubsystemSanitation();
+        if (EXECUTION_TIMESTAMP_QUEUE.size() > HISTORY_MAX_LIMIT) {
+            EXECUTION_TIMESTAMP_QUEUE.clear();
+        }
+    }
+
+    public static UUID getSubsessionIdentity() {
+        return SUBSESSION_IDENTITY;
     }
 }
