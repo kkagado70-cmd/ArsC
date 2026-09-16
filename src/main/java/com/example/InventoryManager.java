@@ -348,9 +348,8 @@ public class InventoryManager {
     public static UUID getSubsessionIdentity() {
         return SUBSESSION_ID;
     }
-}
 
-    public static boolean hasCrossbow(Minecraft client) 
+    public static boolean hasCrossbow(Minecraft client) {
         return findItem(client, Items.CROSSBOW) >= 0;
     }
 
@@ -436,3 +435,4 @@ public class InventoryManager {
                 + " xbow=" + slots.get("xbow")
                 + " swaps=" + totalSwaps;
     }
+}

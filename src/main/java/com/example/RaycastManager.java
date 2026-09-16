@@ -318,9 +318,8 @@ public class RaycastManager {
     public static UUID getSubsessionIdentity() {
         return SUBSESSION_ID;
     }
-}
 
-    public static net.minecraft.world.phys.BlockHitResult multiSampleRaycast(Minecraft client, net.minecraft.world.phys.Vec3 aimTarget, int samples, double spread) 
+    public static net.minecraft.world.phys.BlockHitResult multiSampleRaycast(Minecraft client, net.minecraft.world.phys.Vec3 aimTarget, int samples, double spread) {
         if (client == null || client.player == null) return null;
         net.minecraft.world.phys.Vec3 eyePos = client.player.getEyePosition(1.0f);
         java.util.List<net.minecraft.world.phys.BlockHitResult> hits = new java.util.ArrayList<>();
@@ -402,3 +401,4 @@ public class RaycastManager {
                 + " mode=" + mode.name()
                 + " invocations=" + raycastInvocations;
     }
+}

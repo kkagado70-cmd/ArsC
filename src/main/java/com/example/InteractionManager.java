@@ -316,12 +316,9 @@ public class InteractionManager {
         INTERACTION_REGISTRY.put("ConsecutiveAttack", 0);
     }
 
-    public static UUID getSubsessionIdentity() {
-        return SUBSESSION_ID;
-    }
-}
+    public static UUID getSubsessionId() { return SUBSESSION_ID; }
 
-    public static final class InteractionWindow 
+    public static final class InteractionWindow {
         public final long openEpoch;
         public final long durationMs;
         private boolean used;
@@ -407,5 +404,4 @@ public class InteractionManager {
                 + " locked=" + interactionLocked
                 + " totalProcessed=" + globalTaskCounter;
     }
-
-    public static UUID getSubsessionId() { return SUBSESSION_ID; }
+}
