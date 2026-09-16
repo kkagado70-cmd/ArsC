@@ -14,21 +14,32 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 public class ClientBase implements ClientModInitializer {
     private static ClientBase INSTANCE;
     private ModuleManager moduleManager;
     private static KeyMapping guiKeyBinding;
-    private static final Map<String, Object> BASE_REGISTRY = new ConcurrentHashMap<>();
+    
+    private static final Map<String, Object> BASE_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
+    private static final Deque<Long> GLOBAL_TICK_LATENCY_DEQUE = new ArrayDeque<>();
+    private static final Deque<String> INITIALIZATION_LOG_DEQUE = new ArrayDeque<>();
+    private static final int HISTORY_MAX_CAPACITY = 2048;
+    
     private static long globalInitializationTimestamp = 0L;
+    private static long totalGlobalTicksProcessed = 0L;
     private static boolean diagnosticModeActive = false;
+    private static boolean enterpriseSecurityAuditActive = true;
+    private static int subsessionHealthScore = 100;
 
     static {
         globalInitializationTimestamp = System.currentTimeMillis();
-        BASE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        BASE_REGISTRY.put("Architecture", "Fabric-1.21.11-Mojmap");
-        BASE_REGISTRY.put("InitializationEpoch", globalInitializationTimestamp);
+        BASE_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        BASE_ENTERPRISE_REGISTRY.put("Architecture", "Fabric-1.21.11-Mojmap-Monolith");
+        BASE_ENTERPRISE_REGISTRY.put("InitializationEpoch", globalInitializationTimestamp);
+        INITIALIZATION_LOG_DEQUE.offerLast(globalInitializationTimestamp + ": Core Monolith Subsystem Initialized");
     }
 
     @Override
@@ -50,6 +61,9 @@ public class ClientBase implements ClientModInitializer {
         ));
 
         ClientTickEvents.START_CLIENT_TICK.register(client -> {
+            totalGlobalTicksProcessed++;
+            executeSubsystemSanitation();
+
             while (guiKeyBinding.consumeClick()) {
                 if (client.screen == null) {
                     client.setScreen(new ClickGUI());
@@ -62,8 +76,11 @@ public class ClientBase implements ClientModInitializer {
                 invokeGlobalTick(client);
                 InteractionManager.update(client);
                 PacketBufferManager.update(client);
+                InventoryManager.update(client);
             }
         });
+        
+        INITIALIZATION_LOG_DEQUE.offerLast(System.currentTimeMillis() + ": ClientModInitializer fully bound to Fabric lifecycle");
     }
 
     public static ClientBase getInstance() {
@@ -75,8 +92,28 @@ public class ClientBase implements ClientModInitializer {
     }
 
     public static void invokeGlobalTick(Minecraft client) {
+        long startTickNano = System.nanoTime();
         if (INSTANCE != null && INSTANCE.moduleManager != null) {
             INSTANCE.moduleManager.tick(client);
+        }
+        long elapsedNano = System.nanoTime() - startTickNano;
+        pushTickLatency(elapsedNano / 1000000L);
+    }
+
+    private static void pushTickLatency(long ms) {
+        if (GLOBAL_TICK_LATENCY_DEQUE.size() >= HISTORY_MAX_CAPACITY) {
+            GLOBAL_TICK_LATENCY_DEQUE.pollFirst();
+        }
+        GLOBAL_TICK_LATENCY_DEQUE.offerLast(ms);
+    }
+
+    private static void executeSubsystemSanitation() {
+        if (totalGlobalTicksProcessed > 100000000L) {
+            totalGlobalTicksProcessed = 0L;
+        }
+        if (BASE_ENTERPRISE_REGISTRY.size() > 250) {
+            BASE_ENTERPRISE_REGISTRY.clear();
+            BASE_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
         }
     }
 
@@ -86,7 +123,7 @@ public class ClientBase implements ClientModInitializer {
 
         public Module(String name) {
             this.name = name;
-            this.enabled = true;
+            this.enabled = false;
         }
 
         public String getName() {
@@ -121,6 +158,23 @@ public class ClientBase implements ClientModInitializer {
 
         public List<Module> getModules() {
             return Collections.unmodifiableList(modules);
+        }
+
+        public Module getModule(String name) {
+            if (name == null) return null;
+            for (Module m : modules) {
+                if (m != null && m.getName().equalsIgnoreCase(name)) {
+                    return m;
+                }
+            }
+            return null;
+        }
+
+        public void setEnabled(String name, boolean state) {
+            Module m = getModule(name);
+            if (m != null && m.enabled != state) {
+                m.toggle();
+            }
         }
 
         public void tick(Minecraft client) {
@@ -197,7 +251,14 @@ public class ClientBase implements ClientModInitializer {
         }
 
         @Override
+        public void toggle() {
+            super.toggle();
+            ShieldBreaker.enabled = this.enabled;
+        }
+
+        @Override
         public void tick(Minecraft client) {
+            ShieldBreaker.onTick(client);
         }
     }
 
@@ -229,6 +290,19 @@ public class ClientBase implements ClientModInitializer {
 
     public static void setDiagnosticMode(boolean state) {
         diagnosticModeActive = state;
-        BASE_REGISTRY.put("DiagnosticState", diagnosticModeActive);
+        BASE_ENTERPRISE_REGISTRY.put("DiagnosticState", diagnosticModeActive);
+    }
+
+    public static long getTotalGlobalTicksProcessed() {
+        return totalGlobalTicksProcessed;
+    }
+
+    public static int getSubsessionHealthScore() {
+        return subsessionHealthScore;
+    }
+
+    public static void setSubsessionHealthScore(int score) {
+        subsessionHealthScore = Math.max(0, Math.min(100, score));
+        BASE_ENTERPRISE_REGISTRY.put("HealthScore", subsessionHealthScore);
     }
 }
