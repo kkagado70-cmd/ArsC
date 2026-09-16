@@ -321,7 +321,7 @@ public class InteractionManager {
     }
 }
 
-    public static final class InteractionWindow {
+    public static final class InteractionWindow 
         public final long openEpoch;
         public final long durationMs;
         private boolean used;

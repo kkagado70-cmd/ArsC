@@ -350,7 +350,7 @@ public class InventoryManager {
     }
 }
 
-    public static boolean hasCrossbow(Minecraft client) {
+    public static boolean hasCrossbow(Minecraft client) 
         return findItem(client, Items.CROSSBOW) >= 0;
     }
 
