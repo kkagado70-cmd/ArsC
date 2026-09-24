@@ -6,304 +6,118 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.CrossbowItem;
-import net.minecraft.world.item.BowItem;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
-import net.minecraft.world.level.ClipContext;
-import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.world.phys.HitResult;
 
-import java.security.SecureRandom;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.Map;
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Random;
 
-public class AimAssist extends ClientBase.Module {
-    public static final String FILE_NAME = "AimAssist.java";
+public class AimAssist {
+
     public static boolean enabled = false;
-    private static final SecureRandom secureRandom = new SecureRandom();
-    
-    private static Entity lockedTarget = null;
-    private static Entity previousLockedTarget = null;
-    private static int targetLockTicks = 0;
-    
-    private static final Map<String, Object> AIM_REGISTRY = new ConcurrentHashMap<>();
-    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
-    
-    private static final KalmanFilter1D kalmanX = new KalmanFilter1D(0.008D, 0.08D);
-    private static final KalmanFilter1D kalmanY = new KalmanFilter1D(0.008D, 0.08D);
-    private static final KalmanFilter1D kalmanZ = new KalmanFilter1D(0.008D, 0.08D);
-    
-    private static Vec3 previousTargetVelocity = Vec3.ZERO;
-    private static Vec3 previousTargetAcceleration = Vec3.ZERO;
-    
-    private static double kinematicSmoothingRate = 0.45D;
-    private static float maximumFovAngle = 180.0F;
-    private static double maximumReachBound = 7.0D;
-    private static long globalExecutionCounter = 0L;
-    
-    private static final Map<String, Double> WEAPON_SMOOTHING = new ConcurrentHashMap<>();
-    private static final Map<String, Double> WEAPON_REACH = new ConcurrentHashMap<>();
 
-    static {
-        AIM_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        WEAPON_SMOOTHING.put("sword", 0.45D);
-        WEAPON_SMOOTHING.put("axe", 0.50D);
-        WEAPON_SMOOTHING.put("mace", 0.42D);
-        WEAPON_SMOOTHING.put("trident", 0.45D);
-        WEAPON_SMOOTHING.put("bow", 0.60D);
-        WEAPON_SMOOTHING.put("crossbow", 0.60D);
+    private static final Random RNG = new Random();
 
-        WEAPON_REACH.put("sword", 7.0D);
-        WEAPON_REACH.put("axe", 7.0D);
-        WEAPON_REACH.put("mace", 7.0D);
-        WEAPON_REACH.put("trident", 7.0D);
-        WEAPON_REACH.put("bow", 7.0D);
-        WEAPON_REACH.put("crossbow", 7.0D);
-    }
+    private static Entity target    = null;
+    private static int    lockTicks = 0;
 
-    private static class KalmanFilter1D {
-        private double q;
-        private double r;
-        private double x;
-        private double p;
-        private boolean initialized = false;
+    private static final float FOV         = 120.0f;
+    private static final double REACH      = 6.5;
+    private static final float  SWITCH_DEG = 45.0f;
 
-        public KalmanFilter1D(double q, double r) {
-            this.q = q;
-            this.r = r;
-        }
+    private static final float SPEED_BASE  = 0.68f;
+    private static final float SPEED_FAR   = 0.88f;
+    private static final float NEAR_DEG    = 12.0f;
+    private static final float NEAR_SCALE  = 0.32f;
 
-        public double update(double measurement) {
-            if (!initialized) {
-                x = measurement;
-                p = 1.0D;
-                initialized = true;
-                return x;
-            }
-            p = p + q;
-            double k = p / (p + r);
-            x = x + k * (measurement - x);
-            p = (1.0D - k) * p;
-            return x;
-        }
+    public static void onTick(Minecraft mc) {
+        if (!enabled || mc.player == null || mc.level == null) return;
+        if (mc.screen != null) { target = null; return; }
+        if (!holdingWeapon(mc)) { target = null; return; }
 
-        public void reset() {
-            initialized = false;
-            x = 0.0D;
-            p = 1.0D;
-        }
-    }
+        target = pickTarget(mc);
+        if (target == null) return;
 
-    public AimAssist() {
-        super("AimAssist");
-        AimAssist.enabled = false;
-    }
+        Vec3 aim = aimPoint(target);
+        float ang = angularDist(mc, aim);
 
-    @Override
-    public boolean isEnabled() {
-        return enabled;
-    }
-
-    @Override
-    public void toggle() {
-        enabled = !enabled;
-        super.enabled = enabled;
-        if (!enabled) {
-            resetFilters();
-        }
-    }
-
-    @Override
-    public void tick(Minecraft client) {
-        onTick(client);
-    }
-
-    public static void resetFilters() {
-        lockedTarget = null;
-        previousLockedTarget = null;
-        targetLockTicks = 0;
-        kalmanX.reset();
-        kalmanY.reset();
-        kalmanZ.reset();
-        previousTargetVelocity = Vec3.ZERO;
-        previousTargetAcceleration = Vec3.ZERO;
-    }
-
-    private static String resolveWeaponKey(Minecraft client) {
-        if (client.player == null) return "sword";
-        ItemStack stack = client.player.getMainHandItem();
-        if (stack.isEmpty()) return "sword";
-        String name = stack.getItem().getDescriptionId().toLowerCase();
-        if (name.contains("axe")) return "axe";
-        if (name.contains("mace")) return "mace";
-        if (name.contains("trident")) return "trident";
-        if (name.contains("bow")) return "bow";
-        if (name.contains("crossbow")) return "crossbow";
-        return "sword";
-    }
-
-    private static boolean isHoldingWeapon(Minecraft client) {
-        if (client.player == null) return false;
-        ItemStack stack = client.player.getMainHandItem();
-        if (stack.isEmpty()) return false;
-        String name = stack.getItem().getDescriptionId().toLowerCase();
-        return name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace") || name.contains("bow") || name.contains("crossbow");
-    }
-
-    public static void onTick(Minecraft clientRef) {
-        if (!enabled || clientRef.player == null || clientRef.level == null) return;
-        if (!clientRef.player.isAlive()) return;
-        if (!isHoldingWeapon(clientRef)) {
-            lockedTarget = null;
-            return;
-        }
-        if (ShieldBreaker.isShieldStunActive()) {
-            return;
-        }
-
-        globalExecutionCounter++;
-
-        Entity target = evaluateSmartTarget(clientRef);
-        if (target != previousLockedTarget) {
-            resetFilters();
-            previousLockedTarget = target;
-        }
-
-        if (target != null) {
-            smoothAimToTarget(clientRef, target);
+        float speed;
+        if (ang > NEAR_DEG) {
+            float t = Math.min(1.0f, (ang - NEAR_DEG) / 60.0f);
+            speed = SPEED_BASE + (SPEED_FAR - SPEED_BASE) * t;
         } else {
-            lockedTarget = null;
-        }
-    }
-
-    private static Entity evaluateSmartTarget(Minecraft clientRef) {
-        String weaponKey = resolveWeaponKey(clientRef);
-        double reach = WEAPON_REACH.getOrDefault(weaponKey, 7.0D);
-
-        if (lockedTarget != null) {
-            double distSqr = clientRef.player.distanceToSqr(lockedTarget);
-            if (lockedTarget.isAlive() && distSqr <= (reach * reach) && verifyLineOfSight(clientRef, lockedTarget)) {
-                targetLockTicks++;
-                return lockedTarget;
-            }
-            lockedTarget = null;
-            targetLockTicks = 0;
+            speed = SPEED_BASE * (NEAR_SCALE + (1.0f - NEAR_SCALE) * (ang / NEAR_DEG));
         }
 
-        Entity bestEntity = null;
-        double minDistanceSqr = (reach * reach) + 1.0D;
+        RotationManager.smoothTo(mc, aim, speed);
+        lockTicks++;
+    }
 
-        for (Entity entity : clientRef.level.entitiesForRendering()) {
-            if (!(entity instanceof LivingEntity living) || living == clientRef.player || !living.isAlive()) continue;
-            if (living instanceof Player player && (player.isSpectator() || player.isCreative())) continue;
-            
-            double distSqr = clientRef.player.distanceToSqr(living);
-            if (distSqr > (reach * reach)) continue;
-            if (!verifyLineOfSight(clientRef, living)) continue;
+    private static Entity pickTarget(Minecraft mc) {
+        Vec3 eyes = mc.player.getEyePosition(1.0f);
+        Vec3 look = mc.player.getLookAngle();
 
-            if (distSqr < minDistanceSqr) {
-                minDistanceSqr = distSqr;
-                bestEntity = living;
-            }
+        List<Entity> candidates = new ArrayList<>();
+        for (Entity e : mc.level.entitiesForRendering()) {
+            if (e == mc.player) continue;
+            if (!(e instanceof LivingEntity le)) continue;
+            if (!le.isAlive() || le.getHealth() <= 0) continue;
+            if (le instanceof Player p && p.isCreative()) continue;
+            if (mc.player.distanceTo(e) > REACH) continue;
+            if (angleTo(mc, e.getEyePosition()) > FOV / 2.0f) continue;
+            candidates.add(e);
         }
 
-        if (bestEntity != null) {
-            lockedTarget = bestEntity;
-            targetLockTicks = 0;
+        if (candidates.isEmpty()) { lockTicks = 0; return null; }
+
+        candidates.sort(Comparator.comparingDouble(e -> angleTo(mc, e.getEyePosition())));
+        Entity best = candidates.get(0);
+
+        if (target != null && target.isAlive() && candidates.contains(target)) {
+            float switchCost = angleTo(mc, target.getEyePosition());
+            float bestCost   = angleTo(mc, best.getEyePosition());
+            if (switchCost - bestCost < SWITCH_DEG) return target;
         }
-        return lockedTarget;
+
+        if (best != target) lockTicks = 0;
+        return best;
     }
 
-    private static boolean verifyLineOfSight(Minecraft clientRef, Entity target) {
-        if (clientRef.player == null || target == null) return false;
-        Vec3 start = clientRef.player.getEyePosition();
-        Vec3 end = target.getEyePosition();
-        BlockHitResult hit = clientRef.level.clip(
-            new ClipContext(
-                start, 
-                end, 
-                ClipContext.Block.COLLIDER, 
-                ClipContext.Fluid.NONE, 
-                clientRef.player
-            )
-        );
-        return hit.getType() == HitResult.Type.MISS;
+    private static Vec3 aimPoint(Entity e) {
+        Vec3 pos = e.getEyePosition(1.0f);
+        Vec3 vel = e.getDeltaMovement();
+        float ticksAhead = 1.2f + RNG.nextFloat() * 0.3f;
+        return pos.add(vel.x * ticksAhead, vel.y * ticksAhead * 0.4, vel.z * ticksAhead);
     }
 
-    public static void smoothAimToTarget(Minecraft clientRef, Entity target) {
-        double kx = kalmanX.update(target.getX());
-        double ky = kalmanY.update(target.getY());
-        double kz = kalmanZ.update(target.getZ());
-        Vec3 filteredPos = new Vec3(kx, ky, kz);
-
-        Vec3 currentVel = target.getDeltaMovement();
-        Vec3 acceleration = currentVel.subtract(previousTargetVelocity);
-        Vec3 jerk = acceleration.subtract(previousTargetAcceleration);
-
-        long latency = 50L;
-        if (clientRef.getConnection() != null) {
-            try {
-                net.minecraft.client.multiplayer.PlayerInfo info = clientRef.getConnection().getPlayerInfo(clientRef.player.getUUID());
-                if (info != null) latency = info.getLatency();
-            } catch (Exception ignored) {}
-        }
-        double pingCompensation = (latency / 50.0) * 0.02D;
-
-        Vec3 predictedPos = filteredPos
-                .add(currentVel.scale(2.0D * 0.05D + pingCompensation))
-                .add(acceleration.scale(0.5D * 4.0D * 0.0025D))
-                .add(jerk.scale(0.125D * 0.000125D));
-
-        previousTargetVelocity = currentVel;
-        previousTargetAcceleration = acceleration;
-
-        Vec3 resolvedPos = predictedPos.add(0.0D, target.getBbHeight() * 0.42D, 0.0D);
-
-        double deltaX = resolvedPos.x - clientRef.player.getX();
-        double deltaY = resolvedPos.y - clientRef.player.getEyeY();
-        double deltaZ = resolvedPos.z - clientRef.player.getZ();
-        double horizontalDistance = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
-        if (horizontalDistance < 0.001D) horizontalDistance = 0.001D;
-
-        float calculatedTargetYaw = (float) (Math.atan2(deltaZ, deltaX) * (180.0 / Math.PI)) - 90.0F;
-        float calculatedTargetPitch = (float) (-(Math.atan2(deltaY, horizontalDistance) * (180.0 / Math.PI)));
-        calculatedTargetPitch = Mth.clamp(calculatedTargetPitch, -89.0F, 89.0F);
-
-        float currentYaw = clientRef.player.getYRot();
-        float currentPitch = clientRef.player.getXRot();
-        float rawYawDiff = Mth.wrapDegrees(calculatedTargetYaw - currentYaw);
-        float rawPitchDiff = calculatedTargetPitch - currentPitch;
-
-        double distanceToTarget = clientRef.player.distanceTo(target);
-        String weaponKey = resolveWeaponKey(clientRef);
-        double smooth = WEAPON_SMOOTHING.getOrDefault(weaponKey, kinematicSmoothingRate);
-        if (distanceToTarget < 2.5D) smooth = 0.35D;
-
-        float finalYawDiff = (float) (rawYawDiff * smooth);
-        float finalPitchDiff = (float) (rawPitchDiff * smooth);
-
-        if (Float.isNaN(finalYawDiff) || Float.isInfinite(finalYawDiff)) finalYawDiff = 0.0f;
-        if (Float.isNaN(finalPitchDiff) || Float.isInfinite(finalPitchDiff)) finalPitchDiff = 0.0f;
-
-        float nextEvaluatedYaw = currentYaw + finalYawDiff;
-        float nextEvaluatedPitch = Mth.clamp(currentPitch + finalPitchDiff, -89.0F, 89.0F);
-
-        RotationManager.smoothTo(clientRef, resolvedPos, (float)smooth);
+    private static float angleTo(Minecraft mc, Vec3 target) {
+        Vec3 eyes = mc.player.getEyePosition(1.0f);
+        Vec3 look = mc.player.getLookAngle();
+        Vec3 dir  = target.subtract(eyes).normalize();
+        double dot = Mth.clamp(look.dot(dir), -1.0, 1.0);
+        return (float) Math.toDegrees(Math.acos(dot));
     }
 
-    public static boolean isLockedOnTarget() {
-        return lockedTarget != null;
+    private static float angularDist(Minecraft mc, Vec3 aim) {
+        Vec3 eyes = mc.player.getEyePosition(1.0f);
+        double dx = aim.x - mc.player.getX();
+        double dy = aim.y - mc.player.getEyeY();
+        double dz = aim.z - mc.player.getZ();
+        double h  = Math.max(1e-9, Math.sqrt(dx * dx + dz * dz));
+        float ty  = (float)(Math.toDegrees(Math.atan2(dz, dx)) - 90.0);
+        float tp  = (float)(-Math.toDegrees(Math.atan2(dy, h)));
+        float dy2 = Math.abs(Mth.wrapDegrees(mc.player.getYRot() - ty));
+        float dp2 = Math.abs(mc.player.getXRot() - tp);
+        return (float) Math.sqrt(dy2 * dy2 + dp2 * dp2);
     }
 
-    public static Entity getLockedTarget() {
-        return lockedTarget;
-    }
-
-    public static UUID getSubsessionIdentity() {
-        return SUBSESSION_IDENTITY;
+    private static boolean holdingWeapon(Minecraft mc) {
+        ItemStack s = mc.player.getMainHandItem();
+        if (s.isEmpty()) return false;
+        String id = s.getItem().toString().toLowerCase();
+        return id.contains("sword") || id.contains("axe") || id.contains("mace")
+            || id.contains("trident") || s.getItem() == Items.BOW || s.getItem() == Items.CROSSBOW;
     }
 }
