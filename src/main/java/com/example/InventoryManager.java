@@ -436,3 +436,19 @@ public class InventoryManager {
                 + " swaps=" + totalSwaps;
     }
 }
+
+// Appended
+EOF
+    public static void update(Minecraft client) {
+        if (client == null || client.player == null) return;
+        long now = System.currentTimeMillis();
+        if (now - lastInventorySnapshot > CACHE_TTL_MS) {
+            invalidateCache();
+            lastInventorySnapshot = now;
+        }
+        if (now - lastSwapResetEpoch > 2000L) {
+            consecutiveSwapCount = 0;
+            lastSwapResetEpoch = now;
+        }
+    }
+}
