@@ -1,235 +1,455 @@
 package com.example;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.util.Mth;
-import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.item.CrossbowItem;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Random;
+import java.security.SecureRandom;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class RotationManager {
+public class InventoryManager {
 
-    private static final Random RNG = new Random();
+    public static final String FILE_NAME = "InventoryManager.java";
 
-    private static float yawVelocity    = 0.0f;
-    private static float pitchVelocity  = 0.0f;
-    private static int   stableCount    = 0;
-    private static float savedYaw       = 0.0f;
-    private static float savedPitch     = 0.0f;
-    private static boolean hasSaved     = false;
-
-    private static final Deque<Float> YAW_HIST   = new ArrayDeque<>();
-    private static final Deque<Float> PITCH_HIST  = new ArrayDeque<>();
-    private static final int          HIST_CAP    = 64;
-
-    private static float sampledGcd = 0.0f;
-    private static int   gcdSamples = 0;
-
-    public static void smoothTo(Minecraft mc, Vec3 target, float factor) {
-        if (mc == null || mc.player == null || target == null) return;
-
-        float[] desired = angles(mc, target);
-        float dYaw   = Mth.wrapDegrees(desired[0] - mc.player.getYRot());
-        float dPitch = desired[1] - mc.player.getXRot();
-
-        float angDist = (float) Math.sqrt(dYaw * dYaw + dPitch * dPitch);
-        float speedScale = computeSpeedScale(angDist, factor);
-
-        float stepYaw   = applySpring(dYaw,   yawVelocity,   speedScale);
-        float stepPitch = applySpring(dPitch, pitchVelocity, speedScale);
-
-        yawVelocity   = stepYaw;
-        pitchVelocity = stepPitch;
-
-        stepYaw   = quantizeToGcd(mc, stepYaw);
-        stepPitch = quantizeToGcd(mc, stepPitch);
-
-        stepYaw   += humanNoise(angDist);
-        stepPitch += humanNoise(angDist) * 0.55f;
-
-        float nextYaw   = mc.player.getYRot()   + stepYaw;
-        float nextPitch = Mth.clamp(mc.player.getXRot() + stepPitch, -89.9f, 89.9f);
-
-        nextYaw   = avoidExactInteger(nextYaw);
-        nextPitch = avoidExactInteger(nextPitch);
-
-        sendTurn(mc, nextYaw - mc.player.getYRot(), nextPitch - mc.player.getXRot());
-        mc.player.setYRot(Mth.wrapDegrees(nextYaw));
-        mc.player.setXRot(nextPitch);
-
-        if (Math.abs(dYaw) < 1.5f && Math.abs(dPitch) < 1.5f) stableCount++;
-        else stableCount = 0;
-
-        pushHist(nextYaw, nextPitch);
+    public enum SlotSelectionMode {
+        DIRECT_ONLY,
+        KEY_ONLY,
+        DUAL
     }
 
-    public static void snapTo(Minecraft mc, Vec3 target) {
-        if (mc == null || mc.player == null || target == null) return;
+    public enum InventoryRegion {
+        HOTBAR(0, 8),
+        MAIN(9, 35),
+        ARMOR(36, 39),
+        OFFHAND(40, 40);
 
-        float[] desired = angles(mc, target);
-        float dYaw   = Mth.wrapDegrees(desired[0] - mc.player.getYRot());
-        float dPitch = desired[1] - mc.player.getXRot();
+        public final int start;
+        public final int end;
 
-        dYaw   = quantizeToGcd(mc, dYaw);
-        dPitch = quantizeToGcd(mc, dPitch);
-
-        dYaw   += humanNoise(90.0f);
-        dPitch += humanNoise(90.0f) * 0.45f;
-
-        float nextYaw   = avoidExactInteger(mc.player.getYRot() + dYaw);
-        float nextPitch = avoidExactInteger(Mth.clamp(mc.player.getXRot() + dPitch, -89.9f, 89.9f));
-
-        sendTurn(mc, dYaw, dPitch);
-        mc.player.setYRot(Mth.wrapDegrees(nextYaw));
-        mc.player.setXRot(nextPitch);
-
-        yawVelocity   = dYaw;
-        pitchVelocity = dPitch;
-        stableCount   = 0;
-
-        pushHist(nextYaw, nextPitch);
+        InventoryRegion(int s, int e) { this.start = s; this.end = e; }
     }
 
-    public static boolean isAligned(Minecraft mc, Vec3 target, float yawTol, float pitchTol) {
-        if (mc == null || mc.player == null || target == null) return false;
-        float[] desired = angles(mc, target);
-        return Math.abs(Mth.wrapDegrees(desired[0] - mc.player.getYRot())) <= yawTol
-            && Math.abs(desired[1] - mc.player.getXRot()) <= pitchTol;
+    private static final SecureRandom secureRandom = new SecureRandom();
+    private static final Map<String, Object> INVENTORY_REGISTRY = new ConcurrentHashMap<>();
+    private static final UUID SUBSESSION_ID = UUID.randomUUID();
+    private static final Map<Item, Integer> itemSlotCache = new HashMap<>();
+    private static final Map<Item, Long> cacheTTL = new HashMap<>();
+    private static final long CACHE_TTL_MS = 500L;
+
+    private static SlotSelectionMode selectionMode = SlotSelectionMode.DUAL;
+    private static int cachedSelectedSlot = -1;
+    private static long lastSwapEpoch = 0L;
+    private static long minSwapIntervalMs = 5L;
+    private static boolean inventoryLocked = false;
+    private static int savedSlotBeforeSequence = -1;
+    private static long lastInventorySnapshot = 0L;
+    private static long totalSwaps = 0L;
+    private static int consecutiveSwapCount = 0;
+    private static long lastSwapResetEpoch = 0L;
+    private static double swapDelayMeanMs = 6.0;
+    private static double swapDelayStdDevMs = 3.0;
+
+    static {
+        INVENTORY_REGISTRY.put("SubsessionUUID", SUBSESSION_ID);
+        INVENTORY_REGISTRY.put("Profile", "Enterprise-InventoryManager-1.21.11");
+        INVENTORY_REGISTRY.put("SelectionMode", selectionMode.name());
+        INVENTORY_REGISTRY.put("MojmapCompliant", "setSelectedSlot");
     }
 
-    public static boolean isStable() { return stableCount >= 2; }
+    public static boolean selectSlot(Minecraft client, int slot) {
+        if (client == null || client.player == null) return false;
+        if (inventoryLocked) return false;
+        if (slot < 0 || slot > 8) return false;
 
-    public static void saveRotation(Minecraft mc) {
-        if (mc == null || mc.player == null) return;
-        savedYaw   = mc.player.getYRot();
-        savedPitch = mc.player.getXRot();
-        hasSaved   = true;
+        long now = System.currentTimeMillis();
+        long dynamicDelay = computeSwapDelay();
+        if (now - lastSwapEpoch < dynamicDelay) return false;
+
+        applySlotSelection(client, slot);
+        cachedSelectedSlot = slot;
+        lastSwapEpoch = now;
+        totalSwaps++;
+        consecutiveSwapCount++;
+        lastInventorySnapshot = now;
+
+        INVENTORY_REGISTRY.put("LastSlot", slot);
+        INVENTORY_REGISTRY.put("TotalSwaps", totalSwaps);
+
+        return true;
     }
 
-    public static void restoreRotation(Minecraft mc) {
-        if (!hasSaved || mc == null || mc.player == null) return;
-        float dYaw   = Mth.wrapDegrees(savedYaw   - mc.player.getYRot());
-        float dPitch = savedPitch - mc.player.getXRot();
-        sendTurn(mc, dYaw, dPitch);
-        mc.player.setYRot(savedYaw);
-        mc.player.setXRot(savedPitch);
-        hasSaved      = false;
-        yawVelocity   = 0.0f;
-        pitchVelocity = 0.0f;
+    public static boolean selectSlotImmediate(Minecraft client, int slot) {
+        if (client == null || client.player == null) return false;
+        if (slot < 0 || slot > 8) return false;
+
+        applySlotSelection(client, slot);
+        cachedSelectedSlot = slot;
+        lastSwapEpoch = System.currentTimeMillis();
+        totalSwaps++;
+
+        return true;
     }
 
-    public static void reset() {
-        yawVelocity   = 0.0f;
-        pitchVelocity = 0.0f;
-        stableCount   = 0;
-        hasSaved      = false;
-        YAW_HIST.clear();
-        PITCH_HIST.clear();
-    }
-
-    public static void lock()   {}
-    public static void unlock() {}
-    public static boolean isActive() { return true; }
-    public static float getCurrentYaw()   { return YAW_HIST.isEmpty()   ? 0 : ((ArrayDeque<Float>)YAW_HIST).peekLast(); }
-    public static float getCurrentPitch() { return PITCH_HIST.isEmpty() ? 0 : ((ArrayDeque<Float>)PITCH_HIST).peekLast(); }
-    public static float computeYawError(Minecraft mc, Vec3 t)   { if(mc==null||mc.player==null)return 0; return Mth.wrapDegrees(angles(mc,t)[0]-mc.player.getYRot()); }
-    public static float computePitchError(Minecraft mc, Vec3 t) { if(mc==null||mc.player==null)return 0; return angles(mc,t)[1]-mc.player.getXRot(); }
-
-    public static void samplePlayerGcd(Minecraft mc) {
-        if (mc == null || mc.player == null) return;
-        if (YAW_HIST.size() < 2) return;
-        Float[] arr = YAW_HIST.toArray(new Float[0]);
-        float delta = Math.abs(Mth.wrapDegrees(arr[arr.length-1] - arr[arr.length-2]));
-        if (delta > 0.001f) {
-            sampledGcd = gcdSamples == 0 ? delta : euclidGcd(sampledGcd, delta);
-            gcdSamples++;
+    private static void applySlotSelection(Minecraft client, int slot) {
+        switch (selectionMode) {
+            case DIRECT_ONLY -> {
+                client.player.getInventory().setSelectedSlot(slot);
+            }
+            case KEY_ONLY -> {
+                simulateHotbarKey(client, slot);
+            }
+            case DUAL -> {
+                client.player.getInventory().setSelectedSlot(slot);
+                simulateHotbarKey(client, slot);
+            }
         }
     }
 
-    private static float computeSpeedScale(float angDist, float factor) {
-        if (angDist < 0.01f) return 0.0f;
-        float base = Math.min(1.0f, factor);
-        if (angDist < 8.0f) {
-            float close = angDist / 8.0f;
-            float decel = 0.28f + 0.72f * close * close;
-            base *= decel;
+    private static void simulateHotbarKey(Minecraft client, int slot) {
+        if (client.options == null) return;
+        if (slot < 0 || slot >= client.options.keyHotbarSlots.length) return;
+        client.options.keyHotbarSlots[slot].setDown(true);
+        client.options.keyHotbarSlots[slot].setDown(false);
+    }
+
+    public static boolean verifySlotSelected(Minecraft client, int slot) {
+        if (client == null || client.player == null) return false;
+        return client.player.getInventory().getSelectedSlot() == slot;
+    }
+
+    public static boolean verifySlotItem(Minecraft client, int slot, Item expectedItem) {
+        if (client == null || client.player == null) return false;
+        if (slot < 0 || slot > 8) return false;
+        ItemStack stack = client.player.getInventory().getItem(slot);
+        return !stack.isEmpty() && stack.getItem() == expectedItem;
+    }
+
+    public static boolean verifyActiveItem(Minecraft client, Item expectedItem) {
+        if (client == null || client.player == null) return false;
+        ItemStack held = client.player.getMainHandItem();
+        return !held.isEmpty() && held.getItem() == expectedItem;
+    }
+
+    public static int findItem(Minecraft client, Item targetItem) {
+        if (client == null || client.player == null) return -1;
+
+        long now = System.currentTimeMillis();
+        if (itemSlotCache.containsKey(targetItem)) {
+            Long ttl = cacheTTL.get(targetItem);
+            if (ttl != null && now - ttl < CACHE_TTL_MS) {
+                int cached = itemSlotCache.get(targetItem);
+                if (cached >= 0 && cached < 9) {
+                    ItemStack stack = client.player.getInventory().getItem(cached);
+                    if (!stack.isEmpty() && stack.getItem() == targetItem) {
+                        return cached;
+                    }
+                }
+            }
         }
-        return Math.max(0.04f, base);
-    }
 
-    private static float applySpring(float diff, float vel, float scale) {
-        float stiff  = 0.22f;
-        float damp   = 0.74f;
-        float force  = diff * stiff - vel * damp;
-        float newVel = vel + force;
-        float maxStep = Math.max(Math.abs(diff) * scale, 0.01f);
-        return Mth.clamp(newVel, -maxStep * 2.5f, maxStep * 2.5f);
-    }
-
-    private static float quantizeToGcd(Minecraft mc, float delta) {
-        double sens = mc.options.sensitivity().get() * 0.6 + 0.2;
-        double gcd  = sens * sens * sens * 8.0;
-        if (gcd < 0.0001) return delta;
-
-        float effective = sampledGcd > 0.001f ? sampledGcd : (float) gcd;
-        float rounded = Math.round(delta / effective) * effective;
-        float noise   = (RNG.nextFloat() - 0.5f) * effective * 0.22f;
-        return rounded + noise;
-    }
-
-    private static float humanNoise(float angDist) {
-        float base = 0.012f + angDist * 0.00015f;
-        float g    = (float)(RNG.nextGaussian() * base);
-        if (RNG.nextFloat() < 0.06f) g += (RNG.nextFloat() - 0.5f) * 0.08f;
-        return g;
-    }
-
-    private static float avoidExactInteger(float v) {
-        float frac = v - (float)Math.floor(v);
-        if (frac < 0.005f || frac > 0.995f) {
-            v += (RNG.nextBoolean() ? 1 : -1) * (0.006f + RNG.nextFloat() * 0.016f);
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = client.player.getInventory().getItem(i);
+            if (!stack.isEmpty() && stack.getItem() == targetItem) {
+                itemSlotCache.put(targetItem, i);
+                cacheTTL.put(targetItem, now);
+                return i;
+            }
         }
-        return v;
+
+        itemSlotCache.remove(targetItem);
+        cacheTTL.remove(targetItem);
+        return -1;
     }
 
-    private static void sendTurn(Minecraft mc, float dYaw, float dPitch) {
-        if (mc.player == null) return;
-        double sens = mc.options.sensitivity().get() * 0.6 + 0.2;
-        double gcd  = sens * sens * sens * 8.0;
-        if (gcd < 0.0001) return;
-        double ry = Math.round(dYaw   / gcd) * gcd;
-        double rp = Math.round(dPitch / gcd) * gcd;
-        mc.player.turn(ry / 0.15, rp / 0.15);
+    public static int findAnyOf(Minecraft client, Item... items) {
+        if (client == null || client.player == null) return -1;
+        for (Item item : items) {
+            int slot = findItem(client, item);
+            if (slot >= 0) return slot;
+        }
+        return -1;
     }
 
-    private static float[] angles(Minecraft mc, Vec3 t) {
-        double dx = t.x - mc.player.getX();
-        double dy = t.y - mc.player.getEyeY();
-        double dz = t.z - mc.player.getZ();
-        double h  = Math.max(1e-9, Math.sqrt(dx*dx + dz*dz));
-        float yaw   = (float)(Math.toDegrees(Math.atan2(dz, dx)) - 90.0);
-        float pitch = (float)(-Math.toDegrees(Math.atan2(dy, h)));
-        return new float[]{ yaw, Mth.clamp(pitch, -89.9f, 89.9f) };
+    public static int findRail(Minecraft client) {
+        if (client == null || client.player == null) return -1;
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = client.player.getInventory().getItem(i);
+            if (!stack.isEmpty() && isRailItem(stack.getItem())) {
+                return i;
+            }
+        }
+        return -1;
     }
 
-    private static float euclidGcd(float a, float b) {
-        a = Math.abs(a); b = Math.abs(b);
-        while (b > 0.0001f) { float t = b; b = a % b; a = t; }
-        return a;
+    public static boolean isRailItem(Item item) {
+        return item == Items.RAIL
+                || item == Items.POWERED_RAIL
+                || item == Items.DETECTOR_RAIL
+                || item == Items.ACTIVATOR_RAIL;
     }
 
-    private static void pushHist(float y, float p) {
-        if (YAW_HIST.size() >= HIST_CAP) { YAW_HIST.pollFirst(); PITCH_HIST.pollFirst(); }
-        YAW_HIST.offerLast(y);
-        PITCH_HIST.offerLast(p);
+    public static int findChargedCrossbow(Minecraft client) {
+        if (client == null || client.player == null) return -1;
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = client.player.getInventory().getItem(i);
+            if (!stack.isEmpty()
+                    && stack.getItem() instanceof CrossbowItem
+                    && CrossbowItem.isCharged(stack)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
-    public static float getYawVelocityEstimate()   { return yawVelocity; }
-    public static float getPitchVelocityEstimate() { return pitchVelocity; }
-    public static int   getHistorySize()            { return YAW_HIST.size(); }
+    public static boolean isChargedCrossbow(Minecraft client, int slot) {
+        if (client == null || client.player == null) return false;
+        if (slot < 0 || slot > 8) return false;
+        ItemStack stack = client.player.getInventory().getItem(slot);
+        return !stack.isEmpty()
+                && stack.getItem() instanceof CrossbowItem
+                && CrossbowItem.isCharged(stack);
+    }
 
-    public static void applyGCDRotation(Minecraft mc, double dYaw, double dPitch) {
-        sendTurn(mc, (float)dYaw, (float)dPitch);
+    public static int findFireSource(Minecraft client) {
+        if (client == null || client.player == null) return -1;
+        int flint = findItem(client, Items.FLINT_AND_STEEL);
+        if (flint >= 0) return flint;
+        return findItem(client, Items.FIRE_CHARGE);
+    }
+
+    public static boolean isFireSource(Minecraft client, int slot) {
+        if (client == null || client.player == null) return false;
+        if (slot < 0 || slot > 8) return false;
+        ItemStack stack = client.player.getInventory().getItem(slot);
+        if (stack.isEmpty()) return false;
+        return stack.is(Items.FLINT_AND_STEEL) || stack.is(Items.FIRE_CHARGE);
+    }
+
+    public static int getRemainingDurability(Minecraft client, int slot) {
+        if (client == null || client.player == null) return -1;
+        if (slot < 0 || slot > 8) return -1;
+        ItemStack stack = client.player.getInventory().getItem(slot);
+        if (stack.isEmpty()) return -1;
+        return stack.getMaxDamage() - stack.getDamageValue();
+    }
+
+    public static boolean hasMinDurability(Minecraft client, int slot, int minDurability) {
+        int remaining = getRemainingDurability(client, slot);
+        return remaining < 0 || remaining >= minDurability;
+    }
+
+    public static int getItemCount(Minecraft client, Item item) {
+        if (client == null || client.player == null) return 0;
+        int total = 0;
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = client.player.getInventory().getItem(i);
+            if (!stack.isEmpty() && stack.getItem() == item) {
+                total += stack.getCount();
+            }
+        }
+        return total;
+    }
+
+    public static boolean hasItems(Minecraft client, Item item, int requiredCount) {
+        return getItemCount(client, item) >= requiredCount;
+    }
+
+    public static boolean validateSequenceInventory(Minecraft client) {
+        if (client == null || client.player == null) return false;
+        return findRail(client) >= 0
+                && findItem(client, Items.TNT_MINECART) >= 0
+                && findFireSource(client) >= 0
+                && findChargedCrossbow(client) >= 0;
+    }
+
+    public static void saveCurrentSlot(Minecraft client) {
+        if (client == null || client.player == null) return;
+        savedSlotBeforeSequence = client.player.getInventory().getSelectedSlot();
+    }
+
+    public static void restoreSavedSlot(Minecraft client) {
+        if (savedSlotBeforeSequence < 0 || client == null || client.player == null) return;
+        selectSlot(client, savedSlotBeforeSequence);
+        savedSlotBeforeSequence = -1;
+    }
+
+    public static void invalidateCache() {
+        itemSlotCache.clear();
+        cacheTTL.clear();
+    }
+
+    public static void invalidateCacheEntry(Item item) {
+        itemSlotCache.remove(item);
+        cacheTTL.remove(item);
+    }
+
+    public static void lock() {
+        inventoryLocked = true;
+        INVENTORY_REGISTRY.put("Locked", true);
+    }
+
+    public static void unlock() {
+        inventoryLocked = false;
+        INVENTORY_REGISTRY.put("Locked", false);
+    }
+
+    public static boolean isLocked() {
+        return inventoryLocked;
+    }
+
+    private static long computeSwapDelay() {
+        double raw = swapDelayMeanMs + secureRandom.nextGaussian() * swapDelayStdDevMs;
+        return Math.max(1L, (long) raw);
+    }
+
+    public static void setSwapDelayParams(double meanMs, double stdDevMs) {
+        swapDelayMeanMs = Math.max(1.0, meanMs);
+        swapDelayStdDevMs = Math.max(0.0, stdDevMs);
+    }
+
+    public static void setSelectionMode(SlotSelectionMode mode) {
+        selectionMode = mode;
+        INVENTORY_REGISTRY.put("SelectionMode", mode.name());
+    }
+
+    public static int getCurrentSlot(Minecraft client) {
+        if (client == null || client.player == null) return -1;
+        return client.player.getInventory().getSelectedSlot();
+    }
+
+    public static ItemStack getCurrentItem(Minecraft client) {
+        if (client == null || client.player == null) return ItemStack.EMPTY;
+        return client.player.getMainHandItem();
+    }
+
+    public static ItemStack getOffhandItem(Minecraft client) {
+        if (client == null || client.player == null) return ItemStack.EMPTY;
+        return client.player.getOffhandItem();
+    }
+
+    public static long getTotalSwaps() {
+        return totalSwaps;
+    }
+
+    public static int getCachedSelectedSlot() {
+        return cachedSelectedSlot;
+    }
+
+    public static long getLastSwapEpoch() {
+        return lastSwapEpoch;
+    }
+
+    public static UUID getSubsessionIdentity() {
+        return SUBSESSION_ID;
+    }
+
+    public static boolean hasCrossbow(Minecraft client) {
+        return findItem(client, Items.CROSSBOW) >= 0;
+    }
+
+    public static boolean hasTntMinecart(Minecraft client) {
+        if (client == null || client.player == null) return false;
+        return findItem(client, Items.TNT_MINECART) >= 0;
+    }
+
+    public static int countFireSources(Minecraft client) {
+        if (client == null || client.player == null) return 0;
+        int count = 0;
+        for (int i = 0; i < 9; i++) {
+            ItemStack s = client.player.getInventory().getItem(i);
+            if (!s.isEmpty() && (s.is(Items.FLINT_AND_STEEL) || s.is(Items.FIRE_CHARGE))) count++;
+        }
+        return count;
+    }
+
+    public static int totalItemCount(Minecraft client, Item item, InventoryRegion region) {
+        if (client == null || client.player == null) return 0;
+        int count = 0;
+        for (int i = region.start; i <= region.end; i++) {
+            ItemStack s = client.player.getInventory().getItem(i);
+            if (!s.isEmpty() && s.getItem() == item) count += s.getCount();
+        }
+        return count;
+    }
+
+    public static java.util.List<Integer> findAllSlots(Minecraft client, Item item) {
+        java.util.List<Integer> slots = new java.util.ArrayList<>();
+        if (client == null || client.player == null) return slots;
+        for (int i = 0; i < 9; i++) {
+            ItemStack s = client.player.getInventory().getItem(i);
+            if (!s.isEmpty() && s.getItem() == item) slots.add(i);
+        }
+        return slots;
+    }
+
+    public static int getBestFireSource(Minecraft client) {
+        int flintSlot = findItem(client, Items.FLINT_AND_STEEL);
+        int chargeSlot = findItem(client, Items.FIRE_CHARGE);
+        if (flintSlot >= 0 && hasMinDurability(client, flintSlot, MIN_FLINT_DURABILITY)) return flintSlot;
+        if (chargeSlot >= 0) return chargeSlot;
+        if (flintSlot >= 0) return flintSlot;
+        return -1;
+    }
+
+    private static final int MIN_FLINT_DURABILITY = 2;
+
+    public static java.util.Map<String, Integer> buildSlotMap(Minecraft client) {
+        java.util.Map<String, Integer> map = new java.util.LinkedHashMap<>();
+        map.put("rail",  findRail(client));
+        map.put("cart",  findItem(client, Items.TNT_MINECART));
+        map.put("fire",  findFireSource(client));
+        map.put("xbow",  findChargedCrossbow(client));
+        return map;
+    }
+
+    public static boolean selectIfNot(Minecraft client, int slot) {
+        if (client == null || client.player == null) return false;
+        if (client.player.getInventory().getSelectedSlot() == slot) return true;
+        return selectSlot(client, slot);
+    }
+
+    public static boolean hasMinimumSet(Minecraft client) {
+        return validateSequenceInventory(client);
+    }
+
+    public static void warmupCache(Minecraft client) {
+        if (client == null || client.player == null) return;
+        findRail(client);
+        findItem(client, Items.TNT_MINECART);
+        findFireSource(client);
+        findChargedCrossbow(client);
+    }
+
+    public static String buildInventoryReport(Minecraft client) {
+        if (client == null || client.player == null) return "[null]";
+        java.util.Map<String, Integer> slots = buildSlotMap(client);
+        return "[INV] rail=" + slots.get("rail")
+                + " cart=" + slots.get("cart")
+                + " fire=" + slots.get("fire")
+                + " xbow=" + slots.get("xbow")
+                + " swaps=" + totalSwaps;
     }
 }
+
+// Appended
+EOF
+    public static void update(Minecraft client) {
+        if (client == null || client.player == null) return;
+        long now = System.currentTimeMillis();
+        if (now - lastInventorySnapshot > CACHE_TTL_MS) {
+            invalidateCache();
+            lastInventorySnapshot = now;
+        }
+        if (now - lastSwapResetEpoch > 2000L) {
+            consecutiveSwapCount = 0;
+            lastSwapResetEpoch = now;
+        }
+    }
+    }
+    
