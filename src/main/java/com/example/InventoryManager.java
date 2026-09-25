@@ -426,28 +426,22 @@ public class InventoryManager {
         findChargedCrossbow(client);
     }
 
-        public static String buildInventoryReport(Minecraft client) {
+    public static String buildInventoryReport(Minecraft client) {
         if (client == null || client.player == null) return "[null]";
-
         java.util.Map<String, Integer> slots = buildSlotMap(client);
-
         return "[INV] rail=" + slots.get("rail")
                 + " cart=" + slots.get("cart")
                 + " fire=" + slots.get("fire")
                 + " xbow=" + slots.get("xbow")
                 + " swaps=" + totalSwaps;
     }
-
     public static void update(Minecraft client) {
         if (client == null || client.player == null) return;
-
         long now = System.currentTimeMillis();
-
         if (now - lastInventorySnapshot > CACHE_TTL_MS) {
             invalidateCache();
             lastInventorySnapshot = now;
         }
-
         if (now - lastSwapResetEpoch > 2000L) {
             consecutiveSwapCount = 0;
             lastSwapResetEpoch = now;
