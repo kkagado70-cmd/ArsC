@@ -20,7 +20,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class TriggerBot extends ClientBase.Module {
+public class TriggerBot {
 
     public static final String FILE_NAME = "TriggerBot.java";
     public static boolean enabled = true;
@@ -94,20 +94,10 @@ public class TriggerBot extends ClientBase.Module {
         TRIGGER_SEVEN_REGISTRY.put("AntiReplay", antiReplayShieldActive);
     }
 
-    public TriggerBot() { super("TriggerBot"); this.enabled = true; }
-
-    @Override
-    public boolean isEnabled() { return enabled; }
-
-    @Override
-    public void toggle() {
+    public static void toggle() {
         enabled = !enabled;
-        super.enabled = enabled;
         if (!enabled) hardReset();
     }
-
-    @Override
-    public void tick(Minecraft client) { onTick(client); }
 
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null) return;

@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class AimAssist extends ClientBase.Module {
+public class AimAssist {
 
     public static final String FILE_NAME = "AimAssist.java";
     public static boolean enabled = false;
@@ -108,18 +108,10 @@ public class AimAssist extends ClientBase.Module {
 
     public AimAssist() { super("AimAssist"); }
 
-    @Override
-    public boolean isEnabled() { return enabled; }
-
-    @Override
-    public void toggle() {
+    public static void toggle() {
         enabled = !enabled;
-        super.enabled = enabled;
         if (!enabled) resetFilters();
     }
-
-    @Override
-    public void tick(Minecraft client) { onTick(client); }
 
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null) return;
@@ -247,7 +239,7 @@ public class AimAssist extends ClientBase.Module {
         double pitchErr = Math.abs(RotationManager.computePitchError(client, predicted));
         pushErrorHistory(yawErr, pitchErr);
 
-        EasingMode mode = dist < 3.0D ? RotationManager.EasingMode.KINEMATIC_SPRING
+        RotationManager.EasingMode mode = dist < 3.0D ? RotationManager.EasingMode.KINEMATIC_SPRING
                         : yawErr > 25.0D ? RotationManager.EasingMode.SWIGHT_HIGH_SENS
                         : RotationManager.EasingMode.EASE_OUT_EXPO;
         RotationManager.setEasingMode(mode);

@@ -20,7 +20,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class AutoMace extends ClientBase.Module {
+public class AutoMace {
 
     public static final String FILE_NAME = "AutoMace.java";
     public static boolean enabled = false;
@@ -107,15 +107,8 @@ public class AutoMace extends ClientBase.Module {
         MACE_MONOLITH_REGISTRY.put("AdaptiveFov", adaptiveFovScalingActive);
     }
 
-    public AutoMace() { super("AutoMace"); this.enabled = false; }
-
-    @Override
-    public boolean isEnabled() { return enabled; }
-
-    @Override
-    public void toggle() {
+    public static void toggle() {
         enabled = !enabled;
-        super.enabled = enabled;
         if (!enabled) {
             lockedMaceTarget = null;
             isTracking       = false;
@@ -127,9 +120,6 @@ public class AutoMace extends ClientBase.Module {
             clearAllMaceQueues();
         }
     }
-
-    @Override
-    public void tick(Minecraft client) { onTick(client); }
 
     public static void onTick(Minecraft client) {
         if (!enabled || client.player == null || client.level == null || !client.player.isAlive()) return;

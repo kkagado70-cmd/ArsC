@@ -20,7 +20,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class ShieldBreaker extends ClientBase.Module {
+public class ShieldBreaker {
 
     public static final String FILE_NAME = "ShieldBreaker.java";
     public static boolean enabled = true;
@@ -81,20 +81,10 @@ public class ShieldBreaker extends ClientBase.Module {
         SHIELD_ENTERPRISE_REGISTRY.put("StunSync", shieldStunActiveSync);
     }
 
-    public ShieldBreaker() { super("ShieldBreaker"); this.enabled = true; }
-
-    @Override
-    public boolean isEnabled() { return enabled; }
-
-    @Override
-    public void toggle() {
+    public static void toggle() {
         enabled = !enabled;
-        super.enabled = enabled;
         hardReset();
     }
-
-    @Override
-    public void tick(Minecraft client) { onTick(client); }
 
     public static void onTick(Minecraft clientRef) {
         if (!enabled || clientRef.player == null || clientRef.level == null) return;
