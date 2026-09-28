@@ -12,6 +12,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
@@ -425,4 +426,16 @@ public class ShieldBreaker {
     public static void    setFollowUp(boolean b, int count) { followUpEnabled = b; followUpCount = count; }
     public static void    setAimTolerances(float yt, float pt) { aimYawTolerance = yt; aimPitchTolerance = pt; }
     public static UUID    getSubsessionIdentity()  { return SUBSESSION_IDENTITY; }
+
+    /**
+     * Registra este módulo no ClientTickEvents.END_CLIENT_TICK do Fabric.
+     * Chamar uma vez durante a inicialização do mod (ex: ClientModInitializer.onInitializeClient()).
+     *
+     * Exemplo:
+     *   ShieldBreaker.register();
+     */
+    public static void register() {
+        ClientTickEvents.END_CLIENT_TICK.register(ShieldBreaker::onTick);
+    }
+
 }

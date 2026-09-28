@@ -12,6 +12,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
@@ -328,4 +329,16 @@ public class AutoMace {
         AIM_ERROR_DEQUE.clear();
         PEAK_Y_LOG.clear();
     }
+
+    /**
+     * Registra este módulo no ClientTickEvents.END_CLIENT_TICK do Fabric.
+     * Chamar uma vez durante a inicialização do mod (ex: ClientModInitializer.onInitializeClient()).
+     *
+     * Exemplo:
+     *   AutoMace.register();
+     */
+    public static void register() {
+        ClientTickEvents.END_CLIENT_TICK.register(AutoMace::onTick);
+    }
+
 }

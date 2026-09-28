@@ -14,6 +14,7 @@ import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
@@ -106,7 +107,7 @@ public class AimAssist {
         WEAPON_NOISE.put("crossbow", 0.0005D);
     }
 
-    public AimAssist() {}
+    public AimAssist() { super("AimAssist"); }
 
     public static void toggle() {
         enabled = !enabled;
@@ -390,4 +391,16 @@ public class AimAssist {
         }
         public void reset() { p = 1.0D; x = 0.0D; }
     }
-                }
+
+    /**
+     * Registra este módulo no ClientTickEvents.END_CLIENT_TICK do Fabric.
+     * Chamar uma vez durante a inicialização do mod (ex: ClientModInitializer.onInitializeClient()).
+     *
+     * Exemplo:
+     *   AimAssist.register();
+     */
+    public static void register() {
+        ClientTickEvents.END_CLIENT_TICK.register(AimAssist::onTick);
+    }
+
+}

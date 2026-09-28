@@ -5,6 +5,7 @@ import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 import java.security.SecureRandom;
 import java.util.EnumMap;
@@ -447,4 +448,16 @@ public class InventoryManager {
             lastSwapResetEpoch = now;
         }
     }
+
+    /**
+     * Registra este módulo no ClientTickEvents.END_CLIENT_TICK do Fabric.
+     * Chamar uma vez durante a inicialização do mod (ex: ClientModInitializer.onInitializeClient()).
+     *
+     * Exemplo:
+     *   InventoryManager.register();
+     */
+    public static void register() {
+        ClientTickEvents.END_CLIENT_TICK.register(InventoryManager::update);
+    }
+
 }

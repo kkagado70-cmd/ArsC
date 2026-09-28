@@ -3,6 +3,7 @@ package com.example;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 import java.security.SecureRandom;
 import java.util.ArrayDeque;

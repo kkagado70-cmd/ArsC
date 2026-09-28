@@ -12,6 +12,7 @@ import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
@@ -317,4 +318,16 @@ public class TriggerBot {
     public static int     getHistoryCapacity() { return HISTORY_MAX_CAPACITY; }
     public static void    clearAllHistoryQueues() { ATTACK_INTERVAL_HISTORY.clear(); CLICK_DURATION_MEMORY.clear(); ERROR_VECTOR_MEMORY.clear(); ATTACK_STRENGTH_SAMPLE_DEQUE.clear(); SESSION_TIMESTAMP_DEQUE.clear(); FATIGUE_SAMPLE_DEQUE.clear(); REACTION_DELAY_SAMPLE_DEQUE.clear(); }
     public static UUID    getSubsessionUUID() { return SUBSESSION_UUID; }
+
+    /**
+     * Registra este módulo no ClientTickEvents.END_CLIENT_TICK do Fabric.
+     * Chamar uma vez durante a inicialização do mod (ex: ClientModInitializer.onInitializeClient()).
+     *
+     * Exemplo:
+     *   TriggerBot.register();
+     */
+    public static void register() {
+        ClientTickEvents.END_CLIENT_TICK.register(TriggerBot::onTick);
+    }
+
 }
