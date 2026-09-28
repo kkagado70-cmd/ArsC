@@ -1,13 +1,12 @@
 package com.example;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.EntityHitResult;
 
-/**
- * Pequena camada para centralizar ações de interação usadas pelos módulos.
- */
 public final class InteractionManager {
+
     public enum InteractionPriority {
         LOW,
         NORMAL,
@@ -15,24 +14,49 @@ public final class InteractionManager {
         IMMEDIATE
     }
 
-    private InteractionManager() {}
+    private InteractionManager() {
+    }
+
+    /*
+     * Chamado pelo ClientBase a cada atualização.
+     */
+    public static void update(Minecraft client) {
+        if (client == null) {
+            return;
+        }
+
+        // Atualização reservada para gerenciamento de interações.
+    }
 
     public static void simulateClickAttack(Minecraft client) {
-        if (client == null || client.player == null || client.gameMode == null) return;
+        if (client == null ||
+            client.player == null ||
+            client.gameMode == null) {
+            return;
+        }
 
-        Entity target = client.hitResult instanceof net.minecraft.world.phys.EntityHitResult ehr
-                ? ehr.getEntity()
-                : null;
+        if (client.hitResult instanceof EntityHitResult entityHit) {
+            Entity target = entityHit.getEntity();
 
-        if (target != null) {
-            client.gameMode.attack(client.player, target);
+            if (target != null) {
+                client.gameMode.attack(client.player, target);
+            }
         }
     }
 
-    public static void simulateClickUse(Minecraft client, InteractionPriority priority) {
-        if (client == null || client.player == null || client.gameMode == null) return;
+    public static void simulateClickUse(
+            Minecraft client,
+            InteractionPriority priority) {
 
-        InteractionHand hand = InteractionHand.MAIN_HAND;
-        client.gameMode.useItem(client.player, hand);
+        if (client == null ||
+            client.player == null ||
+            client.gameMode == null) {
+            return;
+        }
+
+        client.gameMode.useItem(
+                client.player,
+                InteractionHand.MAIN_HAND
+        );
     }
 }
