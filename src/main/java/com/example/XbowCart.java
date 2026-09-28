@@ -65,7 +65,7 @@ public class XbowCart {
 
     public static void onTick(Minecraft mc) {
         if (!enabled || mc.player == null || mc.level == null) return;
-        if (mc.screen != null && !(mc.screen instanceof ClickGUI)) return;
+        if (mc.screen != null) return;
 
         RotationManager.samplePlayerGcd(mc);
 

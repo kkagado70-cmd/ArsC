@@ -1,35 +1,33 @@
-package com.arsenal.client.handlers;
-import com.arsenal.client.event.EventManager;
-import com.arsenal.client.handlers.impl.*;
-import com.arsenal.client.handlers.impl.ModuleBootstrapHandler;
+package com.example;
 
-import java.util.ArrayList;
+/**
+ * Bootstrap central dos módulos.
+ *
+ * O código anterior dependia de com.arsenal.client.event.* e de vários
+ * handlers que não estão presentes neste source set. Como os módulos já
+ * expõem register() baseado no Fabric ClientTickEvents, eles são registrados
+ * diretamente aqui.
+ */
+public final class HandlerManager {
+    private static boolean initialized = false;
 
-public class HandlerManager {
-    private final ArrayList<Handler> handlers = new ArrayList<>();
-    
-    // "+auth-related"
+    public HandlerManager() {}
+
     public void initialize() {
-        
-        handlers.add(new KeyHandler());
-        handlers.add(new HurtTickHandler());
-        handlers.add(new SprintController());
-        handlers.add(new SwapStateManager());
-        handlers.add(new CommandHandler());
-        handlers.add(new BroadcastHandler());
-        handlers.add(new ModuleBootstrapHandler());
+        if (initialized) return;
+        initialized = true;
 
-        for (Handler handler : handlers) {
-            EventManager.register(handler);
-        }
+        InventoryManager.register();
+        AimAssist.register();
+        AutoMace.register();
+        TriggerBot.register();
+        ShieldBreaker.register();
+        XbowCart.register();
     }
 
     public void shutdown() {
-        for (Handler handler : handlers) {
-            EventManager.unregister(handler);
-        }
-        SwapStateManager.clear();
-        handlers.clear();
+        // Não há API pública simples para remover os callbacks do Fabric
+        // depois de registrados. A flag impede registros duplicados.
+        initialized = false;
     }
 }
-
