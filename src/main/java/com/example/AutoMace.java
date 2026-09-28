@@ -172,8 +172,8 @@ public class AutoMace {
         }
         if (mSlot < 0) { updateRegistryState(); return; }
 
-        if (client.player.getInventory().getSelectedSlot() != mSlot) {
-            if (savedSlot < 0) savedSlot = client.player.getInventory().getSelectedSlot();
+        if (client.player.getInventory().selected != mSlot) {
+            if (savedSlot < 0) savedSlot = client.player.getInventory().selected;
             InventoryManager.selectSlot(client, mSlot);
             updateRegistryState(); return;
         }

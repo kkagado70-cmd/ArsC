@@ -144,7 +144,7 @@ public class ShieldBreaker {
         if (--reactionDelay > 0) return;
         int axeSlot = findBestAxe(clientRef);
         if (axeSlot < 0) { resetToIdle(); return; }
-        savedSlot = clientRef.player.getInventory().getSelectedSlot();
+        savedSlot = clientRef.player.getInventory().selected;
         InventoryManager.saveCurrentSlot(clientRef);
         InventoryManager.selectSlot(clientRef, axeSlot);
         currentState = ShieldState.SWAPPING;
