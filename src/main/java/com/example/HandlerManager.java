@@ -1,20 +1,17 @@
 package com.example;
 
-/**
- * Bootstrap central dos módulos.
- *
- * O código anterior dependia de com.arsenal.client.event.* e de vários
- * handlers que não estão presentes neste source set. Como os módulos já
- * expõem register() baseado no Fabric ClientTickEvents, eles são registrados
- * diretamente aqui.
- */
 public final class HandlerManager {
+
     private static boolean initialized = false;
 
-    public HandlerManager() {}
+    private HandlerManager() {
+    }
 
-    public void initialize() {
-        if (initialized) return;
+    public static void initialize() {
+        if (initialized) {
+            return;
+        }
+
         initialized = true;
 
         InventoryManager.register();
@@ -25,9 +22,7 @@ public final class HandlerManager {
         XbowCart.register();
     }
 
-    public void shutdown() {
-        // Não há API pública simples para remover os callbacks do Fabric
-        // depois de registrados. A flag impede registros duplicados.
+    public static void shutdown() {
         initialized = false;
     }
 }
