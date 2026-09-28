@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AutoMace {
 
     public static final String FILE_NAME = "AutoMace.java";
-    public static boolean enabled = false;
+    public static boolean enabled = true;
 
     private static final SecureRandom secureRandom = new SecureRandom();
     private static final Map<String, Object> MACE_MONOLITH_REGISTRY = new ConcurrentHashMap<>();
