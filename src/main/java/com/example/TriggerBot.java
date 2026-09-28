@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TriggerBot {
 
     public static final String FILE_NAME = "TriggerBot.java";
-    public static boolean enabled = true;
+    public static boolean enabled = false;
     public static boolean consistentCritsEnabled = true;
 
     private static final SecureRandom secureRandom = new SecureRandom();

@@ -100,29 +100,28 @@ public class InventoryManager {
     private static void applySlotSelection(Minecraft client, int slot) {
         switch (selectionMode) {
             case DIRECT_ONLY -> {
-                client.player.getInventory().selected = slot;
+                client.player.getInventory().setSelectedSlot(slot);
             }
             case KEY_ONLY -> {
                 simulateHotbarKey(client, slot);
             }
             case DUAL -> {
-                client.player.getInventory().selected = slot;
+                client.player.getInventory().setSelectedSlot(slot);
                 simulateHotbarKey(client, slot);
             }
         }
     }
 
     private static void simulateHotbarKey(Minecraft client, int slot) {
-        // KeyMapping.click() consumes the press event — more reliable than setDown
         if (client.options == null) return;
         if (slot < 0 || slot >= client.options.keyHotbarSlots.length) return;
-        // Just set selected directly; the key simulation is for packet ordering only
-        client.player.getInventory().selected = slot;
+        client.options.keyHotbarSlots[slot].setDown(true);
+        client.options.keyHotbarSlots[slot].setDown(false);
     }
 
     public static boolean verifySlotSelected(Minecraft client, int slot) {
         if (client == null || client.player == null) return false;
-        return client.player.getInventory().selected == slot;
+        return client.player.getInventory().getSelectedSlot() == slot;
     }
 
     public static boolean verifySlotItem(Minecraft client, int slot, Item expectedItem) {
@@ -272,7 +271,7 @@ public class InventoryManager {
 
     public static void saveCurrentSlot(Minecraft client) {
         if (client == null || client.player == null) return;
-        savedSlotBeforeSequence = client.player.getInventory().selected;
+        savedSlotBeforeSequence = client.player.getInventory().getSelectedSlot();
     }
 
     public static void restoreSavedSlot(Minecraft client) {
@@ -322,7 +321,7 @@ public class InventoryManager {
 
     public static int getCurrentSlot(Minecraft client) {
         if (client == null || client.player == null) return -1;
-        return client.player.getInventory().selected;
+        return client.player.getInventory().getSelectedSlot();
     }
 
     public static ItemStack getCurrentItem(Minecraft client) {
@@ -412,7 +411,7 @@ public class InventoryManager {
 
     public static boolean selectIfNot(Minecraft client, int slot) {
         if (client == null || client.player == null) return false;
-        if (client.player.getInventory().selected == slot) return true;
+        if (client.player.getInventory().getSelectedSlot() == slot) return true;
         return selectSlot(client, slot);
     }
 

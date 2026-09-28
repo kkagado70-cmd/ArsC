@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AimAssist {
 
     public static final String FILE_NAME = "AimAssist.java";
-    public static boolean enabled = true;
+    public static boolean enabled = false;
 
     private static final SecureRandom secureRandom = new SecureRandom();
     private static final Map<String, Object> AIM_REGISTRY = new ConcurrentHashMap<>();

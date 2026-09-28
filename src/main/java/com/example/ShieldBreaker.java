@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ShieldBreaker {
 
     public static final String FILE_NAME = "ShieldBreaker.java";
-    public static boolean enabled = true;
+    public static boolean enabled = false;
 
     private enum ShieldState { IDLE, REACTING, SWAPPING, AIMING, SWINGING, COOLDOWN, FOLLOWUP }
 
@@ -144,7 +144,7 @@ public class ShieldBreaker {
         if (--reactionDelay > 0) return;
         int axeSlot = findBestAxe(clientRef);
         if (axeSlot < 0) { resetToIdle(); return; }
-        savedSlot = clientRef.player.getInventory().selected;
+        savedSlot = clientRef.player.getInventory().getSelectedSlot();
         InventoryManager.saveCurrentSlot(clientRef);
         InventoryManager.selectSlot(clientRef, axeSlot);
         currentState = ShieldState.SWAPPING;

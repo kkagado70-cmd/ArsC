@@ -17,19 +17,18 @@ public class PacketBufferManager {
     private static final Deque<Long> PACKET_DELAY_QUEUE = new ArrayDeque<>();
     private static final int HISTORY_CAP = 512;
 
-    public enum NetworkProfile {
-        STANDARD,
-        LOW_LATENCY,
-        HIGH_LATENCY,
-        STEALTH,
-        BURST
-    }
-
-    private static NetworkProfile activeProfile = NetworkProfile.STANDARD;
     private static long totalPacketsProcessed = 0L;
     private static int networkJitterBufferMs = 25;
     private static boolean latencyCompensationActive = true;
     private static long averagePingEstimate = 50L;
+
+    public enum NetworkProfile {
+        BALANCED,
+        LOW_LATENCY,
+        STABLE
+    }
+
+    private static NetworkProfile activeProfile = NetworkProfile.BALANCED;
 
     static {
         NETWORK_REGISTRY.put("SubsessionUUID", SUBSESSION_ID);
@@ -49,13 +48,18 @@ public class PacketBufferManager {
         PACKET_DELAY_QUEUE.offerLast(delay);
     }
 
-    public static NetworkProfile getActiveProfile() { return activeProfile; }
+    public static NetworkProfile getActiveProfile() {
+        return activeProfile;
+    }
 
     public static void setNetworkProfile(NetworkProfile profile) {
-        if (profile != null) {
-            activeProfile = profile;
-            NETWORK_REGISTRY.put("ActiveProfile", profile.name());
-        }
+        if (profile == null) return;
+        activeProfile = profile;
+        NETWORK_REGISTRY.put("Profile", profile.name());
+    }
+
+    public static long getTotalPacketsProcessed() {
+        return totalPacketsProcessed;
     }
 
     public static UUID getSubsessionIdentity() { return SUBSESSION_ID; }

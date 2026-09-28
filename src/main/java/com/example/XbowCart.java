@@ -50,15 +50,13 @@ public class XbowCart {
     private static Vec3        xbowAim   = null;
     private static MinecartTNT cart      = null;
 
-    // 5-frame execution window: each frame = 1 tick = 50ms → 5 frames = 250ms
-    // AGC bypass: tight tolerances + GCD-aligned rotations via RotationManager
-    private static final float  PYT   = 3.5f;   // placement yaw tolerance
-    private static final float  PPT   = 4.0f;   // placement pitch tolerance
-    private static final float  SYT   = 4.0f;   // shoot yaw tolerance (tighter for AGC)
-    private static final float  SPT   = 4.5f;   // shoot pitch tolerance
-    private static final int    AMAX  = 5;       // max aim ticks per phase (5 frames)
-    private static final double CR    = 3.2;     // cart search radius
-    private static final int    WMAX  = 8;       // max wait retries
+    private static final float  PYT   = 3.5f;
+    private static final float  PPT   = 4.0f;
+    private static final float  SYT   = 4.5f;
+    private static final float  SPT   = 5.0f;
+    private static final int    AMAX  = 5;
+    private static final double CR    = 3.2;
+    private static final int    WMAX  = 8;
 
     static {
         XBOW_REGISTRY.put("UUID", UUID.randomUUID());
@@ -116,7 +114,7 @@ public class XbowCart {
         xbowAim = Vec3.atCenterOf(railPos).add(0, 0.85, 0);
 
         InventoryManager.saveCurrentSlot(mc);
-        savedSlot = mc.player.getInventory().selected;
+        savedSlot = mc.player.getInventory().getSelectedSlot();
         aimTick = 0; waitRetry = 0; cart = null;
         SafetyWatchdog.startGlobal();
         go(Phase.SEL_RAIL);
@@ -174,21 +172,8 @@ public class XbowCart {
         }
         if (cart != null && !cart.isAlive()) { hardReset(mc); return; }
         Vec3 live = liveAim(mc);
-        if (live != null) {
-            if (!RotationManager.isAligned(mc, live, SYT, SPT)) {
-                RotationManager.setEasingMode(RotationManager.EasingMode.SWIGHT_HIGH_SENS);
-                RotationManager.snapTo(mc, live);
-            }
-            // GCD-aligned delta applied for AGC bypass
-            float ye = RotationManager.computeYawError(mc, live);
-            float pe = RotationManager.computePitchError(mc, live);
-            if (Math.abs(ye) > 0.01f || Math.abs(pe) > 0.01f) {
-                RotationManager.applyGCDRotation(mc, ye, pe);
-            }
-        }
-        // Fire crossbow — use-item releases loaded crossbow
+        if (live != null && !RotationManager.isAligned(mc, live, SYT, SPT)) RotationManager.snapTo(mc, live);
         InteractionManager.simulateClickUse(mc, InteractionManager.InteractionPriority.IMMEDIATE);
-        // Cooldown: 20-25 ticks (1-1.25s) realistic post-shoot window
         timer = 20 + RNG.nextInt(6);
         go(Phase.COOLDOWN);
     }
@@ -269,7 +254,7 @@ public class XbowCart {
 
     private static void hardReset(Minecraft mc) {
         if (mc != null && mc.player != null && savedSlot >= 0 && savedSlot < 9)
-            mc.player.getInventory().selected = savedSlot;
+            mc.player.getInventory().setSelectedSlot(savedSlot);
         InventoryManager.restoreSavedSlot(mc);
         RotationManager.reset();
         SafetyWatchdog.reset();

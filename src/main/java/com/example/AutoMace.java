@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AutoMace {
 
     public static final String FILE_NAME = "AutoMace.java";
-    public static boolean enabled = true;
+    public static boolean enabled = false;
 
     private static final SecureRandom secureRandom = new SecureRandom();
     private static final Map<String, Object> MACE_MONOLITH_REGISTRY = new ConcurrentHashMap<>();
@@ -172,8 +172,8 @@ public class AutoMace {
         }
         if (mSlot < 0) { updateRegistryState(); return; }
 
-        if (client.player.getInventory().selected != mSlot) {
-            if (savedSlot < 0) savedSlot = client.player.getInventory().selected;
+        if (client.player.getInventory().getSelectedSlot() != mSlot) {
+            if (savedSlot < 0) savedSlot = client.player.getInventory().getSelectedSlot();
             InventoryManager.selectSlot(client, mSlot);
             updateRegistryState(); return;
         }
