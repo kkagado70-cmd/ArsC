@@ -22,6 +22,14 @@ public class PacketBufferManager {
     private static boolean latencyCompensationActive = true;
     private static long averagePingEstimate = 50L;
 
+    public enum NetworkProfile {
+        BALANCED,
+        LOW_LATENCY,
+        STABLE
+    }
+
+    private static NetworkProfile activeProfile = NetworkProfile.BALANCED;
+
     static {
         NETWORK_REGISTRY.put("SubsessionUUID", SUBSESSION_ID);
         NETWORK_REGISTRY.put("Profile", "Enterprise-PacketBufferManager");
@@ -38,6 +46,20 @@ public class PacketBufferManager {
         long delay = 10 + secureRandom.nextInt(networkJitterBufferMs);
         if (PACKET_DELAY_QUEUE.size() >= HISTORY_CAP) PACKET_DELAY_QUEUE.pollFirst();
         PACKET_DELAY_QUEUE.offerLast(delay);
+    }
+
+    public static NetworkProfile getActiveProfile() {
+        return activeProfile;
+    }
+
+    public static void setNetworkProfile(NetworkProfile profile) {
+        if (profile == null) return;
+        activeProfile = profile;
+        NETWORK_REGISTRY.put("Profile", profile.name());
+    }
+
+    public static long getTotalPacketsProcessed() {
+        return totalPacketsProcessed;
     }
 
     public static UUID getSubsessionIdentity() { return SUBSESSION_ID; }

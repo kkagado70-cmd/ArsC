@@ -1,28 +1,26 @@
 package com.example;
 
+/**
+ * Bootstrap guard for the client subsystems.
+ *
+ * Module execution is owned by ClientBase.ModuleManager.  This class must not
+ * register the modules again with Fabric tick events, otherwise every module
+ * would execute twice per tick.
+ */
 public final class HandlerManager {
-
     private static boolean initialized = false;
 
-    private HandlerManager() {
-    }
+    private HandlerManager() {}
 
     public static void initialize() {
-        if (initialized) {
-            return;
-        }
-
         initialized = true;
-
-        InventoryManager.register();
-        AimAssist.register();
-        AutoMace.register();
-        TriggerBot.register();
-        ShieldBreaker.register();
-        XbowCart.register();
     }
 
     public static void shutdown() {
         initialized = false;
+    }
+
+    public static boolean isInitialized() {
+        return initialized;
     }
 }

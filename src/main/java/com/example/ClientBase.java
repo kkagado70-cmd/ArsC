@@ -3,10 +3,7 @@ package com.example;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
-import com.mojang.blaze3d.platform.InputConstants;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,7 +17,6 @@ import java.util.Deque;
 public class ClientBase implements ClientModInitializer {
     private static ClientBase INSTANCE;
     private ModuleManager moduleManager;
-    private static KeyMapping guiKeyBinding;
     
     private static final Map<String, Object> BASE_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
     private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
@@ -53,24 +49,23 @@ public class ClientBase implements ClientModInitializer {
         this.moduleManager.register(new ShieldBreakerModule());
         this.moduleManager.register(new AutoMaceModule());
 
-        guiKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.example.clickgui",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_RIGHT_SHIFT,
-                KeyMapping.Category.MISC
-        ));
+        // The ModuleManager is the single execution path for combat modules.
+        // HandlerManager intentionally does not register duplicate Fabric callbacks.
+        HandlerManager.initialize();
+
+        // Register the shared GUI/keybinding subsystem once.
+        PreciseGuiScaleClient.initialize();
+
+        // Keep the static module flags synchronized with the module manager.
+        XbowCart.enabled = false;
+        AimAssist.enabled = false;
+        TriggerBot.enabled = false;
+        ShieldBreaker.enabled = false;
+        AutoMace.enabled = false;
 
         ClientTickEvents.START_CLIENT_TICK.register(client -> {
             totalGlobalTicksProcessed++;
             executeSubsystemSanitation();
-
-            while (guiKeyBinding.consumeClick()) {
-                if (client.screen == null) {
-                    client.setScreen(new ClickGUI());
-                } else if (client.screen instanceof ClickGUI) {
-                    client.setScreen(null);
-                }
-            }
 
             if (client.player != null && client.level != null) {
                 invokeGlobalTick(client);
@@ -79,7 +74,7 @@ public class ClientBase implements ClientModInitializer {
                 InventoryManager.update(client);
             }
         });
-        
+
         INITIALIZATION_LOG_DEQUE.offerLast(System.currentTimeMillis() + ": ClientModInitializer fully bound to Fabric lifecycle");
     }
 
@@ -278,6 +273,51 @@ public class ClientBase implements ClientModInitializer {
         public void tick(Minecraft client) {
             AutoMace.onTick(client);
         }
+    }
+
+    private static final Map<String, Boolean> SUSPENDED_MODULE_STATES = new ConcurrentHashMap<>();
+
+    public static boolean toggleModule(String name) {
+        if (INSTANCE == null || INSTANCE.moduleManager == null) return false;
+        Module module = INSTANCE.moduleManager.getModule(name);
+        if (module == null) return false;
+        module.toggle();
+        return module.isEnabled();
+    }
+
+    public static boolean setModuleState(String name, boolean enabled) {
+        if (INSTANCE == null || INSTANCE.moduleManager == null) return false;
+        Module module = INSTANCE.moduleManager.getModule(name);
+        if (module == null) return false;
+        if (module.isEnabled() != enabled) module.toggle();
+        return module.isEnabled();
+    }
+
+    public static boolean isModuleEnabled(String name) {
+        if (INSTANCE == null || INSTANCE.moduleManager == null) return false;
+        Module module = INSTANCE.moduleManager.getModule(name);
+        return module != null && module.isEnabled();
+    }
+
+    public static void suspendAll() {
+        SUSPENDED_MODULE_STATES.clear();
+        if (INSTANCE == null || INSTANCE.moduleManager == null) return;
+        for (Module module : INSTANCE.moduleManager.getModules()) {
+            if (module == null) continue;
+            SUSPENDED_MODULE_STATES.put(module.getName(), module.isEnabled());
+            setModuleState(module.getName(), false);
+        }
+        InteractionManager.lock();
+        InteractionManager.flushAndRelease(Minecraft.getInstance());
+    }
+
+    public static void resumeAll() {
+        if (INSTANCE == null || INSTANCE.moduleManager == null) return;
+        for (Map.Entry<String, Boolean> entry : SUSPENDED_MODULE_STATES.entrySet()) {
+            setModuleState(entry.getKey(), Boolean.TRUE.equals(entry.getValue()));
+        }
+        SUSPENDED_MODULE_STATES.clear();
+        InteractionManager.unlock();
     }
 
     public static UUID getSubsessionIdentity() {
