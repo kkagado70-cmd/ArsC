@@ -107,7 +107,7 @@ public class AimAssist {
         WEAPON_NOISE.put("crossbow", 0.0005D);
     }
 
-    public AimAssist() { super("AimAssist"); }
+    public AimAssist() {}
 
     public static void toggle() {
         enabled = !enabled;
