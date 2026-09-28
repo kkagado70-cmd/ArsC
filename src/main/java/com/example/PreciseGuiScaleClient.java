@@ -124,42 +124,42 @@ public class PreciseGuiScaleClient {
                 "key.xbowcart.toggle",
                 InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_V,
-                "category.xbowcart"
+                KeyMapping.Category.MISC
         ));
 
         KeyMapping openGui = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.xbowcart.gui",
                 InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_RIGHT_SHIFT,
-                "category.xbowcart"
+                KeyMapping.Category.MISC
         ));
 
         KeyMapping scaleUp = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.xbowcart.scale_up",
                 InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_EQUAL,
-                "category.xbowcart"
+                KeyMapping.Category.MISC
         ));
 
         KeyMapping scaleDown = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.xbowcart.scale_down",
                 InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_MINUS,
-                "category.xbowcart"
+                KeyMapping.Category.MISC
         ));
 
         KeyMapping panicKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.xbowcart.panic",
                 InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_END,
-                "category.xbowcart"
+                KeyMapping.Category.MISC
         ));
 
         KeyMapping profileCycleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.xbowcart.profile_cycle",
                 InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_F6,
-                "category.xbowcart"
+                KeyMapping.Category.MISC
         ));
 
         registerBinding("toggle_xbowcart", toggleXbowCart, BindingCategory.MODULE_TOGGLE, () -> {
