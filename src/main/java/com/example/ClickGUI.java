@@ -30,6 +30,24 @@ public class ClickGUI extends Screen {
         return Minecraft.getInstance().screen instanceof ClickGUI;
     }
 
+    private static boolean isModuleEnabled(String name) {
+        ClientBase clientBase = ClientBase.getInstance();
+        if (clientBase == null || clientBase.getModuleManager() == null) return false;
+        ClientBase.Module module = clientBase.getModuleManager().getModule(name);
+        return module != null && module.isEnabled();
+    }
+
+    private static void toggleModule(String name) {
+        ClientBase clientBase = ClientBase.getInstance();
+        if (clientBase == null || clientBase.getModuleManager() == null) return;
+        ClientBase.Module module = clientBase.getModuleManager().getModule(name);
+        if (module != null) module.toggle();
+    }
+
+    private static Component moduleLabel(String name) {
+        return Component.literal(name + ": " + (isModuleEnabled(name) ? "§aON" : "§cOFF"));
+    }
+
     @Override
     protected void init() {
         super.init();
@@ -37,55 +55,35 @@ public class ClickGUI extends Screen {
         int cy = this.height / 2;
         int bw = 160, bh = 20;
 
-        this.addRenderableWidget(Button.builder(
-                moduleLabel("XbowCart"),
-                btn -> {
-                    ClientBase.toggleModule("XbowCart");
-                    btn.setMessage(moduleLabel("XbowCart"));
-                }
-        ).bounds(cx - bw / 2, cy - 70, bw, bh).build());
+        this.addRenderableWidget(Button.builder(moduleLabel("XbowCart"), btn -> {
+            toggleModule("XbowCart");
+            btn.setMessage(moduleLabel("XbowCart"));
+        }).bounds(cx - bw / 2, cy - 70, bw, bh).build());
 
-        this.addRenderableWidget(Button.builder(
-                moduleLabel("AimAssist"),
-                btn -> {
-                    ClientBase.toggleModule("AimAssist");
-                    btn.setMessage(moduleLabel("AimAssist"));
-                }
-        ).bounds(cx - bw / 2, cy - 45, bw, bh).build());
+        this.addRenderableWidget(Button.builder(moduleLabel("AimAssist"), btn -> {
+            toggleModule("AimAssist");
+            btn.setMessage(moduleLabel("AimAssist"));
+        }).bounds(cx - bw / 2, cy - 45, bw, bh).build());
 
-        this.addRenderableWidget(Button.builder(
-                moduleLabel("TriggerBot"),
-                btn -> {
-                    ClientBase.toggleModule("TriggerBot");
-                    btn.setMessage(moduleLabel("TriggerBot"));
-                }
-        ).bounds(cx - bw / 2, cy - 20, bw, bh).build());
+        this.addRenderableWidget(Button.builder(moduleLabel("TriggerBot"), btn -> {
+            toggleModule("TriggerBot");
+            btn.setMessage(moduleLabel("TriggerBot"));
+        }).bounds(cx - bw / 2, cy - 20, bw, bh).build());
 
-        this.addRenderableWidget(Button.builder(
-                moduleLabel("ShieldBreaker"),
-                btn -> {
-                    ClientBase.toggleModule("ShieldBreaker");
-                    btn.setMessage(moduleLabel("ShieldBreaker"));
-                }
-        ).bounds(cx - bw / 2, cy + 5, bw, bh).build());
+        this.addRenderableWidget(Button.builder(moduleLabel("ShieldBreaker"), btn -> {
+            toggleModule("ShieldBreaker");
+            btn.setMessage(moduleLabel("ShieldBreaker"));
+        }).bounds(cx - bw / 2, cy + 5, bw, bh).build());
 
-        this.addRenderableWidget(Button.builder(
-                moduleLabel("AutoMace"),
-                btn -> {
-                    ClientBase.toggleModule("AutoMace");
-                    btn.setMessage(moduleLabel("AutoMace"));
-                }
-        ).bounds(cx - bw / 2, cy + 30, bw, bh).build());
+        this.addRenderableWidget(Button.builder(moduleLabel("AutoMace"), btn -> {
+            toggleModule("AutoMace");
+            btn.setMessage(moduleLabel("AutoMace"));
+        }).bounds(cx - bw / 2, cy + 30, bw, bh).build());
 
         this.addRenderableWidget(Button.builder(
                 Component.literal("Fechar"),
                 btn -> this.onClose()
         ).bounds(cx - 40, cy + 60, 80, 20).build());
-    }
-
-    private static Component moduleLabel(String name) {
-        boolean enabled = ClientBase.isModuleEnabled(name);
-        return Component.literal(name + ": " + (enabled ? "§aON" : "§cOFF"));
     }
 
     @Override

@@ -1,11 +1,11 @@
 package com.example;
 
 /**
- * Bootstrap guard for the client subsystems.
+ * Bootstrap de compatibilidade.
  *
- * Module execution is owned by ClientBase.ModuleManager.  This class must not
- * register the modules again with Fabric tick events, otherwise every module
- * would execute twice per tick.
+ * Os módulos são registrados pelo ModuleManager em ClientBase e executados
+ * pelo tick central. Este ponto permanece para código legado que ainda chama
+ * HandlerManager.initialize(), mas não registra callbacks Fabric duplicados.
  */
 public final class HandlerManager {
     private static boolean initialized = false;
@@ -16,11 +16,11 @@ public final class HandlerManager {
         initialized = true;
     }
 
-    public static void shutdown() {
-        initialized = false;
-    }
-
     public static boolean isInitialized() {
         return initialized;
+    }
+
+    public static void shutdown() {
+        initialized = false;
     }
 }

@@ -9,6 +9,13 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 public class PacketBufferManager {
+    public enum NetworkProfile {
+        DEFAULT,
+        LOW_LATENCY,
+        STABLE
+    }
+
+    private static NetworkProfile activeProfile = NetworkProfile.DEFAULT;
     public static final String FILE_NAME = "PacketBufferManager.java";
     private static final SecureRandom secureRandom = new SecureRandom();
 
@@ -21,14 +28,6 @@ public class PacketBufferManager {
     private static int networkJitterBufferMs = 25;
     private static boolean latencyCompensationActive = true;
     private static long averagePingEstimate = 50L;
-
-    public enum NetworkProfile {
-        BALANCED,
-        LOW_LATENCY,
-        STABLE
-    }
-
-    private static NetworkProfile activeProfile = NetworkProfile.BALANCED;
 
     static {
         NETWORK_REGISTRY.put("SubsessionUUID", SUBSESSION_ID);
@@ -53,13 +52,7 @@ public class PacketBufferManager {
     }
 
     public static void setNetworkProfile(NetworkProfile profile) {
-        if (profile == null) return;
-        activeProfile = profile;
-        NETWORK_REGISTRY.put("Profile", profile.name());
-    }
-
-    public static long getTotalPacketsProcessed() {
-        return totalPacketsProcessed;
+        if (profile != null) activeProfile = profile;
     }
 
     public static UUID getSubsessionIdentity() { return SUBSESSION_ID; }
