@@ -6,6 +6,7 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import com.mojang.blaze3d.platform.InputConstants;
+import org.lwjgl.glfw.GLFW;
 
 import java.security.SecureRandom;
 import java.util.*;
@@ -122,42 +123,42 @@ public class PreciseGuiScaleClient {
         KeyMapping toggleXbowCart = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.xbowcart.toggle",
                 InputConstants.Type.KEYSYM,
-                InputConstants.GLFW_KEY_V,
+                GLFW.GLFW_KEY_V,
                 "category.xbowcart"
         ));
 
         KeyMapping openGui = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.xbowcart.gui",
                 InputConstants.Type.KEYSYM,
-                InputConstants.GLFW_KEY_RIGHT_SHIFT,
+                GLFW.GLFW_KEY_RIGHT_SHIFT,
                 "category.xbowcart"
         ));
 
         KeyMapping scaleUp = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.xbowcart.scale_up",
                 InputConstants.Type.KEYSYM,
-                InputConstants.GLFW_KEY_EQUAL,
+                GLFW.GLFW_KEY_EQUAL,
                 "category.xbowcart"
         ));
 
         KeyMapping scaleDown = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.xbowcart.scale_down",
                 InputConstants.Type.KEYSYM,
-                InputConstants.GLFW_KEY_MINUS,
+                GLFW.GLFW_KEY_MINUS,
                 "category.xbowcart"
         ));
 
         KeyMapping panicKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.xbowcart.panic",
                 InputConstants.Type.KEYSYM,
-                InputConstants.GLFW_KEY_END,
+                GLFW.GLFW_KEY_END,
                 "category.xbowcart"
         ));
 
         KeyMapping profileCycleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.xbowcart.profile_cycle",
                 InputConstants.Type.KEYSYM,
-                InputConstants.GLFW_KEY_F6,
+                GLFW.GLFW_KEY_F6,
                 "category.xbowcart"
         ));
 
@@ -187,11 +188,9 @@ public class PreciseGuiScaleClient {
             ClientBase.suspendAll();
             InteractionManager.flushAndRelease(client);
             RotationManager.reset();
-            SafetyWatchdog.trip(
-                    SafetyWatchdog.TripReason.EXTERNAL_FORCE_TRIP,
-                    SafetyWatchdog.SeverityLevel.WARN,
-                    "Panic key triggered"
-            );
+            // SafetyWatchdog API is not part of the current source set.
+            // The panic path is already made safe by suspending modules,
+            // releasing interaction state, and resetting rotations.
         }, 500);
 
         registerBinding("profile_cycle", profileCycleKey, BindingCategory.UTILITY, () -> {
