@@ -218,6 +218,7 @@ public class AutoMace {
                 updateRegistryState(); return;
             }
             totalSmashExecution(client);
+            GrimBypassCore.onHitLanded(38, 65, 48, 75);
         }
 
         if (trackTicks > 200 || aimTicks > 200) {

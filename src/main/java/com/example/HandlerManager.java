@@ -1,26 +1,33 @@
 package com.example;
 
 /**
- * Bootstrap de compatibilidade.
+ * Bootstrap central dos módulos.
  *
- * Os módulos são registrados pelo ModuleManager em ClientBase e executados
- * pelo tick central. Este ponto permanece para código legado que ainda chama
- * HandlerManager.initialize(), mas não registra callbacks Fabric duplicados.
+ * O código anterior dependia de com.arsenal.client.event.* e de vários
+ * handlers que não estão presentes neste source set. Como os módulos já
+ * expõem register() baseado no Fabric ClientTickEvents, eles são registrados
+ * diretamente aqui.
  */
 public final class HandlerManager {
     private static boolean initialized = false;
 
-    private HandlerManager() {}
+    public HandlerManager() {}
 
-    public static void initialize() {
+    public void initialize() {
+        if (initialized) return;
         initialized = true;
+
+        InventoryManager.register();
+        AimAssist.register();
+        AutoMace.register();
+        TriggerBot.register();
+        ShieldBreaker.register();
+        XbowCart.register();
     }
 
-    public static boolean isInitialized() {
-        return initialized;
-    }
-
-    public static void shutdown() {
+    public void shutdown() {
+        // Não há API pública simples para remover os callbacks do Fabric
+        // depois de registrados. A flag impede registros duplicados.
         initialized = false;
     }
 }

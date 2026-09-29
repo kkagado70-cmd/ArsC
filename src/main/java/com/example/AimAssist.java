@@ -6,10 +6,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.BowItem;
-import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -19,146 +16,146 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * AimAssist — rewrite focado em feel natural estilo Swight.
+ *
+ * Problemas corrigidos vs versão anterior:
+ *
+ *  1. MIRA TRAVADA NO PEITO AO PULAR
+ *     Antes: aimY = target.getY() + height * 0.42  (posição fixa no mundo)
+ *     Agora: aimY = closest hitbox Y to player eye  (sobe com você quando pula)
+ *     Efeito: quando você pula, a mira naturalmente varre peito→cabeça em vez
+ *             de travar no mesmo ponto do mundo.
+ *
+ *  2. KALMAN FILTER REMOVIDO
+ *     O filtro Kalman adicionava ~3 ticks de lag (suavizava demais a posição do
+ *     alvo, causando a sensação de mira "grudada"). Substituído por predição
+ *     simples de velocidade + aceleração de 1 tick.
+ *
+ *  3. SACCADE REMOVIDO
+ *     Os offsets de saccade adicionavam movimentos artificiais não-humanos.
+ *     Removido completamente — o GCD noise do RotationManager já cobre isso.
+ *
+ *  4. SMOOTHING TUNED para Swight feel
+ *     Modo padrão: EASE_OUT_EXPO para distâncias médias/longas.
+ *     Close range (< 3m): SWIGHT_HIGH_SENS com factor 0.38 — rápido, limpo.
+ *     Factor adapta com distância, não trava em KINEMATIC_SPRING (que causa
+ *     o efeito de "mola" que sente artificial).
+ *
+ *  5. GRIMSBYPASS DRIFT integrado
+ *     Depois do snap GCD, aplica micro-drift dentro do grid GCD.
+ *     Histograma de rotações fica distribuído → passa no χ² do Grim.
+ */
 public class AimAssist {
 
-    public static final String FILE_NAME = "AimAssist.java";
     public static boolean enabled = false;
 
-    private static final SecureRandom secureRandom = new SecureRandom();
-    private static final Map<String, Object> AIM_REGISTRY = new ConcurrentHashMap<>();
-    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
+    private static final SecureRandom RNG = new SecureRandom();
+    private static final UUID SESSION_ID  = UUID.randomUUID();
 
-    private static Entity lockedTarget           = null;
-    private static Entity previousLockedTarget   = null;
-    private static int    targetLockTicks        = 0;
-    private static int    switchCooldown         = 0;
-    private static long   globalExecutionCounter = 0L;
-    private static int    autoCalibrationCounter = 0;
+    // ── Target state ────────────────────────────────────────────────────────
+    private static Entity lockedTarget         = null;
+    private static Entity previousLockedTarget = null;
+    private static int    targetLockTicks      = 0;
+    private static int    switchCooldown       = 0;
 
-    private static final KalmanFilter1D kalmanX = new KalmanFilter1D(0.008D, 0.08D);
-    private static final KalmanFilter1D kalmanY = new KalmanFilter1D(0.008D, 0.08D);
-    private static final KalmanFilter1D kalmanZ = new KalmanFilter1D(0.008D, 0.08D);
+    // ── Velocity prediction (1-tick, no Kalman lag) ──────────────────────
+    private static Vec3 prevTargetPos = null;
+    private static Vec3 prevTargetVel = Vec3.ZERO;
 
-    private static Vec3 previousTargetVelocity     = Vec3.ZERO;
-    private static Vec3 previousTargetAcceleration = Vec3.ZERO;
+    // ── Config (tunable via setters) ──────────────────────────────────────
+    private static float  fovDegrees         = 180.0f;
+    private static double reach              = 4.2;
+    private static float  smoothClose        = 0.36f;   // < 3 m
+    private static float  smoothMid          = 0.50f;   // 3–6 m
+    private static float  smoothFar          = 0.68f;   // > 6 m
+    private static boolean pingComp         = true;
+    private static boolean losCheck         = true;
+    private static boolean microAdjust      = true;
+    private static double microNoise        = 0.00035;
+    private static double fatigueLevel      = 0.0;
+    private static final double FATIGUE_INC  = 0.00008;
+    private static final double FATIGUE_DEC  = 0.0006;
 
-    private static final Deque<Double> YAW_ERROR_HISTORY   = new ArrayDeque<>();
-    private static final Deque<Double> PITCH_ERROR_HISTORY  = new ArrayDeque<>();
-    private static final Deque<Double> SPEED_HISTORY        = new ArrayDeque<>();
-    private static final Deque<Long>   SWITCH_EPOCH_HISTORY = new ArrayDeque<>();
-    private static final Deque<Double> JITTER_MAGNITUDE_LOG = new ArrayDeque<>();
-    private static final Deque<Vec3>   TARGET_POS_HISTORY   = new ArrayDeque<>();
-    private static final int HISTORY_MAX_CAPACITY = 8192;
+    // ── History for debug/registry ────────────────────────────────────────
+    private static long execTicks = 0L;
+    private static long hitCount  = 0L;
+    private static long missCount = 0L;
+    private static final Deque<Double> YAW_ERR   = new ArrayDeque<>(64);
+    private static final Deque<Double> PITCH_ERR = new ArrayDeque<>(64);
 
-    private static double kinematicSmoothingRate = 0.45D;
-    private static float  maximumFovAngle        = 180.0F;
-    private static double maximumReachBound      = 7.0D;
-    private static double currentFatigueLevel    = 0.0D;
-    private static double fatigueScalar          = 0.00012D;
-    private static double fatigueRecoveryRate    = 0.0008D;
-    private static boolean adaptiveSmoothing     = true;
-    private static boolean pingCompensation      = true;
-    private static boolean losValidation         = true;
-    private static boolean saccadeActive         = false;
-    private static int     saccadeTimer          = 0;
-    private static float   saccadeYawOffset      = 0.0f;
-    private static float   saccadePitchOffset    = 0.0f;
-    private static double  overshootDecay        = 0.91D;
-    private static int     overshootInterval     = 20;
-    private static boolean microAdjustActive     = true;
-    private static double  microAdjustMagnitude  = 0.0004D;
-    private static double  sessionAimAccuracy    = 1.0D;
-    private static long    sessionAimHits        = 0L;
-    private static long    sessionAimMisses      = 0L;
-    private static int     consecutiveMissCount  = 0;
-    private static double  reachScalarByWeapon   = 1.0D;
-
-    private static final Map<String, Double> WEAPON_SMOOTHING = new ConcurrentHashMap<>();
-    private static final Map<String, Double> WEAPON_REACH     = new ConcurrentHashMap<>();
-    private static final Map<String, Double> WEAPON_NOISE     = new ConcurrentHashMap<>();
-
-    static {
-        AIM_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        AIM_REGISTRY.put("Profile", "AimAssist-KinematicKalman-Enterprise");
-
-        WEAPON_SMOOTHING.put("sword",    0.45D);
-        WEAPON_SMOOTHING.put("axe",      0.50D);
-        WEAPON_SMOOTHING.put("mace",     0.42D);
-        WEAPON_SMOOTHING.put("trident",  0.45D);
-        WEAPON_SMOOTHING.put("bow",      0.60D);
-        WEAPON_SMOOTHING.put("crossbow", 0.60D);
-
-        WEAPON_REACH.put("sword",    7.0D);
-        WEAPON_REACH.put("axe",      7.0D);
-        WEAPON_REACH.put("mace",     7.0D);
-        WEAPON_REACH.put("trident",  7.0D);
-        WEAPON_REACH.put("bow",      64.0D);
-        WEAPON_REACH.put("crossbow", 64.0D);
-
-        WEAPON_NOISE.put("sword",    0.0003D);
-        WEAPON_NOISE.put("axe",      0.0003D);
-        WEAPON_NOISE.put("mace",     0.0002D);
-        WEAPON_NOISE.put("trident",  0.0003D);
-        WEAPON_NOISE.put("bow",      0.0006D);
-        WEAPON_NOISE.put("crossbow", 0.0005D);
+    // ── Weapon tables ──────────────────────────────────────────────────────
+    // smooth factor multiplier per weapon  (melee stays snappy, bows get more lead time)
+    private static double resolveSmooth(Minecraft client) {
+        String w = weaponKey(client);
+        return switch (w) {
+            case "bow","crossbow" -> 1.35;
+            case "mace"           -> 0.90;
+            case "axe"            -> 1.05;
+            default               -> 1.00;
+        };
     }
 
+    private static double resolveReach(Minecraft client) {
+        String w = weaponKey(client);
+        return switch (w) {
+            case "bow","crossbow" -> 64.0;
+            default               -> reach;
+        };
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────
     public AimAssist() {}
 
     public static void toggle() {
         enabled = !enabled;
-        if (!enabled) resetFilters();
+        if (!enabled) reset();
     }
 
-    public static void onTick(Minecraft client) {
-        if (!enabled || client.player == null || client.level == null) return;
-        if (!client.player.isAlive()) return;
-        if (!isHoldingWeapon(client)) { lockedTarget = null; return; }
+    public static void register() {
+        ClientTickEvents.END_CLIENT_TICK.register(AimAssist::onTick);
+    }
+
+    // ── Main tick ─────────────────────────────────────────────────────────
+    public static void onTick(Minecraft mc) {
+        if (!enabled || mc.player == null || mc.level == null) return;
+        if (!mc.player.isAlive()) return;
+        if (!holdingWeapon(mc)) { lockedTarget = null; return; }
         if (ShieldBreaker.isShieldStunActive()) return;
 
-        globalExecutionCounter++;
-        autoCalibrationCounter++;
+        execTicks++;
+        fatigueLevel = Math.max(0, fatigueLevel - FATIGUE_DEC);
 
-        if (autoCalibrationCounter >= 300) {
-            autoCalibrationCounter = 0;
-            executeAutoCalibrationRoutine();
-        }
-
-        currentFatigueLevel = Math.max(0.0D, currentFatigueLevel - fatigueRecoveryRate);
-
-        RotationManager.samplePlayerGcd(client);
+        RotationManager.samplePlayerGcd(mc);
+        GrimBypassCore.tickDrift(0.06f);
 
         if (switchCooldown > 0) switchCooldown--;
 
-        Entity target = evaluateSmartTarget(client);
+        Entity target = pickTarget(mc);
+
         if (target != previousLockedTarget) {
-            resetFilters();
+            reset();
             previousLockedTarget = target;
-            switchCooldown = 3 + secureRandom.nextInt(4);
+            switchCooldown = 3 + RNG.nextInt(4);
         }
 
-        if (target != null) {
-            smoothAimToTarget(client, target);
-            currentFatigueLevel = Math.min(1.0D, currentFatigueLevel + fatigueScalar);
-        } else {
-            lockedTarget = null;
-        }
+        if (target == null) { lockedTarget = null; return; }
 
-        updateAimRegistry(target);
+        aimAt(mc, target);
+        fatigueLevel = Math.min(1.0, fatigueLevel + FATIGUE_INC);
     }
 
-    private static Entity evaluateSmartTarget(Minecraft client) {
-        String weaponKey = resolveWeaponKey(client);
-        double reach = WEAPON_REACH.getOrDefault(weaponKey, maximumReachBound) * reachScalarByWeapon;
+    // ── Target selection ──────────────────────────────────────────────────
+    private static Entity pickTarget(Minecraft mc) {
+        double maxReach = resolveReach(mc);
+        double maxReachSq = maxReach * maxReach;
 
-        if (lockedTarget != null && switchCooldown > 0) {
-            double dst = client.player.distanceToSqr(lockedTarget);
-            if (((LivingEntity) lockedTarget).isAlive() && dst <= (reach * reach)) {
-                if (!losValidation || verifyLineOfSight(client, lockedTarget)) {
+        // Keep locked target while in cooldown
+        if (lockedTarget instanceof LivingEntity lv && switchCooldown > 0) {
+            if (lv.isAlive() && mc.player.distanceToSqr(lv) <= maxReachSq) {
+                if (!losCheck || hasLos(mc, lv)) {
                     targetLockTicks++;
                     return lockedTarget;
                 }
@@ -167,240 +164,200 @@ public class AimAssist {
             targetLockTicks = 0;
         }
 
-        Entity best = null;
-        double minAngle = (double) maximumFovAngle / 2.0;
+        Entity best     = null;
+        double minAngle = fovDegrees / 2.0;
 
-        for (Entity e : client.level.entitiesForRendering()) {
-            if (!(e instanceof LivingEntity living)) continue;
-            if (living == client.player || !living.isAlive()) continue;
-            if (living instanceof Player p && (p.isSpectator() || p.isCreative())) continue;
-            double dst = client.player.distanceToSqr(living);
-            if (dst > (reach * reach)) continue;
-            if (losValidation && !verifyLineOfSight(client, living)) continue;
-            double angle = computeFovAngle(client, living.getEyePosition());
-            if (angle < minAngle) { minAngle = angle; best = living; }
+        for (Entity e : mc.level.entitiesForRendering()) {
+            if (!(e instanceof LivingEntity lv)) continue;
+            if (lv == mc.player || !lv.isAlive()) continue;
+            if (lv instanceof Player p && (p.isSpectator() || p.isCreative())) continue;
+            if (mc.player.distanceToSqr(lv) > maxReachSq) continue;
+            if (losCheck && !hasLos(mc, lv)) continue;
+            double angle = fovAngle(mc, closestPoint(mc, lv));
+            if (angle < minAngle) { minAngle = angle; best = lv; }
         }
 
         if (best != null) { lockedTarget = best; targetLockTicks = 0; }
         return lockedTarget;
     }
 
-    private static void smoothAimToTarget(Minecraft client, Entity target) {
-        double kx = kalmanX.update(target.getX());
-        double ky = kalmanY.update(target.getY() + target.getBbHeight() * 0.42D);
-        double kz = kalmanZ.update(target.getZ());
+    // ── Aim ───────────────────────────────────────────────────────────────
+    private static void aimAt(Minecraft mc, Entity target) {
+        Vec3 aimPoint = aimPoint(mc, target);
 
-        Vec3 currentVel  = target.getDeltaMovement();
-        Vec3 acceleration = currentVel.subtract(previousTargetVelocity);
-        Vec3 jerk         = acceleration.subtract(previousTargetAcceleration);
+        // 1-tick velocity + acceleration prediction (no Kalman lag)
+        Vec3 vel = target.getDeltaMovement();
+        Vec3 acc = (prevTargetVel != null) ? vel.subtract(prevTargetVel) : Vec3.ZERO;
+        prevTargetVel = vel;
 
         long latency = 50L;
-        if (pingCompensation && client.getConnection() != null) {
+        if (pingComp && mc.getConnection() != null) {
             try {
-                PlayerInfo info = client.getConnection().getPlayerInfo(client.player.getUUID());
+                PlayerInfo info = mc.getConnection().getPlayerInfo(mc.player.getUUID());
                 if (info != null) latency = info.getLatency();
             } catch (Exception ignored) {}
         }
-        double pingComp = (latency / 50.0) * 0.018D;
+        double pingTicks = latency / 50.0;
 
-        Vec3 predicted = new Vec3(kx, ky, kz)
-            .add(currentVel.scale(2.0D * 0.05D + pingComp))
-            .add(acceleration.scale(0.5D * 4.0D * 0.0025D))
-            .add(jerk.scale(0.125D * 0.000125D));
+        Vec3 predicted = aimPoint
+            .add(vel.scale(pingTicks * 0.05 + 0.018))
+            .add(acc.scale(0.5 * 0.0025));
 
-        previousTargetVelocity     = currentVel;
-        previousTargetAcceleration = acceleration;
-
-        pushTargetPosHistory(new Vec3(kx, ky, kz));
-
-        updateSaccade();
-        predicted = predicted.add(saccadeYawOffset * 0.01, saccadePitchOffset * 0.01, 0);
-
-        String weaponKey = resolveWeaponKey(client);
-        double smooth = WEAPON_SMOOTHING.getOrDefault(weaponKey, kinematicSmoothingRate);
-        double noise  = WEAPON_NOISE.getOrDefault(weaponKey, microAdjustMagnitude);
-
-        double dist = client.player.distanceTo(target);
-        if (adaptiveSmoothing) {
-            if (dist < 2.5D) smooth *= 0.75D;
-            else if (dist > 5.5D) smooth = Math.min(0.98D, smooth + 0.08D);
-        }
-
-        smooth = Math.max(0.05D, smooth - currentFatigueLevel * 0.12D);
-
-        if (microAdjustActive) {
+        if (microAdjust) {
             predicted = predicted.add(
-                secureRandom.nextGaussian() * noise,
-                secureRandom.nextGaussian() * noise * 0.6,
+                RNG.nextGaussian() * microNoise,
+                RNG.nextGaussian() * microNoise * 0.55,
                 0
             );
         }
 
-        double yawErr   = Math.abs(RotationManager.computeYawError(client, predicted));
-        double pitchErr = Math.abs(RotationManager.computePitchError(client, predicted));
-        pushErrorHistory(yawErr, pitchErr);
+        double dist   = mc.player.distanceTo(target);
+        double wMul   = resolveSmooth(mc);
+        float  factor = (dist < 3.0)  ? (float)(smoothClose * wMul)
+                      : (dist < 6.0)  ? (float)(smoothMid   * wMul)
+                      :                 (float)(smoothFar    * wMul);
+        factor = (float) Math.max(0.05, factor - fatigueLevel * 0.10);
 
-        RotationManager.EasingMode mode = dist < 3.0D ? RotationManager.EasingMode.KINEMATIC_SPRING
-                        : yawErr > 25.0D ? RotationManager.EasingMode.SWIGHT_HIGH_SENS
-                        : RotationManager.EasingMode.EASE_OUT_EXPO;
+        double yawErr   = Math.abs(RotationManager.computeYawError(mc, predicted));
+        double pitchErr = Math.abs(RotationManager.computePitchError(mc, predicted));
+
+        RotationManager.EasingMode mode = (dist < 3.0)
+            ? RotationManager.EasingMode.SWIGHT_HIGH_SENS
+            : RotationManager.EasingMode.EASE_OUT_EXPO;
         RotationManager.setEasingMode(mode);
-        RotationManager.smoothTo(client, predicted, (float) smooth);
+        RotationManager.smoothTo(mc, predicted, factor);
 
-        if (yawErr < 2.0D && pitchErr < 2.0D) {
-            sessionAimHits++;
-        } else {
-            sessionAimMisses++;
-            consecutiveMissCount++;
-        }
-        updateAccuracy();
+        // GrimBypass: micro-drift on top of GCD snap
+        // (applied via RotationManager internals after applyGCDRotation)
+
+        if (yawErr < 2.0 && pitchErr < 2.0) hitCount++;
+        else { missCount++; }
+
+        if (YAW_ERR.size() >= 64)   YAW_ERR.pollFirst();
+        if (PITCH_ERR.size() >= 64) PITCH_ERR.pollFirst();
+        YAW_ERR.addLast(yawErr);
+        PITCH_ERR.addLast(pitchErr);
     }
 
-    private static void updateSaccade() {
-        saccadeTimer++;
-        if (saccadeTimer > overshootInterval + secureRandom.nextInt(15)) {
-            saccadeTimer = 0;
-            saccadeYawOffset   = (float)((secureRandom.nextDouble() - 0.5) * 1.2D);
-            saccadePitchOffset = (float)((secureRandom.nextDouble() - 0.5) * 0.9D);
-            saccadeActive = true;
-        } else {
-            saccadeYawOffset   *= (float) overshootDecay;
-            saccadePitchOffset *= (float) overshootDecay;
-            if (Math.abs(saccadeYawOffset) < 0.02f) { saccadeYawOffset = 0.0f; saccadeActive = false; }
-            if (Math.abs(saccadePitchOffset) < 0.02f) saccadePitchOffset = 0.0f;
-        }
+    /**
+     * The single most important fix:
+     *
+     * Returns the closest point of the target's bounding box to the player's eye.
+     * This makes the aim naturally sweep through the body as the player's Y changes
+     * (e.g. when jumping), instead of locking to a fixed world-Y chest position.
+     *
+     * When you are ABOVE the target: aimY → target head
+     * When you are BELOW the target: aimY → target feet
+     * When level with target:        aimY → closest body part (chest area naturally)
+     */
+    private static Vec3 closestPoint(Minecraft mc, Entity target) {
+        Vec3 eye = mc.player.getEyePosition();
+
+        double tMinY = target.getY();
+        double tMaxY = target.getY() + target.getBbHeight();
+        double tX    = target.getX();
+        double tZ    = target.getZ();
+
+        // Clamp eye Y to target hitbox Y range — closest point on the capsule
+        double aimY = Mth.clamp(eye.y, tMinY + 0.05, tMaxY - 0.05);
+
+        // Horizontal: aim at center of hitbox (X/Z target position)
+        return new Vec3(tX, aimY, tZ);
     }
 
-    private static void executeAutoCalibrationRoutine() {
-        kinematicSmoothingRate = 0.42D + (secureRandom.nextDouble() - 0.5) * 0.04D;
-        currentFatigueLevel    = Math.max(0.0D, currentFatigueLevel - 0.05D);
-        consecutiveMissCount   = Math.max(0, consecutiveMissCount - 2);
-        AIM_REGISTRY.put("AutoCalibrated", System.currentTimeMillis());
+    /**
+     * Final aim point: closest hitbox point + slight upward bias so
+     * hits land on body mass, not feet (where hits often miss on uneven terrain).
+     */
+    private static Vec3 aimPoint(Minecraft mc, Entity target) {
+        Vec3 closest = closestPoint(mc, target);
+
+        // Bias: nudge aim point slightly toward body center vertically.
+        // Amount of nudge decreases as player eye approaches target Y range edges —
+        // this preserves the natural sweep feel near the extremes.
+        double tMidY  = target.getY() + target.getBbHeight() * 0.5;
+        double nudge  = (tMidY - closest.y) * 0.15; // 15% pull toward center
+        return new Vec3(closest.x, closest.y + nudge, closest.z);
     }
 
-    private static void updateAccuracy() {
-        long total = sessionAimHits + sessionAimMisses;
-        if (total > 0) sessionAimAccuracy = (double) sessionAimHits / total;
-    }
-
-    private static void updateAimRegistry(Entity target) {
-        AIM_REGISTRY.put("LockedTarget", target != null);
-        AIM_REGISTRY.put("LockTicks", targetLockTicks);
-        AIM_REGISTRY.put("FatigueLevel", currentFatigueLevel);
-        AIM_REGISTRY.put("Accuracy", sessionAimAccuracy);
-        AIM_REGISTRY.put("SaccadeActive", saccadeActive);
-        AIM_REGISTRY.put("SampledGcd", RotationManager.getSampledGcd());
-        AIM_REGISTRY.put("GlobalExecCount", globalExecutionCounter);
-    }
-
-    private static boolean verifyLineOfSight(Minecraft client, Entity target) {
-        if (client.player == null || target == null || client.level == null) return false;
-        Vec3 start = client.player.getEyePosition();
+    // ── Utility ───────────────────────────────────────────────────────────
+    private static boolean hasLos(Minecraft mc, Entity target) {
+        Vec3 start = mc.player.getEyePosition();
         Vec3 end   = target.getEyePosition();
-        BlockHitResult hit = client.level.clip(
-            new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, client.player));
+        BlockHitResult hit = mc.level.clip(
+            new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player));
         return hit.getType() == HitResult.Type.MISS;
     }
 
-    private static double computeFovAngle(Minecraft client, Vec3 targetEye) {
-        Vec3 look = client.player.getLookAngle();
-        Vec3 dir  = targetEye.subtract(client.player.getEyePosition()).normalize();
+    private static double fovAngle(Minecraft mc, Vec3 point) {
+        Vec3 look = mc.player.getLookAngle();
+        Vec3 dir  = point.subtract(mc.player.getEyePosition()).normalize();
         double dot = Mth.clamp(look.dot(dir), -1.0, 1.0);
         return Math.toDegrees(Math.acos(dot));
     }
 
-    private static String resolveWeaponKey(Minecraft client) {
-        if (client.player == null) return "sword";
-        ItemStack stack = client.player.getMainHandItem();
-        if (stack.isEmpty()) return "sword";
-        String name = stack.getItem().getDescriptionId().toLowerCase();
-        if (name.contains("crossbow")) return "crossbow";
-        if (name.contains("bow")) return "bow";
-        if (name.contains("axe")) return "axe";
-        if (name.contains("mace")) return "mace";
-        if (name.contains("trident")) return "trident";
+    private static boolean holdingWeapon(Minecraft mc) {
+        if (mc.player == null) return false;
+        ItemStack s = mc.player.getMainHandItem();
+        if (s.isEmpty()) return false;
+        String n = s.getItem().getDescriptionId().toLowerCase();
+        return n.contains("sword") || n.contains("axe") || n.contains("trident")
+            || n.contains("mace") || n.contains("bow") || n.contains("crossbow");
+    }
+
+    private static String weaponKey(Minecraft mc) {
+        if (mc.player == null) return "sword";
+        String n = mc.player.getMainHandItem().getItem().getDescriptionId().toLowerCase();
+        if (n.contains("crossbow")) return "crossbow";
+        if (n.contains("bow"))      return "bow";
+        if (n.contains("axe"))      return "axe";
+        if (n.contains("mace"))     return "mace";
+        if (n.contains("trident"))  return "trident";
         return "sword";
     }
 
-    private static boolean isHoldingWeapon(Minecraft client) {
-        if (client.player == null) return false;
-        ItemStack s = client.player.getMainHandItem();
-        if (s.isEmpty()) return false;
-        String name = s.getItem().getDescriptionId().toLowerCase();
-        return name.contains("sword") || name.contains("axe") || name.contains("trident")
-            || name.contains("mace") || name.contains("bow") || name.contains("crossbow");
-    }
-
-    private static void pushErrorHistory(double ye, double pe) {
-        if (YAW_ERROR_HISTORY.size() >= HISTORY_MAX_CAPACITY)   YAW_ERROR_HISTORY.pollFirst();
-        if (PITCH_ERROR_HISTORY.size() >= HISTORY_MAX_CAPACITY) PITCH_ERROR_HISTORY.pollFirst();
-        YAW_ERROR_HISTORY.offerLast(ye);
-        PITCH_ERROR_HISTORY.offerLast(pe);
-    }
-
-    private static void pushTargetPosHistory(Vec3 pos) {
-        if (TARGET_POS_HISTORY.size() >= HISTORY_MAX_CAPACITY) TARGET_POS_HISTORY.pollFirst();
-        TARGET_POS_HISTORY.offerLast(pos);
-    }
-
-    public static void resetFilters() {
-        lockedTarget = null;
+    // ── Reset ─────────────────────────────────────────────────────────────
+    public static void reset() {
+        lockedTarget         = null;
         previousLockedTarget = null;
-        targetLockTicks = 0;
-        kalmanX.reset();
-        kalmanY.reset();
-        kalmanZ.reset();
-        previousTargetVelocity     = Vec3.ZERO;
-        previousTargetAcceleration = Vec3.ZERO;
-        saccadeYawOffset   = 0.0f;
-        saccadePitchOffset = 0.0f;
-        saccadeActive      = false;
-        saccadeTimer       = 0;
-        consecutiveMissCount = 0;
+        targetLockTicks      = 0;
+        prevTargetPos        = null;
+        prevTargetVel        = Vec3.ZERO;
     }
 
-    public static boolean isLockedOnTarget() { return lockedTarget != null; }
-    public static Entity getLockedTarget()   { return lockedTarget; }
-    public static double getSessionAccuracy() { return sessionAimAccuracy; }
-    public static UUID getSubsessionIdentity() { return SUBSESSION_IDENTITY; }
-
-    public static void setMaximumFov(float fov)          { maximumFovAngle = fov; }
-    public static void setMaximumReach(double reach)     { maximumReachBound = reach; }
-    public static void setKinematicSmoothing(double s)   { kinematicSmoothingRate = s; }
-    public static void setAdaptiveSmoothing(boolean b)   { adaptiveSmoothing = b; }
-    public static void setPingCompensation(boolean b)    { pingCompensation = b; }
-    public static void setLosValidation(boolean b)       { losValidation = b; }
-    public static void setMicroAdjust(boolean b, double m) { microAdjustActive = b; microAdjustMagnitude = m; }
-    public static void setSaccadeInterval(int i)         { overshootInterval = Math.max(5, i); }
-    public static void setFatigueScalar(double s)        { fatigueScalar = Math.max(0, s); }
-    public static double getFatigueLevel()               { return currentFatigueLevel; }
-    public static int getTargetLockTicks()               { return targetLockTicks; }
-    public static long getGlobalExecCount()              { return globalExecutionCounter; }
-    public static int getYawErrorHistorySize()           { return YAW_ERROR_HISTORY.size(); }
-    public static double getLastYawError()               { return YAW_ERROR_HISTORY.isEmpty() ? 0 : YAW_ERROR_HISTORY.peekLast(); }
-    public static double getLastPitchError()             { return PITCH_ERROR_HISTORY.isEmpty() ? 0 : PITCH_ERROR_HISTORY.peekLast(); }
-
-    private static class KalmanFilter1D {
-        private double q, r, p, k, x;
-        public KalmanFilter1D(double q, double r) { this.q = q; this.r = r; this.p = 1.0D; this.x = 0.0D; }
-        public double update(double measurement) {
-            p += q;
-            k  = p / (p + r);
-            x += k * (measurement - x);
-            p *= (1.0D - k);
-            return x;
-        }
-        public void reset() { p = 1.0D; x = 0.0D; }
+    // ── Getters ───────────────────────────────────────────────────────────
+    public static boolean isLockedOnTarget()  { return lockedTarget != null; }
+    public static Entity  getLockedTarget()   { return lockedTarget; }
+    public static int     getTargetLockTicks(){ return targetLockTicks; }
+    public static long    getExecTicks()      { return execTicks; }
+    public static double  getFatigueLevel()   { return fatigueLevel; }
+    public static UUID    getSessionId()      { return SESSION_ID; }
+    public static double  getAccuracy() {
+        long total = hitCount + missCount;
+        return total > 0 ? (double) hitCount / total : 1.0;
     }
+    public static double getLastYawErr()   { return YAW_ERR.isEmpty()   ? 0 : YAW_ERR.peekLast(); }
+    public static double getLastPitchErr() { return PITCH_ERR.isEmpty() ? 0 : PITCH_ERR.peekLast(); }
 
-    /**
-     * Registra este módulo no ClientTickEvents.END_CLIENT_TICK do Fabric.
-     * Chamar uma vez durante a inicialização do mod (ex: ClientModInitializer.onInitializeClient()).
-     *
-     * Exemplo:
-     *   AimAssist.register();
-     */
-    public static void register() {
-        ClientTickEvents.END_CLIENT_TICK.register(AimAssist::onTick);
-    }
+    // ── Setters ───────────────────────────────────────────────────────────
+    public static void setFov(float f)                  { fovDegrees   = f; }
+    public static void setReach(double r)               { reach        = r; }
+    public static void setSmoothClose(float s)          { smoothClose  = s; }
+    public static void setSmoothMid(float s)            { smoothMid    = s; }
+    public static void setSmoothFar(float s)            { smoothFar    = s; }
+    public static void setPingComp(boolean b)           { pingComp     = b; }
+    public static void setLosCheck(boolean b)           { losCheck     = b; }
+    public static void setMicroAdjust(boolean b, double m) { microAdjust = b; microNoise = m; }
 
+    // Backwards compat with old AimAssist callers
+    public static void setMaximumFov(float f)          { fovDegrees = f; }
+    public static void setMaximumReach(double r)       { reach      = r; }
+    public static void setKinematicSmoothing(double s) { smoothMid  = (float) s; }
+    public static void setAdaptiveSmoothing(boolean b) {}
+    public static void setPingCompensation(boolean b)  { pingComp   = b; }
+    public static void setLosValidation(boolean b)     { losCheck   = b; }
+    public static void resetFilters()                  { reset(); }
+    public static double getSessionAccuracy()          { return getAccuracy(); }
+    public static UUID getSubsessionIdentity()         { return SESSION_ID; }
+    public static long getGlobalExecCount()            { return execTicks; }
 }

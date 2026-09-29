@@ -1,333 +1,178 @@
 package com.example;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.util.Mth;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * TriggerBot — ataque automático quando o crosshair está em cima do alvo.
+ *
+ * Melhorias vs versão anterior:
+ *  - GrimBypassCore.canAttack() controla timing de ataque (Poisson, não clock)
+ *  - Post-hit delay aleatorizado (Grim detecta back-to-back attacks < 100ms)
+ *  - Criticals: verifica queda E velocidade Y < -0.1 (não só no ar)
+ *  - Reach limitado pela sessão via GrimBypassCore.getReach()
+ *  - Threshold adapta com combo (0.88 normal, 0.65 combo)
+ */
 public class TriggerBot {
 
-    public static final String FILE_NAME = "TriggerBot.java";
     public static boolean enabled = false;
-    public static boolean consistentCritsEnabled = true;
 
-    private static final SecureRandom secureRandom = new SecureRandom();
-    private static final Map<String, Object> TRIGGER_SEVEN_REGISTRY = new ConcurrentHashMap<>();
-    private static final UUID SUBSESSION_UUID = UUID.randomUUID();
+    private static final SecureRandom RNG = new SecureRandom();
 
-    private static final Deque<Long>    ATTACK_INTERVAL_HISTORY     = new ArrayDeque<>();
-    private static final Deque<Integer> CLICK_DURATION_MEMORY       = new ArrayDeque<>();
-    private static final Deque<Double>  ERROR_VECTOR_MEMORY         = new ArrayDeque<>();
-    private static final Deque<Float>   ATTACK_STRENGTH_SAMPLE_DEQUE = new ArrayDeque<>();
-    private static final Deque<Long>    SESSION_TIMESTAMP_DEQUE     = new ArrayDeque<>();
-    private static final Deque<Double>  FATIGUE_SAMPLE_DEQUE        = new ArrayDeque<>();
-    private static final Deque<Integer> REACTION_DELAY_SAMPLE_DEQUE = new ArrayDeque<>();
-    private static final Deque<Double>  VELOCITY_DELTA_DEQUE        = new ArrayDeque<>();
-    private static final Deque<Double>  AIMING_ERROR_DEQUE          = new ArrayDeque<>();
-    private static final int HISTORY_MAX_CAPACITY = 8192;
+    // ── Config ────────────────────────────────────────────────────────────
+    private static double attackReach          = 3.10;
+    private static double reachMin             = 2.95;
+    private static double reachMax             = 3.15;
+    private static double thresholdNormal      = 0.89;
+    private static double thresholdCombo       = 0.65;
+    private static boolean onlyCrit            = false;
+    private static boolean losValidation       = true;
+    private static boolean critSync            = true;
+    private static double targetCps            = 9.0;
+    private static double timingJitterMs       = 18.0;
 
-    private static int    reactionCountdownTicks          = 0;
-    private static int    comboBufferTicks                = 0;
-    private static double attackReach                     = 4.5D;
-    private static long   totalTriggersFired              = 0L;
-    private static boolean adaptiveCritSyncActive         = true;
-    private static double attackStrengthThresholdNormal   = 0.90D;
-    private static double attackStrengthThresholdCombo    = 0.70D;
-    private static boolean humanReactionStochasticity     = true;
-    private static long    subsessionEpochTracker         = System.currentTimeMillis();
-    private static boolean antiReplayShieldActive         = true;
-    private static int     triggerAnomalyCounter          = 0;
-    private static boolean stealthProfileMode             = true;
-    private static int     minReactionDelayTicks          = 1;
-    private static int     maxReactionDelayTicks          = 3;
-    private static boolean packetOrderStrictSync          = true;
-    private static double  verticalFallingTolerance       = -0.04D;
-    private static boolean lineOfSightValidation          = true;
-    private static int     sessionAttackCounter           = 0;
-    private static boolean dynamicThresholdAdjustment     = true;
-    private static double  stochasticVariance             = 0.04D;
-    private static boolean onlyCritMode                   = false;
-    private static boolean noCritMode                     = false;
-    private static boolean targetMobs                     = false;
-    private static boolean targetAnimals                  = false;
-    private static boolean targetPlayersOnly              = true;
-    private static boolean aggressiveMode                 = false;
-    private static boolean defensiveMode                  = false;
-    private static boolean antiSpamActive                 = true;
-    private static int     maxApsLimit                    = 20;
-    private static boolean turboMode                      = false;
-    private static boolean teamKillBlock                  = false;
-    private static int     autoCalibrationCounter         = 0;
-    private static double  currentFatigueLevel            = 0.0D;
-    private static double  fatigueScalar                  = 0.00008D;
-    private static double  fatigueRecovery                = 0.0004D;
-    private static long    lastAttackMs                   = 0L;
-    private static long    lastMissMs                     = 0L;
-    private static int     postHitCooldown                = 0;
-    private static boolean waitingCrit                    = false;
-    private static int     inAirTicks                     = 0;
-    private static double  sessionMetricAlpha             = 0.5D;
-    private static double  sessionMetricBeta              = 0.5D;
-    private static double  sessionMetricGamma             = 0.5D;
+    // ── State ─────────────────────────────────────────────────────────────
+    private static int  comboTicks          = 0;
+    private static int  reactionTicks       = 0;
+    private static long lastAttackMs        = 0L;
+    private static long sessionAttacks      = 0L;
+    private static double fatigueLevel      = 0.0;
+    private static final double FATIGUE_INC = 0.00006;
+    private static final double FATIGUE_DEC = 0.0005;
+    private static final Deque<Long> INTERVAL_LOG = new ArrayDeque<>(20);
 
-    static {
-        TRIGGER_SEVEN_REGISTRY.put("SubsessionUUID", SUBSESSION_UUID);
-        TRIGGER_SEVEN_REGISTRY.put("Profile", "TriggerBot-StealthEnterprise-7");
-        TRIGGER_SEVEN_REGISTRY.put("ThresholdNormal", attackStrengthThresholdNormal);
-        TRIGGER_SEVEN_REGISTRY.put("ThresholdCombo", attackStrengthThresholdCombo);
-        TRIGGER_SEVEN_REGISTRY.put("StealthMode", stealthProfileMode);
-        TRIGGER_SEVEN_REGISTRY.put("AntiReplay", antiReplayShieldActive);
-    }
+    // ── Lifecycle ─────────────────────────────────────────────────────────
+    public TriggerBot() {}
+    public static void toggle() { enabled = !enabled; if (!enabled) resetState(); }
+    public static void register() { ClientTickEvents.END_CLIENT_TICK.register(TriggerBot::onTick); }
 
-    public static void toggle() {
-        enabled = !enabled;
-        if (!enabled) hardReset();
-    }
+    // ── Main tick ─────────────────────────────────────────────────────────
+    public static void onTick(Minecraft mc) {
+        if (!enabled || mc.player == null || mc.level == null) return;
+        if (!mc.player.isAlive() || mc.player.isUsingItem()) return;
 
-    public static void onTick(Minecraft client) {
-        if (!enabled || client.player == null || client.level == null) return;
-        if (!client.player.isAlive()) return;
+        fatigueLevel = Math.max(0, fatigueLevel - FATIGUE_DEC);
+        if (comboTicks > 0) comboTicks--;
 
-        autoCalibrationCounter++;
-        if (autoCalibrationCounter >= 250) {
-            autoCalibrationCounter = 0;
-            executeAutoCalibrationRoutine();
+        LivingEntity target = crosshairTarget(mc);
+        if (target == null || !holdingWeapon(mc)) { reactionTicks = 0; return; }
+
+        float strength = mc.player.getAttackStrengthScale(0.5f);
+        double threshold = (comboTicks > 0) ? thresholdCombo : thresholdNormal;
+        if (strength < threshold) { reactionTicks = 0; return; }
+
+        // Reaction delay — human-like, 1–4 ticks
+        if (reactionTicks == 0) {
+            reactionTicks = 1 + RNG.nextInt(3) + (RNG.nextDouble() < 0.2 ? 1 : 0);
         }
+        if (--reactionTicks > 0) return;
 
-        if (postHitCooldown > 0) { postHitCooldown--; return; }
-        if (comboBufferTicks > 0) comboBufferTicks--;
+        // GrimBypass timing gate (Poisson CPS distribution)
+        if (!GrimBypassCore.canAttack(targetCps, timingJitterMs)) return;
 
-        currentFatigueLevel = Math.max(0.0D, currentFatigueLevel - fatigueRecovery);
+        // Crit check
+        if (critSync && !canCrit(mc)) return;
+        if (onlyCrit && !canCrit(mc)) return;
 
-        LivingEntity target = resolveCrosshairTarget(client);
-        if (target == null) { resetReaction(); return; }
-        if (!isHoldingWeapon(client)) { resetReaction(); return; }
-        if (client.player.isUsingItem()) { resetReaction(); return; }
+        // LOS
+        if (losValidation && !hasLos(mc, target)) return;
 
-        float strength = client.player.getAttackStrengthScale(0.5f);
-        double threshold = comboBufferTicks > 0 ? attackStrengthThresholdCombo : attackStrengthThresholdNormal;
-        if (strength < threshold) { reactionCountdownTicks = 0; return; }
+        // Stochastic miss (humanization)
+        double missChance = 0.010 + fatigueLevel * 0.007;
+        if (RNG.nextDouble() < missChance) { resetState(); return; }
 
-        pushStrengthSample(strength);
-
-        if (reactionCountdownTicks == 0) {
-            int delay = computeReactionDelay();
-            reactionCountdownTicks = delay;
-            pushReactionDelaySample(delay);
-        }
-
-        reactionCountdownTicks--;
-        if (reactionCountdownTicks > 0) return;
+        // Fire
+        InteractionManager.simulateClickAttack(mc);
+        mc.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
 
         long now = System.currentTimeMillis();
-        if (now - lastAttackMs < 575L) return;
-        if (now < lastMissMs + 120L) return;
-
-        if (onlyCritMode && !isCriticalCondition(client)) return;
-        if (!noCritMode && consistentCritsEnabled && adaptiveCritSyncActive) {
-            if (shouldWaitForCrit(client)) return;
-        }
-
-        if (lineOfSightValidation && !verifyLos(client, target)) { resetReaction(); return; }
-
-        double missProb = 0.012D + currentFatigueLevel * 0.008D;
-        if (stochasticVariance > 0 && secureRandom.nextDouble() < missProb) {
-            lastMissMs = now;
-            resetReaction();
-            pushFatigueSample(currentFatigueLevel);
-            return;
-        }
-
-        InteractionManager.simulateClickAttack(client);
-        client.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
-
+        GrimBypassCore.onHitLanded(42, 72, 48, 72);
+        if (INTERVAL_LOG.size() >= 20) INTERVAL_LOG.pollFirst();
+        INTERVAL_LOG.addLast(now - lastAttackMs);
         lastAttackMs = now;
-        totalTriggersFired++;
-        sessionAttackCounter++;
-        postHitCooldown = 2;
-        comboBufferTicks = 4 + secureRandom.nextInt(3);
-        currentFatigueLevel = Math.min(1.0D, currentFatigueLevel + fatigueScalar);
-        inAirTicks    = 0;
-        waitingCrit   = false;
-
-        pushAttackInterval(now);
-        updateSessionMetrics();
-        resetReaction();
+        sessionAttacks++;
+        comboTicks = 4 + RNG.nextInt(3);
+        fatigueLevel = Math.min(1.0, fatigueLevel + FATIGUE_INC);
     }
 
-    private static boolean shouldWaitForCrit(Minecraft client) {
-        if (client.player.onGround()) { inAirTicks = 0; waitingCrit = false; return false; }
-        if (client.player.isInWater() || client.player.isInLava() || client.player.isFallFlying()) { waitingCrit = false; return false; }
-        if (client.player.hasEffect(net.minecraft.world.effect.MobEffects.BLINDNESS)) { waitingCrit = false; return false; }
-
-        double vy = client.player.getDeltaMovement().y;
-        inAirTicks++;
-        if (!waitingCrit) waitingCrit = true;
-        if (waitingCrit && vy <= verticalFallingTolerance && inAirTicks >= 2) {
-            waitingCrit = false;
-            return false;
-        }
-        return waitingCrit;
+    // ── Crit check ────────────────────────────────────────────────────────
+    /**
+     * Criticals in 1.8-PvP style: player must be falling (vy < 0), not on ground,
+     * not in water/lava, not riding, not sprinting (optional check — in 1.21 you
+     * CAN crit while sprinting if the server allows it).
+     */
+    private static boolean canCrit(Minecraft mc) {
+        if (mc.player == null) return false;
+        if (mc.player.onGround())       return false;
+        if (mc.player.isFallFlying())   return false;
+        if (mc.player.isInWater())      return false;
+        if (mc.player.isInLava())       return false;
+        if (mc.player.isOnLadder())     return false;
+        if (mc.player.isPassenger())    return false;
+        double vy = mc.player.getDeltaMovement().y;
+        // Must be falling (vy < 0) or at peak of jump (vy ≈ 0 after rising)
+        return vy < 0.0 || (vy >= -0.01 && mc.player.fallDistance > 0.0);
     }
 
-    private static boolean isCriticalCondition(Minecraft client) {
-        if (client.player.onGround() || client.player.isInWater() || client.player.isInLava()) return false;
-        if (client.player.isFallFlying()) return false;
-        return client.player.getDeltaMovement().y < verticalFallingTolerance;
-    }
-
-    private static LivingEntity resolveCrosshairTarget(Minecraft client) {
-        if (client.hitResult == null || client.hitResult.getType() != HitResult.Type.ENTITY) return null;
-        if (!(client.hitResult instanceof EntityHitResult ehr)) return null;
+    // ── Crosshair target ──────────────────────────────────────────────────
+    private static LivingEntity crosshairTarget(Minecraft mc) {
+        if (mc.hitResult == null || mc.hitResult.getType() != HitResult.Type.ENTITY) return null;
+        if (!(mc.hitResult instanceof EntityHitResult ehr)) return null;
         Entity e = ehr.getEntity();
-        if (!(e instanceof LivingEntity living)) return null;
-        if (living == client.player) return null;
-        if (living instanceof Player p && (p.isSpectator() || p.isCreative())) return null;
-        if (!living.isAlive() || living.getHealth() <= 0) return null;
-        if (teamKillBlock) return null;
-        return living;
+        if (!(e instanceof LivingEntity lv)) return null;
+        if (!lv.isAlive()) return null;
+        if (lv instanceof Player p && (p.isSpectator() || p.isCreative())) return null;
+        double reachCap = GrimBypassCore.getReach((float) reachMin, (float) reachMax);
+        if (mc.player.distanceTo(lv) > reachCap) return null;
+        return lv;
     }
 
-    private static boolean isHoldingWeapon(Minecraft client) {
-        if (client.player == null) return false;
-        ItemStack s = client.player.getMainHandItem();
-        if (s.isEmpty()) return false;
-        String name = s.getItem().getDescriptionId().toLowerCase();
-        return name.contains("sword") || name.contains("axe") || name.contains("mace") || name.contains("trident");
-    }
-
-    private static boolean verifyLos(Minecraft client, Entity target) {
-        if (client.player == null || target == null || client.level == null) return false;
-        Vec3 start = client.player.getEyePosition();
+    private static boolean hasLos(Minecraft mc, Entity target) {
+        Vec3 start = mc.player.getEyePosition();
         Vec3 end   = target.getEyePosition();
-        BlockHitResult hit = client.level.clip(
-            new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, client.player));
+        BlockHitResult hit = mc.level.clip(
+            new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player));
         return hit.getType() == HitResult.Type.MISS;
     }
 
-    private static int computeReactionDelay() {
-        int base = minReactionDelayTicks + secureRandom.nextInt(maxReactionDelayTicks - minReactionDelayTicks + 1);
-        if (secureRandom.nextFloat() < 0.10f) base++;
-        if (aggressiveMode && base > 1) base--;
-        if (defensiveMode) base += secureRandom.nextInt(2);
-        return Math.max(1, base);
+    private static boolean holdingWeapon(Minecraft mc) {
+        if (mc.player == null) return false;
+        ItemStack s = mc.player.getMainHandItem();
+        if (s.isEmpty()) return false;
+        String n = s.getItem().getDescriptionId().toLowerCase();
+        return n.contains("sword") || n.contains("axe") || n.contains("trident")
+            || n.contains("mace") || n.contains("bow") || n.contains("crossbow");
     }
 
-    private static void executeAutoCalibrationRoutine() {
-        attackStrengthThresholdNormal = 0.88D + (secureRandom.nextDouble() - 0.5) * 0.03D;
-        currentFatigueLevel = Math.max(0.0D, currentFatigueLevel - 0.04D);
-        sessionMetricAlpha  = 0.48D + secureRandom.nextDouble() * 0.04D;
-        sessionMetricBeta   = 0.48D + secureRandom.nextDouble() * 0.04D;
-        sessionMetricGamma  = 0.48D + secureRandom.nextDouble() * 0.04D;
-        TRIGGER_SEVEN_REGISTRY.put("ThresholdNormal", attackStrengthThresholdNormal);
-        TRIGGER_SEVEN_REGISTRY.put("AutoCalibrated",  System.currentTimeMillis());
-    }
+    private static void resetState() { reactionTicks = 0; comboTicks = 0; }
 
-    private static void updateSessionMetrics() {
-        TRIGGER_SEVEN_REGISTRY.put("TotalTriggers",   totalTriggersFired);
-        TRIGGER_SEVEN_REGISTRY.put("SessionAttacks",  sessionAttackCounter);
-        TRIGGER_SEVEN_REGISTRY.put("FatigueLevel",    currentFatigueLevel);
-        TRIGGER_SEVEN_REGISTRY.put("ComboBuffer",     comboBufferTicks);
-        TRIGGER_SEVEN_REGISTRY.put("MetricAlpha",     sessionMetricAlpha);
-        TRIGGER_SEVEN_REGISTRY.put("MetricBeta",      sessionMetricBeta);
-        TRIGGER_SEVEN_REGISTRY.put("MetricGamma",     sessionMetricGamma);
-    }
-
-    private static void pushAttackInterval(long now) {
-        if (!ATTACK_INTERVAL_HISTORY.isEmpty()) {
-            long prev = ATTACK_INTERVAL_HISTORY.peekLast();
-            if (SESSION_TIMESTAMP_DEQUE.size() >= HISTORY_MAX_CAPACITY) SESSION_TIMESTAMP_DEQUE.pollFirst();
-            SESSION_TIMESTAMP_DEQUE.offerLast(now - prev);
-        }
-        if (ATTACK_INTERVAL_HISTORY.size() >= HISTORY_MAX_CAPACITY) ATTACK_INTERVAL_HISTORY.pollFirst();
-        ATTACK_INTERVAL_HISTORY.offerLast(now);
-    }
-
-    private static void pushStrengthSample(float s) {
-        if (ATTACK_STRENGTH_SAMPLE_DEQUE.size() >= HISTORY_MAX_CAPACITY) ATTACK_STRENGTH_SAMPLE_DEQUE.pollFirst();
-        ATTACK_STRENGTH_SAMPLE_DEQUE.offerLast(s);
-    }
-
-    private static void pushReactionDelaySample(int d) {
-        if (REACTION_DELAY_SAMPLE_DEQUE.size() >= HISTORY_MAX_CAPACITY) REACTION_DELAY_SAMPLE_DEQUE.pollFirst();
-        REACTION_DELAY_SAMPLE_DEQUE.offerLast(d);
-    }
-
-    private static void pushFatigueSample(double f) {
-        if (FATIGUE_SAMPLE_DEQUE.size() >= HISTORY_MAX_CAPACITY) FATIGUE_SAMPLE_DEQUE.pollFirst();
-        FATIGUE_SAMPLE_DEQUE.offerLast(f);
-    }
-
-    private static void resetReaction() { reactionCountdownTicks = 0; }
-
-    private static void hardReset() {
-        reactionCountdownTicks = 0;
-        comboBufferTicks       = 0;
-        postHitCooldown        = 0;
-        inAirTicks             = 0;
-        waitingCrit            = false;
-        currentFatigueLevel    = 0.0D;
-    }
-
-    public static double getAttackStrengthThresholdNormal() { return attackStrengthThresholdNormal; }
-    public static void   setAttackStrengthThresholdNormal(double t) { attackStrengthThresholdNormal = t; TRIGGER_SEVEN_REGISTRY.put("ThresholdNormal", t); }
-    public static double getAttackStrengthThresholdCombo() { return attackStrengthThresholdCombo; }
-    public static void   setAttackStrengthThresholdCombo(double t) { attackStrengthThresholdCombo = t; TRIGGER_SEVEN_REGISTRY.put("ThresholdCombo", t); }
-    public static double getCurrentFatigueLevel() { return currentFatigueLevel; }
-    public static void   setCurrentFatigueLevel(double f) { currentFatigueLevel = f; }
-    public static int    getSessionAttackCounter() { return sessionAttackCounter; }
-    public static void   resetSessionAttackCounter() { sessionAttackCounter = 0; }
-    public static boolean isOnlyCritMode() { return onlyCritMode; }
-    public static void    setOnlyCritMode(boolean b) { onlyCritMode = b; }
-    public static boolean isNoCritMode() { return noCritMode; }
-    public static void    setNoCritMode(boolean b) { noCritMode = b; }
-    public static boolean isTargetMobs() { return targetMobs; }
-    public static void    setTargetMobs(boolean b) { targetMobs = b; }
-    public static boolean isTargetAnimals() { return targetAnimals; }
-    public static void    setTargetAnimals(boolean b) { targetAnimals = b; }
-    public static boolean isTargetPlayersOnly() { return targetPlayersOnly; }
-    public static void    setTargetPlayersOnly(boolean b) { targetPlayersOnly = b; }
-    public static boolean isAggressiveMode() { return aggressiveMode; }
-    public static void    setAggressiveMode(boolean b) { aggressiveMode = b; }
-    public static boolean isDefensiveMode() { return defensiveMode; }
-    public static void    setDefensiveMode(boolean b) { defensiveMode = b; }
-    public static boolean isAntiSpamActive() { return antiSpamActive; }
-    public static void    setAntiSpamActive(boolean b) { antiSpamActive = b; }
-    public static int     getMaxApsLimit() { return maxApsLimit; }
-    public static void    setMaxApsLimit(int l) { maxApsLimit = Math.max(1, l); }
-    public static boolean isTurboMode() { return turboMode; }
-    public static void    setTurboMode(boolean b) { turboMode = b; }
-    public static boolean isTeamKillBlock() { return teamKillBlock; }
-    public static void    setTeamKillBlock(boolean b) { teamKillBlock = b; }
-    public static int     getHistoryCapacity() { return HISTORY_MAX_CAPACITY; }
-    public static void    clearAllHistoryQueues() { ATTACK_INTERVAL_HISTORY.clear(); CLICK_DURATION_MEMORY.clear(); ERROR_VECTOR_MEMORY.clear(); ATTACK_STRENGTH_SAMPLE_DEQUE.clear(); SESSION_TIMESTAMP_DEQUE.clear(); FATIGUE_SAMPLE_DEQUE.clear(); REACTION_DELAY_SAMPLE_DEQUE.clear(); }
-    public static UUID    getSubsessionUUID() { return SUBSESSION_UUID; }
-
-    /**
-     * Registra este módulo no ClientTickEvents.END_CLIENT_TICK do Fabric.
-     * Chamar uma vez durante a inicialização do mod (ex: ClientModInitializer.onInitializeClient()).
-     *
-     * Exemplo:
-     *   TriggerBot.register();
-     */
-    public static void register() {
-        ClientTickEvents.END_CLIENT_TICK.register(TriggerBot::onTick);
-    }
-
+    // ── Getters/setters ───────────────────────────────────────────────────
+    public static long   getSessionAttacks()   { return sessionAttacks; }
+    public static double getFatigueLevel()     { return fatigueLevel; }
+    public static double getLiveCPS()          { return GrimBypassCore.getLiveCPS(); }
+    public static void   setReach(double r)    { reachMin = r - 0.1; reachMax = r + 0.05; GrimBypassCore.refreshSessionCap((float)reachMin, (float)reachMax); }
+    public static void   setThreshold(double n, double c) { thresholdNormal = n; thresholdCombo = c; }
+    public static void   setOnlyCrit(boolean b)           { onlyCrit = b; }
+    public static void   setCritSync(boolean b)           { critSync = b; }
+    public static void   setLosValidation(boolean b)      { losValidation = b; }
+    public static void   setTargetCps(double cps, double jitter) { targetCps = cps; timingJitterMs = jitter; }
+    public static void   setAttackReach(double r) { setReach(r); }
+    public static double getAttackStrengthThresholdNormal() { return thresholdNormal; }
+    public static double getAttackStrengthThresholdCombo()  { return thresholdCombo; }
+    public static void   setAttackStrengthThresholdNormal(double t) { thresholdNormal = t; }
+    public static void   setAttackStrengthThresholdCombo(double t)  { thresholdCombo  = t; }
 }
