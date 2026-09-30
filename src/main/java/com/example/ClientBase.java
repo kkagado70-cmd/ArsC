@@ -2,86 +2,303 @@ package com.example;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
-import com.mojang.blaze3d.platform.InputConstants;
-import org.lwjgl.glfw.GLFW;
 
-/**
- * ClientBase — entrypoint principal do mod.
- *
- * Registra todos os módulos no Fabric tick e keybinds de toggle.
- *
- * Keybinds padrão (configuráveis nas Opções → Controles):
- *   V → AimAssist
- *   G → TriggerBot
- *   X → ShieldBreaker
- *   Z → AutoMace
- *   N → XbowCart
- *   R → GUI
- */
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
+import java.util.ArrayDeque;
+import java.util.Deque;
+
 public class ClientBase implements ClientModInitializer {
-
     private static ClientBase INSTANCE;
+    private ModuleManager moduleManager;
+    
+    private static final Map<String, Object> BASE_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
+    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
+    private static final Deque<Long> GLOBAL_TICK_LATENCY_DEQUE = new ArrayDeque<>();
+    private static final Deque<String> INITIALIZATION_LOG_DEQUE = new ArrayDeque<>();
+    private static final int HISTORY_MAX_CAPACITY = 2048;
+    
+    private static long globalInitializationTimestamp = 0L;
+    private static long totalGlobalTicksProcessed = 0L;
+    private static boolean diagnosticModeActive = false;
+    private static boolean enterpriseSecurityAuditActive = true;
+    private static int subsessionHealthScore = 100;
 
-    // Keybinds
-    public static KeyMapping keyGui;
-    public static KeyMapping keyAimAssist;
-    public static KeyMapping keyTriggerBot;
-    public static KeyMapping keyShieldBreaker;
-    public static KeyMapping keyAutoMace;
-    public static KeyMapping keyXbowCart;
+    static {
+        globalInitializationTimestamp = System.currentTimeMillis();
+        BASE_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        BASE_ENTERPRISE_REGISTRY.put("Architecture", "Fabric-1.21.11-Mojmap-Monolith");
+        BASE_ENTERPRISE_REGISTRY.put("InitializationEpoch", globalInitializationTimestamp);
+        INITIALIZATION_LOG_DEQUE.offerLast(globalInitializationTimestamp + ": Core Monolith Subsystem Initialized");
+    }
 
     @Override
     public void onInitializeClient() {
         INSTANCE = this;
+        this.moduleManager = new ModuleManager();
 
-        // Register keybinds
-        keyGui = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-            "key.arsenalmod.gui",         InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_R, "category.arsenalmod.modules"));
-        keyAimAssist = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-            "key.arsenalmod.aimassist",   InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, "category.arsenalmod.modules"));
-        keyTriggerBot = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-            "key.arsenalmod.triggerbot",  InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_G, "category.arsenalmod.modules"));
-        keyShieldBreaker = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-            "key.arsenalmod.shieldbreaker", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_X, "category.arsenalmod.modules"));
-        keyAutoMace = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-            "key.arsenalmod.automace",    InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_Z, "category.arsenalmod.modules"));
-        keyXbowCart = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-            "key.arsenalmod.xbowcart",   InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_N, "category.arsenalmod.modules"));
-
-        // Register module ticks via Fabric
-        AimAssist.register();
-        TriggerBot.register();
-        ShieldBreaker.register();
-        AutoMace.register();
-        XbowCart.register();
-
-        // GrimBypass session reach cap — initialized once at startup
-        GrimBypassCore.refreshSessionCap(2.95f, 3.15f);
-
-        // Keybind polling
-        ClientTickEvents.END_CLIENT_TICK.register(this::onClientTick);
+        this.moduleManager.register(new XbowCartModule());
+        this.moduleManager.register(new AimAssistModule());
+        this.moduleManager.register(new TriggerBotModule());
+        this.moduleManager.register(new ShieldBreakerModule());
+        this.moduleManager.register(new AutoMaceModule());
 
         HandlerManager.initialize();
+        PreciseGuiScaleClient.initialize();
+
+        ClientTickEvents.START_CLIENT_TICK.register(client -> {
+            totalGlobalTicksProcessed++;
+            executeSubsystemSanitation();
+
+            if (client.player != null && client.level != null) {
+                invokeGlobalTick(client);
+                InteractionManager.update(client);
+                PacketBufferManager.update(client);
+                InventoryManager.update(client);
+            }
+        });
+        
+        INITIALIZATION_LOG_DEQUE.offerLast(System.currentTimeMillis() + ": ClientModInitializer fully bound to Fabric lifecycle");
     }
 
-    private void onClientTick(Minecraft mc) {
-        // GUI open
-        while (keyGui.consumeClick()) {
-            if (mc.screen == null) {
-                mc.setScreen(new ClickGUI(mc.screen));
+    public static ClientBase getInstance() {
+        return INSTANCE;
+    }
+
+    public ModuleManager getModuleManager() {
+        return moduleManager;
+    }
+
+    public static void toggleModule(String name) {
+        if (INSTANCE == null || INSTANCE.moduleManager == null) return;
+        Module module = INSTANCE.moduleManager.getModule(name);
+        if (module != null) module.toggle();
+    }
+
+    public static void suspendAll() {
+        if (INSTANCE == null || INSTANCE.moduleManager == null) return;
+        for (Module module : INSTANCE.moduleManager.getModules()) {
+            if (module != null && module.isEnabled()) module.toggle();
+        }
+    }
+
+    public static void invokeGlobalTick(Minecraft client) {
+        long startTickNano = System.nanoTime();
+        if (INSTANCE != null && INSTANCE.moduleManager != null) {
+            INSTANCE.moduleManager.tick(client);
+        }
+        long elapsedNano = System.nanoTime() - startTickNano;
+        pushTickLatency(elapsedNano / 1000000L);
+    }
+
+    private static void pushTickLatency(long ms) {
+        if (GLOBAL_TICK_LATENCY_DEQUE.size() >= HISTORY_MAX_CAPACITY) {
+            GLOBAL_TICK_LATENCY_DEQUE.pollFirst();
+        }
+        GLOBAL_TICK_LATENCY_DEQUE.offerLast(ms);
+    }
+
+    private static void executeSubsystemSanitation() {
+        if (totalGlobalTicksProcessed > 100000000L) {
+            totalGlobalTicksProcessed = 0L;
+        }
+        if (BASE_ENTERPRISE_REGISTRY.size() > 250) {
+            BASE_ENTERPRISE_REGISTRY.clear();
+            BASE_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
+        }
+    }
+
+    public abstract static class Module {
+        protected final String name;
+        public boolean enabled;
+
+        public Module(String name) {
+            this.name = name;
+            this.enabled = false;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void toggle() {
+            enabled = !enabled;
+        }
+
+        public abstract void tick(Minecraft client);
+
+        public void executeTickWrapper(Minecraft client) {
+            if (enabled) {
+                tick(client);
+            }
+        }
+    }
+
+    public static class ModuleManager {
+        private final List<Module> modules = new ArrayList<>();
+
+        public void register(Module module) {
+            if (module != null && !modules.contains(module)) {
+                modules.add(module);
             }
         }
 
-        // Module toggles
-        while (keyAimAssist.consumeClick())     AimAssist.toggle();
-        while (keyTriggerBot.consumeClick())    TriggerBot.toggle();
-        while (keyShieldBreaker.consumeClick()) ShieldBreaker.toggle();
-        while (keyAutoMace.consumeClick())      AutoMace.toggle();
-        while (keyXbowCart.consumeClick())      XbowCart.enabled = !XbowCart.enabled;
+        public List<Module> getModules() {
+            return Collections.unmodifiableList(modules);
+        }
+
+        public Module getModule(String name) {
+            if (name == null) return null;
+            for (Module m : modules) {
+                if (m != null && m.getName().equalsIgnoreCase(name)) {
+                    return m;
+                }
+            }
+            return null;
+        }
+
+        public void setEnabled(String name, boolean state) {
+            Module m = getModule(name);
+            if (m != null && m.enabled != state) {
+                m.toggle();
+            }
+        }
+
+        public void tick(Minecraft client) {
+            List<Module> snapshot = new ArrayList<>(modules);
+            for (Module m : snapshot) {
+                if (m != null) {
+                    m.executeTickWrapper(client);
+                }
+            }
+        }
     }
 
-    public static ClientBase getInstance() { return INSTANCE; }
+    public static class XbowCartModule extends Module {
+        public XbowCartModule() {
+            super("XbowCart");
+            this.enabled = false;
+        }
+
+        @Override
+        public void toggle() {
+            super.toggle();
+            XbowCart.enabled = this.enabled;
+            if (!this.enabled) {
+                XbowCart.purgePipelineRegistry();
+            }
+        }
+
+        @Override
+        public void tick(Minecraft client) {
+            XbowCart.onTick(client);
+        }
+    }
+
+    public static class AimAssistModule extends Module {
+        public AimAssistModule() {
+            super("AimAssist");
+            this.enabled = false;
+        }
+
+        @Override
+        public void toggle() {
+            super.toggle();
+            AimAssist.enabled = this.enabled;
+        }
+
+        @Override
+        public void tick(Minecraft client) {
+            AimAssist.onTick(client);
+        }
+    }
+
+    public static class TriggerBotModule extends Module {
+        public TriggerBotModule() {
+            super("TriggerBot");
+            this.enabled = false;
+        }
+
+        @Override
+        public void toggle() {
+            super.toggle();
+            TriggerBot.enabled = this.enabled;
+        }
+
+        @Override
+        public void tick(Minecraft client) {
+            TriggerBot.onTick(client);
+        }
+    }
+
+    public static class ShieldBreakerModule extends Module {
+        public ShieldBreakerModule() {
+            super("ShieldBreaker");
+            this.enabled = false;
+        }
+
+        @Override
+        public void toggle() {
+            super.toggle();
+            ShieldBreaker.enabled = this.enabled;
+        }
+
+        @Override
+        public void tick(Minecraft client) {
+            ShieldBreaker.onTick(client);
+        }
+    }
+
+    public static class AutoMaceModule extends Module {
+        public AutoMaceModule() {
+            super("AutoMace");
+            this.enabled = false;
+        }
+
+        @Override
+        public void toggle() {
+            super.toggle();
+            AutoMace.enabled = this.enabled;
+        }
+
+        @Override
+        public void tick(Minecraft client) {
+            AutoMace.onTick(client);
+        }
+    }
+
+    public static UUID getSubsessionIdentity() {
+        return SUBSESSION_IDENTITY;
+    }
+
+    public static boolean isDiagnosticModeActive() {
+        return diagnosticModeActive;
+    }
+
+    public static void setDiagnosticMode(boolean state) {
+        diagnosticModeActive = state;
+        BASE_ENTERPRISE_REGISTRY.put("DiagnosticState", diagnosticModeActive);
+    }
+
+    public static long getTotalGlobalTicksProcessed() {
+        return totalGlobalTicksProcessed;
+    }
+
+    public static int getSubsessionHealthScore() {
+        return subsessionHealthScore;
+    }
+
+    public static void setSubsessionHealthScore(int score) {
+        subsessionHealthScore = Math.max(0, Math.min(100, score));
+        BASE_ENTERPRISE_REGISTRY.put("HealthScore", subsessionHealthScore);
+    }
 }
