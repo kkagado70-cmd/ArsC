@@ -13,7 +13,7 @@ public final class HandlerManager {
 
     public HandlerManager() {}
 
-    public void initialize() {
+    public static void initialize() {
         if (initialized) return;
         initialized = true;
 
