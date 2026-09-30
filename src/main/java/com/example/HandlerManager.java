@@ -14,15 +14,15 @@ public final class HandlerManager {
     public HandlerManager() {}
 
     public static void initialize() {
-        if (initialized) return;
-        initialized = true;
+    if (initialized) return;
+    initialized = true;
 
-        InventoryManager.register();
-        AimAssist.register();
-        AutoMace.register();
-        TriggerBot.register();
-        ShieldBreaker.register();
-        XbowCart.register();
+    InventoryManager.register();
+    AimAssist.register();
+    AutoMace.register();
+    TriggerBot.register();
+    ShieldBreaker.register();
+    XbowCart.register();
     }
 
     public void shutdown() {
