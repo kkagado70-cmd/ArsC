@@ -11,15 +11,10 @@ import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.util.Mth;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 import java.security.SecureRandom;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class ShieldBreaker {
 
@@ -28,63 +23,39 @@ public class ShieldBreaker {
 
     private enum ShieldState { IDLE, REACTING, SWAPPING, AIMING, SWINGING, COOLDOWN, FOLLOWUP }
 
-    private static ShieldState currentState = ShieldState.IDLE;
-    private static int   reactionDelay      = 0;
-    private static int   cooldownTicks      = 0;
-    private static int   followUpRemaining  = 0;
-    private static int   aimTicks           = 0;
-    private static int   savedSlot          = -1;
+    private static ShieldState currentState    = ShieldState.IDLE;
+    private static int   reactionDelay         = 0;
+    private static int   cooldownTicks         = 0;
+    private static int   followUpRemaining     = 0;
+    private static int   aimTicks              = 0;
+    private static int   savedSlot             = -1;
     private static LivingEntity lockedShieldTarget = null;
 
     private static final SecureRandom secureRandom = new SecureRandom();
-    private static final Map<String, Object> SHIELD_ENTERPRISE_REGISTRY = new ConcurrentHashMap<>();
-    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
+    private static final UUID SUBSESSION_IDENTITY  = UUID.randomUUID();
 
-    private static final Deque<Long>    STUN_HISTORY      = new ArrayDeque<>();
-    private static final Deque<Double>  VELOCITY_HISTORY  = new ArrayDeque<>();
-    private static final Deque<Long>    RECOVERY_MEMORY   = new ArrayDeque<>();
-    private static final Deque<Double>  AIM_ERROR_YAW_LOG = new ArrayDeque<>();
-    private static final Deque<Double>  AIM_ERROR_PCT_LOG = new ArrayDeque<>();
-    private static final Deque<Integer> REACTION_LOG      = new ArrayDeque<>();
-    private static final Deque<Long>    COOLDOWN_LOG      = new ArrayDeque<>();
-    private static final Deque<Double>  FATIGUE_LOG       = new ArrayDeque<>();
-    private static final int HISTORY_MAX_CAPACITY = 2048;
+    private static long    globalTicks          = 0L;
+    private static double  maxReach             = 3.0D;
+    private static boolean shieldStunActiveSync = false;
+    private static int     sessionStunCount     = 0;
+    private static double  currentFatigueLevel  = 0.0D;
+    private static final double fatigueScalar   = 0.001D;
+    private static final double fatigueRecovery = 0.0005D;
+    private static double  randomMissChance     = 0.01D;
+    private static float   overshootYawOffset   = 0.0f;
+    private static float   overshootPitchOffset = 0.0f;
+    private static int     saccadeTimer         = 0;
+    private static int     maxAimTicks          = 8;
+    private static float   aimYawTolerance      = 3.5f;
+    private static float   aimPitchTolerance    = 4.0f;
+    private static boolean followUpEnabled      = true;
+    private static int     followUpCount        = 2;
+    private static int     autoCalibrationCounter = 0;
 
-    private static long    globalTicks             = 0L;
-    private static double  maxReach                = 4.5D;
-    private static boolean shieldStunActiveSync    = false;
-    private static int     successiveStuns         = 0;
-    private static long    lastStunEpoch           = 0L;
-    private static int     sessionStunCount        = 0;
-    private static double  currentFatigueLevel     = 0.0D;
-    private static double  fatigueScalar           = 0.001D;
-    private static double  fatigueRecovery         = 0.0005D;
-    private static boolean errorInjectionActive    = true;
-    private static double  randomMissChance        = 0.01D;
-    private static int     autoCalibrationCounter  = 0;
-    private static float   overshootYawOffset      = 0.0f;
-    private static float   overshootPitchOffset    = 0.0f;
-    private static int     saccadeTimer            = 0;
-    private static int     maxAimTicks             = 8;
-    private static float   aimYawTolerance         = 3.5f;
-    private static float   aimPitchTolerance       = 4.0f;
-    private static boolean followUpEnabled         = true;
-    private static int     followUpCount           = 2;
-    private static boolean axePriority             = true;
-    private static double  sessionMetricAlpha      = 0.5D;
-    private static double  sessionMetricBeta       = 0.5D;
-    private static double  sessionMetricGamma      = 0.5D;
+    public static void toggle() { enabled = !enabled; hardReset(); }
 
-    static {
-        SHIELD_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        SHIELD_ENTERPRISE_REGISTRY.put("Profile", "ShieldBreaker-SaccadeAim-Enterprise");
-        SHIELD_ENTERPRISE_REGISTRY.put("MaxReach", maxReach);
-        SHIELD_ENTERPRISE_REGISTRY.put("StunSync", shieldStunActiveSync);
-    }
-
-    public static void toggle() {
-        enabled = !enabled;
-        hardReset();
+    public static void register() {
+        ClientTickEvents.END_CLIENT_TICK.register(ShieldBreaker::onTick);
     }
 
     public static void onTick(Minecraft clientRef) {
@@ -109,34 +80,30 @@ public class ShieldBreaker {
 
         if (autoCalibrationCounter >= 250) {
             autoCalibrationCounter = 0;
-            executeAutoCalibrationRoutine();
+            randomMissChance = Math.max(0.005D, randomMissChance + (secureRandom.nextDouble() - 0.5) * 0.002D);
+            currentFatigueLevel = Math.max(0.0D, currentFatigueLevel - 0.05D);
         }
 
-        pushVelocityHistory(clientRef.player.getDeltaMovement().horizontalDistance());
         RotationManager.samplePlayerGcd(clientRef);
 
         switch (currentState) {
-            case IDLE       -> tickIdle(clientRef);
-            case REACTING   -> tickReacting(clientRef);
-            case SWAPPING   -> tickSwapping(clientRef);
-            case AIMING     -> tickAiming(clientRef);
-            case SWINGING   -> tickSwinging(clientRef);
-            case COOLDOWN   -> tickCooldown(clientRef);
-            case FOLLOWUP   -> tickFollowUp(clientRef);
+            case IDLE     -> tickIdle(clientRef);
+            case REACTING -> tickReacting(clientRef);
+            case SWAPPING -> tickSwapping(clientRef);
+            case AIMING   -> tickAiming(clientRef);
+            case SWINGING -> tickSwinging(clientRef);
+            case COOLDOWN -> tickCooldown(clientRef);
+            case FOLLOWUP -> tickFollowUp(clientRef);
         }
-
-        updateRegistryState();
     }
 
     private static void tickIdle(Minecraft clientRef) {
         LivingEntity target = findShieldTarget(clientRef);
         if (target == null) return;
         lockedShieldTarget = target;
-        reactionDelay = computeReactionDelay();
-        pushReactionLog(reactionDelay);
+        reactionDelay = 1 + secureRandom.nextInt(3);
         currentState = ShieldState.REACTING;
         shieldStunActiveSync = true;
-        SHIELD_ENTERPRISE_REGISTRY.put("StunSync", true);
     }
 
     private static void tickReacting(Minecraft clientRef) {
@@ -164,7 +131,8 @@ public class ShieldBreaker {
         aimTicks++;
 
         updateSaccade();
-        Vec3 center = lockedShieldTarget.position().add(0.0D, lockedShieldTarget.getBbHeight() * 0.45D, 0.0D)
+        Vec3 center = lockedShieldTarget.position()
+            .add(0.0D, lockedShieldTarget.getBbHeight() * 0.45D, 0.0D)
             .add(overshootYawOffset * 0.01, overshootPitchOffset * 0.01, 0);
 
         double dist   = clientRef.player.distanceTo(lockedShieldTarget);
@@ -172,10 +140,6 @@ public class ShieldBreaker {
 
         RotationManager.setEasingMode(RotationManager.EasingMode.SWIGHT_HIGH_SENS);
         RotationManager.smoothTo(clientRef, center, factor);
-
-        double ye = Math.abs(RotationManager.computeYawError(clientRef, center));
-        double pe = Math.abs(RotationManager.computePitchError(clientRef, center));
-        pushAimErrorLog(ye, pe);
 
         boolean aligned = RotationManager.isAligned(clientRef, center, aimYawTolerance, aimPitchTolerance);
         if (aligned || aimTicks >= maxAimTicks) {
@@ -191,7 +155,7 @@ public class ShieldBreaker {
         float strength = clientRef.player.getAttackStrengthScale(0.5f);
         if (strength < 0.80f) return;
 
-        if (errorInjectionActive && secureRandom.nextDouble() < randomMissChance) {
+        if (secureRandom.nextDouble() < randomMissChance) {
             cooldownTicks = 6 + secureRandom.nextInt(5);
             currentState  = ShieldState.COOLDOWN;
             hardResetInventory(clientRef);
@@ -201,10 +165,6 @@ public class ShieldBreaker {
         InteractionManager.simulateClickAttack(clientRef);
         clientRef.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
 
-        long now = System.currentTimeMillis();
-        pushStunHistory(now);
-        lastStunEpoch = now;
-        successiveStuns++;
         sessionStunCount++;
         currentFatigueLevel = Math.min(1.0D, currentFatigueLevel + fatigueScalar);
 
@@ -216,7 +176,6 @@ public class ShieldBreaker {
         } else {
             int baseCd = 14 + secureRandom.nextInt(6);
             cooldownTicks = (int)(baseCd + currentFatigueLevel * 4.0D);
-            pushCooldownLog(cooldownTicks);
             currentState = ShieldState.COOLDOWN;
             hardResetInventory(clientRef);
         }
@@ -226,7 +185,6 @@ public class ShieldBreaker {
         if (followUpRemaining <= 0) {
             int baseCd = 14 + secureRandom.nextInt(6);
             cooldownTicks = (int)(baseCd + currentFatigueLevel * 4.0D);
-            pushCooldownLog(cooldownTicks);
             currentState = ShieldState.COOLDOWN;
             hardResetInventory(clientRef);
             return;
@@ -271,8 +229,8 @@ public class ShieldBreaker {
     }
 
     private static LivingEntity findShieldTarget(Minecraft clientRef) {
-        LivingEntity best   = null;
-        double minDst       = (maxReach * maxReach) + 1.0D;
+        LivingEntity best = null;
+        double minDst     = (maxReach * maxReach) + 1.0D;
         for (Entity e : clientRef.level.entitiesForRendering()) {
             if (!(e instanceof LivingEntity living) || living == clientRef.player || !living.isAlive()) continue;
             if (living instanceof Player p && (p.isSpectator() || p.isCreative())) continue;
@@ -304,7 +262,7 @@ public class ShieldBreaker {
         ItemStack s = clientRef.player.getMainHandItem();
         if (s.isEmpty()) return true;
         String name = s.getItem().getDescriptionId().toLowerCase();
-        return name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace") || s.isEmpty();
+        return name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace");
     }
 
     private static int findBestAxe(Minecraft clientRef) {
@@ -325,54 +283,6 @@ public class ShieldBreaker {
         return -1;
     }
 
-    private static int computeReactionDelay() {
-        int base = 1 + secureRandom.nextInt(3);
-        if (secureRandom.nextFloat() < 0.10f) base++;
-        return Math.max(1, base);
-    }
-
-    private static void executeAutoCalibrationRoutine() {
-        randomMissChance  = Math.max(0.005D, randomMissChance + (secureRandom.nextDouble() - 0.5) * 0.002D);
-        currentFatigueLevel = Math.max(0.0D, currentFatigueLevel - 0.05D);
-        sessionMetricAlpha  = 0.48D + secureRandom.nextDouble() * 0.04D;
-        SHIELD_ENTERPRISE_REGISTRY.put("AutoCalibrated", System.currentTimeMillis());
-    }
-
-    private static void updateRegistryState() {
-        SHIELD_ENTERPRISE_REGISTRY.put("State",         currentState.name());
-        SHIELD_ENTERPRISE_REGISTRY.put("StunSync",      shieldStunActiveSync);
-        SHIELD_ENTERPRISE_REGISTRY.put("SessionStuns",  sessionStunCount);
-        SHIELD_ENTERPRISE_REGISTRY.put("FatigueLevel",  currentFatigueLevel);
-        SHIELD_ENTERPRISE_REGISTRY.put("GlobalTicks",   globalTicks);
-    }
-
-    private static void pushVelocityHistory(double v) {
-        if (VELOCITY_HISTORY.size() >= HISTORY_MAX_CAPACITY) VELOCITY_HISTORY.pollFirst();
-        VELOCITY_HISTORY.offerLast(v);
-    }
-
-    private static void pushStunHistory(long t) {
-        if (STUN_HISTORY.size() >= HISTORY_MAX_CAPACITY) STUN_HISTORY.pollFirst();
-        STUN_HISTORY.offerLast(t);
-    }
-
-    private static void pushAimErrorLog(double ye, double pe) {
-        if (AIM_ERROR_YAW_LOG.size() >= HISTORY_MAX_CAPACITY) AIM_ERROR_YAW_LOG.pollFirst();
-        if (AIM_ERROR_PCT_LOG.size() >= HISTORY_MAX_CAPACITY) AIM_ERROR_PCT_LOG.pollFirst();
-        AIM_ERROR_YAW_LOG.offerLast(ye);
-        AIM_ERROR_PCT_LOG.offerLast(pe);
-    }
-
-    private static void pushReactionLog(int r) {
-        if (REACTION_LOG.size() >= HISTORY_MAX_CAPACITY) REACTION_LOG.pollFirst();
-        REACTION_LOG.offerLast(r);
-    }
-
-    private static void pushCooldownLog(int c) {
-        if (COOLDOWN_LOG.size() >= HISTORY_MAX_CAPACITY) COOLDOWN_LOG.pollFirst();
-        COOLDOWN_LOG.offerLast((long) c);
-    }
-
     private static void hardResetInventory(Minecraft clientRef) {
         if (savedSlot >= 0 && savedSlot < 9 && clientRef != null && clientRef.player != null) {
             InventoryManager.restoreSavedSlot(clientRef);
@@ -389,53 +299,24 @@ public class ShieldBreaker {
         lockedShieldTarget   = null;
         shieldStunActiveSync = false;
         savedSlot            = -1;
-        SHIELD_ENTERPRISE_REGISTRY.put("StunSync", false);
     }
 
     public static void hardReset() {
         resetToIdle();
-        currentFatigueLevel = 0.0D;
-        successiveStuns     = 0;
+        currentFatigueLevel    = 0.0D;
         autoCalibrationCounter = 0;
-        sessionStunCount    = 0;
-        overshootYawOffset  = 0.0f;
-        overshootPitchOffset = 0.0f;
-        saccadeTimer        = 0;
-        STUN_HISTORY.clear();
-        VELOCITY_HISTORY.clear();
-        RECOVERY_MEMORY.clear();
-        AIM_ERROR_YAW_LOG.clear();
-        AIM_ERROR_PCT_LOG.clear();
-        SHIELD_ENTERPRISE_REGISTRY.clear();
-        SHIELD_ENTERPRISE_REGISTRY.put("SubsessionUUID", SUBSESSION_IDENTITY);
-        SHIELD_ENTERPRISE_REGISTRY.put("Profile", "ShieldBreaker-SaccadeAim-Enterprise");
+        sessionStunCount       = 0;
+        overshootYawOffset     = 0.0f;
+        overshootPitchOffset   = 0.0f;
+        saccadeTimer           = 0;
     }
 
-    private static void initializeRegistry() {
-        SHIELD_ENTERPRISE_REGISTRY.put("MaxReach", maxReach);
-        SHIELD_ENTERPRISE_REGISTRY.put("StunSync", shieldStunActiveSync);
-    }
-
-    public static boolean isShieldStunActive()     { return shieldStunActiveSync; }
-    public static int     getSessionStunCount()    { return sessionStunCount; }
-    public static double  getFatigueLevel()        { return currentFatigueLevel; }
-    public static int     getSuccessiveStuns()     { return successiveStuns; }
-    public static long    getLastStunEpoch()       { return lastStunEpoch; }
-    public static String  getCurrentStateName()    { return currentState.name(); }
-    public static void    setMaxReach(double r)    { maxReach = r; }
+    public static boolean isShieldStunActive()  { return shieldStunActiveSync; }
+    public static int     getSessionStunCount() { return sessionStunCount; }
+    public static double  getFatigueLevel()     { return currentFatigueLevel; }
+    public static String  getCurrentStateName() { return currentState.name(); }
+    public static void    setMaxReach(double r) { maxReach = Math.min(r, 3.0); }
     public static void    setFollowUp(boolean b, int count) { followUpEnabled = b; followUpCount = count; }
     public static void    setAimTolerances(float yt, float pt) { aimYawTolerance = yt; aimPitchTolerance = pt; }
-    public static UUID    getSubsessionIdentity()  { return SUBSESSION_IDENTITY; }
-
-    /**
-     * Registra este módulo no ClientTickEvents.END_CLIENT_TICK do Fabric.
-     * Chamar uma vez durante a inicialização do mod (ex: ClientModInitializer.onInitializeClient()).
-     *
-     * Exemplo:
-     *   ShieldBreaker.register();
-     */
-    public static void register() {
-        ClientTickEvents.END_CLIENT_TICK.register(ShieldBreaker::onTick);
-    }
-
+    public static UUID    getSubsessionIdentity() { return SUBSESSION_IDENTITY; }
 }

@@ -29,15 +29,11 @@ public class AimAssist {
 
     private static Vec3 prevTargetVel = Vec3.ZERO;
 
-    // Config
     private static float  fovDegrees  = 180.0f;
-    private static double reach       = 4.2;
+    private static double reach       = 3.0;
     private static boolean pingComp   = true;
     private static boolean losCheck   = true;
 
-    // Smooth factors — lower = smoother, higher = snappier
-    // 0.18 close / 0.28 mid / 0.42 far gives natural Swight feel
-    // (old code had 0.36/0.50/0.68 — too snappy, caused stiff feeling)
     private static float smoothClose = 0.18f;
     private static float smoothMid   = 0.28f;
     private static float smoothFar   = 0.42f;
@@ -73,7 +69,6 @@ public class AimAssist {
         Entity target = pickTarget(mc);
 
         if (target == null) {
-            // Target gone — stop rotating immediately
             if (lockedTarget != null) {
                 lockedTarget = null;
                 RotationManager.reset();
@@ -95,20 +90,14 @@ public class AimAssist {
         double maxReachSq = reach * reach;
         if (mc.player == null) return null;
 
-        // Re-validate current locked target first
         if (lockedTarget instanceof LivingEntity lv) {
             boolean dead    = !lv.isAlive() || lv.isRemoved() || lv.getHealth() <= 0;
             boolean tooFar  = mc.player.distanceToSqr(lv) > maxReachSq;
             boolean blocked = losCheck && !hasLos(mc, lv);
-            if (dead || tooFar || blocked) {
-                lockedTarget = null;
-            }
+            if (dead || tooFar || blocked) lockedTarget = null;
         }
 
-        // If still valid, keep it (don't jitter between targets)
-        if (lockedTarget instanceof LivingEntity lv && switchCooldown > 0) {
-            return lv;
-        }
+        if (lockedTarget instanceof LivingEntity && switchCooldown > 0) return lockedTarget;
 
         Entity best     = null;
         double minAngle = fovDegrees / 2.0;
@@ -130,7 +119,6 @@ public class AimAssist {
     private static void aimAt(Minecraft mc, Entity target) {
         Vec3 point = aimPoint(mc, target);
 
-        // Ping compensation — lightweight, single-tick velocity
         Vec3 vel = target.getDeltaMovement();
         Vec3 acc = vel.subtract(prevTargetVel);
         prevTargetVel = vel;
@@ -147,16 +135,12 @@ public class AimAssist {
 
         double dist = mc.player.distanceTo(target);
 
-        // Weapon-based speed multiplier
         double wMul = switch (weaponKey(mc)) {
             case "bow", "crossbow" -> 1.3;
             case "mace"            -> 0.95;
             default                -> 1.0;
         };
 
-        // Smooth factor: lower = more human, higher = snappier
-        // Settling: when very close to target (< 1.5°), reduce factor sharply
-        // so the aim "settles in" instead of oscillating
         double aimErr = Math.hypot(
             RotationManager.computeYawError(mc, predicted),
             RotationManager.computePitchError(mc, predicted)
@@ -166,29 +150,20 @@ public class AimAssist {
                    : (dist < 6.0) ? smoothMid
                    :                smoothFar;
 
-        // Settling: if almost on target, use tiny factor to avoid vibration
-        float factor = (aimErr < 1.5) ? (float)(base * 0.3 * wMul)
-                     : (aimErr < 5.0) ? (float)(base * 0.7 * wMul)
+        float factor = (aimErr < 1.5) ? Math.max(0.15f, (float)(base * 0.6 * wMul))
+                     : (aimErr < 5.0) ? Math.max(0.20f, (float)(base * 0.8 * wMul))
                      :                  (float)(base * wMul);
 
-        // Always use EASE_OUT_EXPO — it feels natural and never overshoots
         RotationManager.setEasingMode(RotationManager.EasingMode.EASE_OUT_EXPO);
         RotationManager.smoothTo(mc, predicted, factor);
     }
 
-    /**
-     * Closest hitbox point to player eye Y.
-     * When you jump, aimY rises with you toward the target's head.
-     * When you're below, aimY goes to target's feet.
-     * Creates the natural body sweep instead of locking to fixed chest position.
-     */
     private static Vec3 aimPoint(Minecraft mc, Entity target) {
-        Vec3 eye     = mc.player.getEyePosition();
-        double minY  = target.getY() + 0.1;
-        double maxY  = target.getY() + target.getBbHeight() - 0.1;
-        double aimY  = Mth.clamp(eye.y, minY, maxY);
-        // Soft 15% pull toward body center so hits land on torso, not edges
-        double midY  = target.getY() + target.getBbHeight() * 0.5;
+        Vec3 eye    = mc.player.getEyePosition();
+        double minY = target.getY() + 0.1;
+        double maxY = target.getY() + target.getBbHeight() - 0.1;
+        double aimY = Mth.clamp(eye.y, minY, maxY);
+        double midY = target.getY() + target.getBbHeight() * 0.5;
         aimY += (midY - aimY) * 0.15;
         return new Vec3(target.getX(), aimY, target.getZ());
     }
@@ -234,7 +209,6 @@ public class AimAssist {
         RotationManager.reset();
     }
 
-    // Getters / setters / back-compat
     public static boolean isLockedOnTarget()  { return lockedTarget != null; }
     public static Entity  getLockedTarget()   { return lockedTarget; }
     public static long    getExecTicks()      { return execTicks; }
@@ -245,8 +219,8 @@ public class AimAssist {
 
     public static void setFov(float f)             { fovDegrees = f; }
     public static void setMaximumFov(float f)      { fovDegrees = f; }
-    public static void setReach(double r)          { reach = r; }
-    public static void setMaximumReach(double r)   { reach = r; }
+    public static void setReach(double r)          { reach = Math.min(r, 3.0); }
+    public static void setMaximumReach(double r)   { reach = Math.min(r, 3.0); }
     public static void setPingComp(boolean b)      { pingComp = b; }
     public static void setPingCompensation(boolean b) { pingComp = b; }
     public static void setLosCheck(boolean b)      { losCheck = b; }

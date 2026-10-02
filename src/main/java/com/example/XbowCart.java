@@ -13,24 +13,13 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.InteractionHand;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 import java.util.Comparator;
 import java.util.Random;
+import java.util.UUID;
 
-/**
- * XbowCart — TNT minecart crossbow sequence.
- *
- * FIX: Antes ativava com keyAttack.isDown() (left-click), o que disparava
- * enquanto o jogador tentava quebrar blocos. Agora usa RIGHT-CLICK (keyUse)
- * — segura o botão direito enquanto mira num bloco sólido com os itens
- * corretos no inventário para iniciar a sequência.
- *
- * Itens necessários no hotbar: Rail, TNT Minecart, Fire Source (Flint & Steel
- * ou Fire Charge), Charged Crossbow.
- *
- * Keybind de toggle no ClientBase (tecla N por padrão).
- */
 public class XbowCart {
 
     public static boolean enabled = false;
@@ -39,8 +28,8 @@ public class XbowCart {
         IDLE,
         SEL_RAIL, AIM_RAIL, PLACE_RAIL, WAIT_RAIL,
         SEL_CART, AIM_CART, PLACE_CART, WAIT_CART,
-        SEL_FIRE, AIM_FIRE, IGNITE,    WAIT_FIRE,
-        SEL_XBOW, AIM_XBOW, SHOOT,     COOLDOWN
+        SEL_FIRE, AIM_FIRE, IGNITE, WAIT_FIRE,
+        SEL_XBOW, AIM_XBOW, SHOOT, COOLDOWN
     }
 
     private static final Random RNG = new Random();
@@ -57,19 +46,17 @@ public class XbowCart {
     private static Vec3        fireAim   = null;
     private static Vec3        xbowAim   = null;
     private static MinecartTNT cart      = null;
+    private static int         activationDelay = 0;
 
-    // Aim tolerances (degrees)
     private static final float  PYT  = 3.5f;
     private static final float  PPT  = 4.0f;
     private static final float  SYT  = 4.5f;
     private static final float  SPT  = 5.0f;
-    private static final int    AMAX = 5;       // max aim ticks before snap
-    private static final double CR   = 3.2;     // cart search radius
-    private static final int    WMAX = 8;       // wait retry max
+    private static final int    AMAX = 5;
+    private static final double CR   = 3.2;
 
-    public static void toggle() {
-        enabled = !enabled;
-        if (!enabled) purgePipelineRegistry();
+    public static void register() {
+        ClientTickEvents.END_CLIENT_TICK.register(XbowCart::onTick);
     }
 
     public static void onTick(Minecraft mc) {
@@ -79,41 +66,66 @@ public class XbowCart {
         RotationManager.samplePlayerGcd(mc);
 
         switch (phase) {
-            case IDLE     -> tickIdle(mc);
-            case SEL_RAIL -> { sel(mc, InventoryManager.findRail(mc));           timer = 1; go(Phase.AIM_RAIL); }
+            case IDLE -> tickIdle(mc);
+
+            case SEL_RAIL -> {
+                sel(mc, InventoryManager.findRail(mc));
+                timer = 2;
+                go(Phase.AIM_RAIL);
+            }
             case AIM_RAIL -> tickFlick(mc, railAim, PYT, PPT, Phase.PLACE_RAIL);
-            case PLACE_RAIL -> { if (--timer > 0) return; InteractionManager.simulateClickUse(mc, InteractionManager.InteractionPriority.HIGH); timer = 2; go(Phase.WAIT_RAIL); }
+            case PLACE_RAIL -> {
+                if (--timer > 0) return;
+                InteractionManager.simulateClickUse(mc, InteractionManager.InteractionPriority.HIGH);
+                timer = 2;
+                go(Phase.WAIT_RAIL);
+            }
             case WAIT_RAIL -> tickWait(mc, Phase.SEL_CART, () -> isRailAt(mc, railPos));
-            case SEL_CART  -> { sel(mc, InventoryManager.findItem(mc, Items.TNT_MINECART)); timer = 1; go(Phase.AIM_CART); }
-            case AIM_CART  -> tickFlick(mc, cartAim, PYT, PPT, Phase.PLACE_CART);
-            case PLACE_CART -> { if (--timer > 0) return; InteractionManager.simulateClickUse(mc, InteractionManager.InteractionPriority.HIGH); timer = 2; go(Phase.WAIT_CART); }
-            case WAIT_CART  -> tickWaitCart(mc);
-            case SEL_FIRE  -> { sel(mc, InventoryManager.findFireSource(mc));   timer = 1; go(Phase.AIM_FIRE); }
-            case AIM_FIRE  -> tickFlick(mc, fireAim, PYT, PPT, Phase.IGNITE);
-            case IGNITE    -> { if (--timer > 0) return; InteractionManager.simulateClickUse(mc, InteractionManager.InteractionPriority.HIGH); timer = 1; go(Phase.WAIT_FIRE); }
+
+            case SEL_CART -> {
+                sel(mc, InventoryManager.findItem(mc, Items.TNT_MINECART));
+                timer = 2;
+                go(Phase.AIM_CART);
+            }
+            case AIM_CART -> tickFlick(mc, cartAim, PYT, PPT, Phase.PLACE_CART);
+            case PLACE_CART -> {
+                if (--timer > 0) return;
+                InteractionManager.simulateClickUse(mc, InteractionManager.InteractionPriority.HIGH);
+                timer = 2;
+                go(Phase.WAIT_CART);
+            }
+            case WAIT_CART -> tickWaitCart(mc);
+
+            case SEL_FIRE -> {
+                sel(mc, InventoryManager.findFireSource(mc));
+                timer = 2;
+                go(Phase.AIM_FIRE);
+            }
+            case AIM_FIRE -> tickFlick(mc, fireAim, PYT, PPT, Phase.IGNITE);
+            case IGNITE -> {
+                if (--timer > 0) return;
+                InteractionManager.simulateClickUse(mc, InteractionManager.InteractionPriority.HIGH);
+                timer = 2;
+                go(Phase.WAIT_FIRE);
+            }
             case WAIT_FIRE -> tickWait(mc, Phase.SEL_XBOW, () -> isFireAt(mc, firePos));
-            case SEL_XBOW  -> { sel(mc, InventoryManager.findChargedCrossbow(mc)); timer = 1; go(Phase.AIM_XBOW); }
-            case AIM_XBOW  -> tickFlick(mc, liveAim(mc), SYT, SPT, Phase.SHOOT);
-            case SHOOT     -> tickShoot(mc);
-            case COOLDOWN  -> { if (--timer <= 0) hardReset(mc); }
+
+            case SEL_XBOW -> {
+                sel(mc, InventoryManager.findChargedCrossbow(mc));
+                timer = 2;
+                go(Phase.AIM_XBOW);
+            }
+            case AIM_XBOW -> tickFlick(mc, liveAim(mc), SYT, SPT, Phase.SHOOT);
+            case SHOOT -> tickShoot(mc);
+            case COOLDOWN -> { if (--timer <= 0) hardReset(mc); }
         }
     }
 
-    public static void purgePipelineRegistry() { hardReset(null); }
-
-    // ── FIXED: use RIGHT-CLICK (keyUse) not LEFT-CLICK (keyAttack) ────────
-    // Left-click also fires when breaking blocks, causing accidental activation.
-    // Right-click is much more intentional for this sequence.
     private static void tickIdle(Minecraft mc) {
-        // Require right-click held, not left-click
-        if (!mc.options.keyUse.isDown()) return;
+        if (!mc.options.keyAttack.isDown()) return;
         if (mc.hitResult == null || mc.hitResult.getType() != HitResult.Type.BLOCK) return;
-
         BlockHitResult bhr = (BlockHitResult) mc.hitResult;
-        // Only trigger on top/side faces — not bottom face
         if (bhr.getDirection() == Direction.DOWN) return;
-        // Must not be air-clicking or aiming at a non-solid
-        if (!mc.level.getBlockState(bhr.getBlockPos()).isSolid()) return;
 
         BlockPos hit = bhr.getBlockPos();
         railPos = computeRailPos(mc, hit);
@@ -121,36 +133,34 @@ public class XbowCart {
 
         firePos = computeFirePos(mc, railPos);
         if (firePos == null) return;
-
-        // Validate inventory BEFORE starting — avoids flickering when missing items
         if (!InventoryManager.validateSequenceInventory(mc)) return;
 
-        railAim = Vec3.atCenterOf(railPos).add(0, 0.55, 0);
-        cartAim = Vec3.atCenterOf(railPos).add(0, 0.62, 0);
+        railAim = Vec3.atCenterOf(railPos);
+        cartAim = Vec3.atCenterOf(railPos).add(0, 0.15, 0);
         fireAim = Vec3.atCenterOf(firePos).add(0, 0.50, 0);
         xbowAim = Vec3.atCenterOf(railPos).add(0, 0.85, 0);
 
         InventoryManager.saveCurrentSlot(mc);
-        savedSlot  = mc.player.getInventory().getSelectedSlot();
-        aimTick    = 0;
-        waitRetry  = 0;
-        cart       = null;
+        savedSlot = mc.player.getInventory().getSelectedSlot();
+        aimTick = 0; waitRetry = 0; cart = null;
         SafetyWatchdog.startGlobal();
         go(Phase.SEL_RAIL);
     }
 
     private static void tickFlick(Minecraft mc, Vec3 target, float yt, float pt, Phase next) {
         if (target == null) { hardReset(mc); return; }
+        if (--timer > 0) return;
         aimTick++;
-        float ang  = angDist(mc, target);
-        float t    = Mth.clamp(aimTick / (float) AMAX, 0f, 1f);
+        float ang = angDist(mc, target);
+        float t   = Math.min(1.0f, (float) aimTick / AMAX);
         float ease = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
         float near = ang < 8.0f ? (0.28f + 0.72f * ang / 8.0f) : 1.0f;
         float spd  = (0.72f + 0.28f * ease) * near;
         RotationManager.setEasingMode(RotationManager.EasingMode.SWIGHT_HIGH_SENS);
         RotationManager.smoothTo(mc, target, spd);
-        if (RotationManager.isAligned(mc, target, yt, pt) || aimTick >= AMAX) {
-            if (!RotationManager.isAligned(mc, target, yt, pt)) RotationManager.snapTo(mc, target);
+        boolean ok = RotationManager.isAligned(mc, target, yt, pt);
+        if (ok || aimTick >= AMAX) {
+            if (!ok) RotationManager.snapTo(mc, target);
             aimTick = 0; timer = 1; go(next);
         }
     }
@@ -158,7 +168,7 @@ public class XbowCart {
     private static void tickWait(Minecraft mc, Phase next, java.util.function.BooleanSupplier check) {
         if (timer > 0) { timer--; return; }
         if (check.getAsBoolean()) { waitRetry = 0; go(next); return; }
-        if (waitRetry >= WMAX) { hardReset(mc); return; }
+        if (!SafetyWatchdog.onRetry("WAIT")) { hardReset(mc); return; }
         waitRetry++;
         timer = 2;
     }
@@ -167,15 +177,14 @@ public class XbowCart {
         if (timer > 0) { timer--; return; }
         MinecartTNT found = findCart(mc, railPos, CR);
         if (found != null) {
-            cart    = found;
+            cart = found;
             xbowAim = predictCart(cart);
             waitRetry = 0;
             go(Phase.SEL_FIRE);
             return;
         }
-        if (waitRetry >= WMAX) { hardReset(mc); return; }
+        if (!SafetyWatchdog.onRetry("WAIT_CART")) { hardReset(mc); return; }
         InteractionManager.simulateClickUse(mc, InteractionManager.InteractionPriority.HIGH);
-        waitRetry++;
         timer = 2;
     }
 
@@ -190,9 +199,7 @@ public class XbowCart {
         }
         if (cart != null && !cart.isAlive()) { hardReset(mc); return; }
         Vec3 live = liveAim(mc);
-        if (live != null && !RotationManager.isAligned(mc, live, SYT, SPT)) {
-            RotationManager.snapTo(mc, live);
-        }
+        if (live != null && !RotationManager.isAligned(mc, live, SYT, SPT)) RotationManager.snapTo(mc, live);
         InteractionManager.simulateClickUse(mc, InteractionManager.InteractionPriority.IMMEDIATE);
         timer = 20 + RNG.nextInt(6);
         go(Phase.COOLDOWN);
@@ -223,8 +230,7 @@ public class XbowCart {
         if (mc.level.getBlockState(up).isAir()) return up;
         for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
             BlockPos adj = hit.relative(d);
-            if (mc.level.getBlockState(adj).isAir()
-                    && mc.level.getBlockState(adj.below()).isSolidRender()) return adj;
+            if (mc.level.getBlockState(adj).isAir() && mc.level.getBlockState(adj.below()).isSolidRender()) return adj;
         }
         return null;
     }
@@ -244,26 +250,21 @@ public class XbowCart {
     private static boolean isRailAt(Minecraft mc, BlockPos pos) {
         if (mc.level == null || pos == null) return false;
         var b = mc.level.getBlockState(pos).getBlock();
-        return b == Blocks.RAIL || b == Blocks.POWERED_RAIL
-            || b == Blocks.DETECTOR_RAIL || b == Blocks.ACTIVATOR_RAIL;
+        return b == Blocks.RAIL || b == Blocks.POWERED_RAIL || b == Blocks.DETECTOR_RAIL || b == Blocks.ACTIVATOR_RAIL;
     }
 
     private static boolean isFireAt(Minecraft mc, BlockPos pos) {
         if (mc.level == null || pos == null) return false;
         var b = mc.level.getBlockState(pos).getBlock();
-        return b == Blocks.FIRE || b == Blocks.SOUL_FIRE
-            || b == Blocks.CAMPFIRE || b == Blocks.SOUL_CAMPFIRE;
+        return b == Blocks.FIRE || b == Blocks.SOUL_FIRE || b == Blocks.CAMPFIRE || b == Blocks.SOUL_CAMPFIRE;
     }
 
     private static MinecartTNT findCart(Minecraft mc, BlockPos near, double r) {
         if (mc.level == null || near == null) return null;
         Vec3 c = Vec3.atCenterOf(near);
         return mc.level.getEntitiesOfClass(MinecartTNT.class,
-            new AABB(c.x - r, c.y - r, c.z - r, c.x + r, c.y + r, c.z + r),
-            e -> e.isAlive())
-            .stream()
-            .min(Comparator.comparingDouble(e -> e.position().distanceTo(c)))
-            .orElse(null);
+            new AABB(c.x - r, c.y - r, c.z - r, c.x + r, c.y + r, c.z + r), e -> e.isAlive())
+            .stream().min(Comparator.comparingDouble(e -> e.position().distanceTo(c))).orElse(null);
     }
 
     private static double blockDist(Minecraft mc, BlockPos pos) {
@@ -273,8 +274,7 @@ public class XbowCart {
     }
 
     private static void sel(Minecraft mc, int slot) {
-        if (slot >= 0 && slot < 9 && mc.player != null)
-            InventoryManager.selectSlot(mc, slot);
+        if (slot >= 0 && slot < 9 && mc.player != null) InventoryManager.selectSlot(mc, slot);
     }
 
     private static void go(Phase next) { phase = next; timer = 0; aimTick = 0; }
@@ -291,7 +291,5 @@ public class XbowCart {
         cart = null;
     }
 
-    public static void register() {
-        ClientTickEvents.END_CLIENT_TICK.register(XbowCart::onTick);
-    }
+    public static void purgePipelineRegistry() { hardReset(null); }
 }
