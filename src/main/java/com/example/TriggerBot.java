@@ -25,13 +25,15 @@ public class TriggerBot {
 
     // Thresholds corretos: ataca em ~65% do cooldown (não 89%)
     // 0.65 ≈ 8.5 ticks em espada = ~5.7 CPS possível no melhor caso
-    private static double  thresholdNormal = 0.65;
-    private static double  thresholdCombo  = 0.50;
+    // B5: 0.85 = ~88% damage; was 0.65 = ~54% damage
+    private static double  thresholdNormal = 0.85;
+    private static double  thresholdCombo  = 0.75;  // B5: combo ~65% damage
 
     private static boolean onlyCrit    = false;
     // critSync false: prioriza crit quando possível, mas não bloqueia no chão
     private static boolean critSync    = false;
-    private static double  targetCps   = 12.0;  // mais agressivo
+    // B17: CPS 8-10 — Grim-safe, attacking faster only reduces damage in 1.9+
+    private static double  targetCps   = 9.0;
     private static double  jitterMs    = 10.0;
 
     // ── Estado ────────────────────────────────────────────────────────────
@@ -50,6 +52,10 @@ public class TriggerBot {
     public static void onTick(Minecraft mc) {
         if (!enabled || mc.player == null || mc.level == null) return;
         if (!mc.player.isAlive() || mc.player.isUsingItem()) return;
+        // B2: yield rotation + attack to AutoMace during dive
+        if (AutoMace.isTracking()) return;
+        // B3: don't attack while ShieldBreaker axe swing is active (double-hit = instant flag)
+        if (ShieldBreaker.isShieldStunActive()) return;
 
         fatigueLevel = Math.max(0, fatigueLevel - F_DEC);
         if (comboTicks > 0) comboTicks--;
@@ -78,7 +84,7 @@ public class TriggerBot {
         InteractionManager.simulateClickAttack(mc);
 
         long now = System.currentTimeMillis();
-        GrimBypassCore.onHitLanded(42, 72, 48, 72);
+        GrimBypassCore.onHitLanded(20, 40, 20, 40);  // B17: 20-40ms keeps CPS ~10
         if (INTERVAL_LOG.size() >= 20) INTERVAL_LOG.pollFirst();
         INTERVAL_LOG.addLast(now - lastAttackMs);
         lastAttackMs = now;
@@ -111,7 +117,7 @@ public class TriggerBot {
         return lv;
     }
 
-    // Só armas melee — bow/crossbow não dá pra melee-attack
+    // B21: melee only — bow/crossbow excluded
     private static boolean holdingWeapon(Minecraft mc) {
         if (mc.player == null) return false;
         ItemStack s = mc.player.getMainHandItem();

@@ -26,6 +26,9 @@ public final class InteractionManager {
 
         if (target != null) {
             client.gameMode.attack(client.player, target);
+            // B24: gameMode.attack sends the attack packet but doesn't play swing animation
+            // swing() sends ServerboundSwingPacket so server logs an arm movement — less suspicious
+            client.player.swing(InteractionHand.MAIN_HAND);
         }
     }
 

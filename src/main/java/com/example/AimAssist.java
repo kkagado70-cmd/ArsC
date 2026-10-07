@@ -36,9 +36,9 @@ public class AimAssist {
     // ── Config ────────────────────────────────────────────────────────────
     // aimRange: distância de DETECÇÃO (início do aimbot)
     // reach:    distância de ATAQUE (limite real do servidor)
-    private static float   fovDeg      = 180.0f;
+    private static float   fovDeg      = 120.0f;  // B13: >120 flags AimDuplicateLook
     private static double  aimRange    = 6.0;   // detecta alvo com antecedência
-    private static double  reach       = 4.2;   // reach de ataque (melee)
+    private static double  reach       = 3.0;   // reach de ataque vanilla (Grim: 3.0)
     private static float   smClose     = 0.32f; // dist < 3 m
     private static float   smMid       = 0.48f; // 3–6 m
     private static float   smFar       = 0.65f; // > 6 m
@@ -67,6 +67,8 @@ public class AimAssist {
         if (!enabled || mc.player == null || mc.level == null) return;
         if (!mc.player.isAlive()) return;
         if (!holdingWeapon(mc)) { release(); return; }
+        // B1: AutoMace owns rotation while diving — yield to avoid conflict
+        if (AutoMace.isTracking()) return;
         if (ShieldBreaker.isShieldStunActive()) return;
 
         execTicks++;
@@ -142,11 +144,11 @@ public class AimAssist {
                 if (info != null) latency = info.getLatency();
             } catch (Exception ignored) {}
         }
-        // pingTicks clampado a 3 ticks (~150ms) — produz ~2 blocos de lead correto
-        double pingTicks = Math.min(latency / 50.0, 3.0);
+        // B14: clamp 2 ticks + damping — evita overshoot quando alvo strafar
+        double lead = Math.min(latency / 50.0, 2.0);
         Vec3 predicted = aim
-            .add(vel.scale(pingTicks))      // lead proporcional à latência
-            .add(acc.scale(0.5));           // compensação de aceleração
+            .add(vel.scale(lead * 0.7))
+            .add(acc.scale(0.3 * lead));
 
         if (microAdjust) {
             // Gaussian por tick = tremor biológico real, não padrão fixo

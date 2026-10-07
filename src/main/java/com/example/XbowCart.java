@@ -194,8 +194,14 @@ public class XbowCart {
         if (timer > 0) { timer--; return; }
         MinecartTNT found = findCart(mc, railPos, CR);
         if (found != null) {
+            // B10: validate cart is on the rail, not just nearby
+            if (found.position().distanceTo(Vec3.atCenterOf(railPos)) > 0.6) {
+                // Cart wandered — retry
+                SafetyWatchdog.onRetry("WAIT_CART_POS");
+                timer = 2; return;
+            }
             cart    = found;
-            xbowAim = predictCart(cart);
+            xbowAim = aimThroughFire(mc, found);
             waitRetry = 0;
             go(Phase.SEL_FIRE);
             return;
@@ -227,12 +233,25 @@ public class XbowCart {
     }
 
     private static Vec3 liveAim(Minecraft mc) {
-        if (cart != null && cart.isAlive()) return predictCart(cart);
+        if (cart != null && cart.isAlive()) return aimThroughFire(mc, cart);
         if (railPos != null) {
             MinecartTNT found = findCart(mc, railPos, CR);
-            if (found != null) { cart = found; return predictCart(found); }
+            if (found != null) { cart = found; return aimThroughFire(mc, found); }
         }
         return xbowAim;
+    }
+
+    /**
+     * B9: Arrow must pass through the fire block to be ignited.
+     * Aim slightly beyond the cart along the player-to-cart direction so the
+     * arrow travels through the fire column between player and cart.
+     */
+    private static Vec3 aimThroughFire(Minecraft mc, MinecartTNT c) {
+        Vec3 eye   = mc.player.getEyePosition(1.0f);
+        Vec3 cpos  = c.position().add(0, 0.4, 0);
+        Vec3 dir   = cpos.subtract(eye).normalize();
+        // Extend 1.2 blocks past the cart — arrow ignites in fire before impact
+        return cpos.add(dir.scale(1.2));
     }
 
     private static Vec3 predictCart(MinecartTNT c) {

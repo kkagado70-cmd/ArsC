@@ -1,126 +1,103 @@
 package com.example;
 
-import net.minecraft.util.Mth;
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
 /**
- * GrimBypassCore — static AC evasion layer.
- * 
- * Woven into TriggerBot (timing) and AimAssist (rotation drift).
- * Not a module — no toggle, no GUI entry, always active when host modules run.
+ * GrimAC bypass core — CPS gate + reach cap + GCD-aware jitter.
  *
- * Covers:
- *  1. Attack timing — Poisson-distributed inter-attack intervals (Grim detects uniform CPS)
- *  2. Post-hit gate — suppresses next attack for 40–70ms (Grim checks back-to-back ms timing)
- *  3. Rotation drift — ±0.06° Gaussian noise inside GCD grid (Grim runs χ² on rotation histogram)
- *  4. Session reach cap — drawn once per session, never exceeds 3.15 (Grim logs per-session max)
+ * Grim checks:
+ *  - TimerA: attack interval consistent with human CPS
+ *  - ReachEntityInteract: eye-to-hitbox > blockInteractionRange (3.0 vanilla)
+ *  - AimDuplicateLook: same rotation sent in ≥2 consecutive packets
+ *  - GCD: yaw/pitch deltas must be multiples of sensitivity GCD
  */
 public final class GrimBypassCore {
+    private static final SecureRandom RNG = new SecureRandom();
+
+    // ── CPS gate ─────────────────────────────────────────────────────────
+    private static final Deque<Long> HIT_TIMES = new ArrayDeque<>(32);
+    private static long  lastAttackMs = 0L;
+    // post-hit lockout (simulates nerve delay)
+    private static long  postHitLockoutUntil = 0L;
+    // reach cap
+    private static float sessionReachMin = 2.85f;
+    private static float sessionReachMax = 3.00f;
 
     private GrimBypassCore() {}
 
-    private static final SecureRandom RNG = new SecureRandom();
-
-    // ── Attack timing ───────────────────────────────────────────────────────────
-    private static double sessionReachCap  = 3.10;
-    private static final Deque<Long> CPS_WINDOW = new ArrayDeque<>(20);
-    private static long  nextAttackAllowed  = 0L;
-    private static boolean postHitActive    = false;
-    private static long  postHitUntil       = 0L;
-    private static double pendingVelAccept  = 1.0;
-
-    // ── Rotation drift ──────────────────────────────────────────────────────────
-    private static float  driftYaw   = 0f;
-    private static float  driftPitch = 0f;
-    private static long   lastDriftMs = 0L;
-
-    static {
-        refreshSessionCap(2.95f, 3.15f);
-    }
-
-    public static void refreshSessionCap(float lo, float hi) {
-        sessionReachCap = lo + (hi - lo) * RNG.nextDouble();
-    }
-
     /**
-     * Call before every attack. Returns false if the timing gate says "too soon".
-     * targetCps: desired CPS midpoint (e.g. 9.0).
-     * jitterMs: Gaussian noise on interval (e.g. 18.0).
+     * Must return true for the module to be allowed to attack.
+     * @param targetCps desired CPS (8-10 for Grim-safe)
+     * @param jitterMs  ± jitter in ms
      */
     public static boolean canAttack(double targetCps, double jitterMs) {
         long now = System.currentTimeMillis();
-        if (postHitActive && now < postHitUntil) return false;
-        postHitActive = false;
-        if (now < nextAttackAllowed) return false;
-
-        // Poisson-distributed interval — looks like jitter-clicking, not a clock
-        double mean = 1000.0 / Math.max(1, targetCps);
-        double iv   = -mean * Math.log(Math.max(1e-9, RNG.nextDouble()));
-        iv = Math.min(iv, mean * 3.0) + RNG.nextGaussian() * jitterMs;
-        iv = Math.max(iv, mean * 0.35);
-        nextAttackAllowed = now + (long) iv;
-
-        if (CPS_WINDOW.size() >= 20) CPS_WINDOW.pollFirst();
-        CPS_WINDOW.addLast(now);
-        return true;
+        if (now < postHitLockoutUntil) return false;
+        long minInterval = (long)(1000.0 / targetCps);
+        long jitter = (long)(RNG.nextGaussian() * jitterMs * 0.5);
+        return (now - lastAttackMs) >= (minInterval + jitter);
     }
 
     /**
-     * Signal that a hit landed. Arms post-hit delay and randomizes next velocity-accept ratio.
+     * Call after a hit lands. Arms the post-hit lockout.
+     * @param postHitMinMs  min post-hit delay (ms)
+     * @param postHitMaxMs  max post-hit delay (ms)
+     * @param comboMinMs    unused (kept for compat)
+     * @param comboMaxMs    unused
      */
-    public static void onHitLanded(double postHitMinMs, double postHitMaxMs,
-                                   float velAcceptMin, float velAcceptMax) {
-        long delay = (long)(postHitMinMs + (postHitMaxMs - postHitMinMs) * RNG.nextDouble()
-                     + RNG.nextGaussian() * 8.0);
-        postHitActive = true;
-        postHitUntil  = System.currentTimeMillis() + Math.max(10L, delay);
-        pendingVelAccept = velAcceptMin / 100f
-            + (velAcceptMax - velAcceptMin) / 100f * (float) RNG.nextDouble();
-    }
-
-    /**
-     * Returns the session-bounded reach cap for this attack.
-     * Grim tracks per-session maximum reach — never let a single hit exceed the session cap.
-     */
-    public static double getReach(float reachMin, float reachMax) {
-        double mid   = (reachMin + reachMax) * 0.5;
-        double sigma = (reachMax - reachMin) * 0.25;
-        double s     = mid + RNG.nextGaussian() * sigma;
-        return Math.max(reachMin, Math.min(s, sessionReachCap));
-    }
-
-    /** Velocity accept ratio for the current hit (applied to X/Z knockback only). */
-    public static double getPendingVelAccept() { return pendingVelAccept; }
-
-    /**
-     * Tick the rotation drift. Call once per game tick when aiming is active.
-     * magnitude: how wide the drift can be (recommended: 0.05–0.08).
-     */
-    public static void tickDrift(float magnitude) {
+    public static void onHitLanded(int postHitMinMs, int postHitMaxMs, int comboMinMs, int comboMaxMs) {
         long now = System.currentTimeMillis();
-        if (now - lastDriftMs < 80L + (long)(RNG.nextDouble() * 80)) return;
-        lastDriftMs = now;
-        driftYaw   = (float) Mth.clamp(RNG.nextGaussian() * magnitude, -0.07, 0.07);
-        driftPitch = (float) Mth.clamp(RNG.nextGaussian() * magnitude * 0.6, -0.05, 0.05);
+        lastAttackMs = now;
+        // B17: post-hit 20-40ms (not 42-72) to keep CPS ~10
+        long lockout = 20 + (long)(RNG.nextDouble() * 20);
+        postHitLockoutUntil = now + lockout;
+        if (HIT_TIMES.size() >= 32) HIT_TIMES.pollFirst();
+        HIT_TIMES.addLast(now);
     }
 
     /**
-     * Apply drift to a [yaw, pitch] array AFTER GCD snap.
-     * Keeps every step on a GCD-legal position while spreading the histogram.
+     * Returns a GCD-snapped reach value for this session.
+     * Grim flags reach > 3.0 (block interaction range).
      */
-    public static float[] applyDrift(float[] rotations, float magnitude) {
-        if (magnitude <= 0f) return rotations;
-        return new float[]{
-            rotations[0] + (float) Mth.clamp(driftYaw,   -magnitude * 0.5, magnitude * 0.5),
-            Mth.clamp(rotations[1] + (float) Mth.clamp(driftPitch, -magnitude * 0.3, magnitude * 0.3), -90, 90)
-        };
+    public static float getReach(float min, float max) {
+        // Never exceed vanilla reach
+        float cap = Math.min(max, 3.0f);
+        float base = Math.min(min, cap);
+        return base + (float)(RNG.nextDouble() * (cap - base));
     }
 
     public static double getLiveCPS() {
         long now = System.currentTimeMillis();
-        int n = 0; for (long ts : CPS_WINDOW) if (now - ts <= 1000L) n++;
-        return n;
+        long windowMs = 1000L;
+        long cutoff = now - windowMs;
+        return HIT_TIMES.stream().filter(t -> t >= cutoff).count();
+    }
+
+    public static void refreshSessionCap(float min, float max) {
+        sessionReachMin = Math.min(min, 3.0f);
+        sessionReachMax = Math.min(max, 3.0f);
+    }
+
+    /**
+     * Called each tick by AimAssist. Applies micro-drift to avoid
+     * AimDuplicateLook flags (same rotation ≥ 2 packets).
+     * The drift is GCD-aligned so it doesn't look like silent aim.
+     * @param magnitude base drift magnitude (degrees)
+     */
+    public static void tickDrift(float magnitude) {
+        // Drift is handled inside RotationManager.samplePlayerGcd + smoothTo
+        // This hook exists for future use; RotationManager already snaps to GCD
+    }
+
+    /**
+     * Snaps a raw rotation delta to the nearest GCD multiple.
+     * Grim derives sensitivity from GCD of yaw/pitch deltas.
+     * If delta is not a GCD multiple, it's flagged as "silent aim".
+     */
+    public static double snapToGcd(double delta, double gcd) {
+        if (gcd <= 0.0) return delta;
+        return Math.round(delta / gcd) * gcd;
     }
 }

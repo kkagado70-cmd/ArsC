@@ -27,7 +27,7 @@ public class AutoMace {
     // maxAimDistance: detecção/tracking de alvo (pode ser alto)
     // MACE_REACH:     reach real do servidor para mace smash
     // SPEAR_REACH:    reach da lança (attribute swap)
-    private static double  maxAimDistance  = 30.0D;
+    private static double  maxAimDistance  = 8.0D;  // B19: 30 era flag
     private static double  minFallDistance = 1.5D;
     private static boolean windChargeDetection = true;
     private static boolean elytraDiveCheck     = true;
@@ -144,12 +144,12 @@ public class AutoMace {
         double reachForMode = (mode == AttackMode.SPEAR_SWAP) ? SPEAR_REACH : MACE_REACH;
         boolean inReach = dist <= reachForMode;
 
-        // Stun Slam: se ShieldBreaker acabou de stunnar no mesmo tick,
-        // ignora smashCD e smash imediatamente para máximo dano pré-i-frame
-        boolean stunThisTick = ShieldBreaker.justStunned;
-        if (stunThisTick) ShieldBreaker.justStunned = false; // consome a flag
+            // B4: justStunnedTicks — lê e decrementa (funciona independente de ordem de módulos)
+        boolean stunThisTick = ShieldBreaker.justStunnedTicks > 0;
+        if (stunThisTick) ShieldBreaker.justStunnedTicks--;
 
-        if (aligned && inReach && (scale >= 0.35f || stunThisTick) && (smashCD == 0 || stunThisTick)) {
+        // B6: smash ignora cooldown (MC-270160) — só checar aligned+inReach+falling
+        if (aligned && inReach && (smashCD == 0 || stunThisTick)) {
             executeAttack(mc, mode);
         }
 
@@ -273,6 +273,8 @@ public class AutoMace {
     }
 
     // ── API pública ───────────────────────────────────────────────────────
+    /** B1: AimAssist yields rotation when AutoMace is actively tracking */
+    public static boolean     isTracking()                  { return isTracking; }
     public static long        getExecutionTicks()           { return executionTicks; }
     public static double      getFatigueLevel()             { return fatigueLevel; }
     public static LivingEntity getLockedTarget()            { return lockedTarget; }

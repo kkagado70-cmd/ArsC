@@ -80,6 +80,12 @@ public class ClientBase implements ClientModInitializer {
         if (module != null) module.toggle();
     }
 
+    public static boolean isModuleEnabled(String name) {
+        if (INSTANCE == null || INSTANCE.moduleManager == null) return false;
+        Module m = INSTANCE.moduleManager.getModule(name);
+        return m != null && m.isEnabled();
+    }
+
     public static void suspendAll() {
         if (INSTANCE == null || INSTANCE.moduleManager == null) return;
         for (Module module : INSTANCE.moduleManager.getModules()) {
@@ -134,6 +140,9 @@ public class ClientBase implements ClientModInitializer {
             enabled = !enabled;
         }
 
+        // B23: Priority — higher runs first. AutoMace (rotation owner) = 10, TriggerBot = 1
+        public int getPriority() { return 5; }
+
         public abstract void tick(Minecraft client);
 
         public void executeTickWrapper(Minecraft client) {
@@ -174,10 +183,16 @@ public class ClientBase implements ClientModInitializer {
         }
 
         public void tick(Minecraft client) {
+            // B23: sort descending by priority so high-priority modules run first
             List<Module> snapshot = new ArrayList<>(modules);
+            snapshot.sort((a, b) -> Integer.compare(b.getPriority(), a.getPriority()));
             for (Module m : snapshot) {
                 if (m != null) {
-                    m.executeTickWrapper(client);
+                    try {
+                        m.executeTickWrapper(client);
+                    } catch (Throwable t) {
+                        // isolate per-module exceptions
+                    }
                 }
             }
         }
@@ -209,6 +224,7 @@ public class ClientBase implements ClientModInitializer {
             super("AimAssist");
             this.enabled = false;
         }
+        @Override public int getPriority() { return 6; }
 
         @Override
         public void toggle() {
@@ -227,6 +243,7 @@ public class ClientBase implements ClientModInitializer {
             super("TriggerBot");
             this.enabled = false;
         }
+        @Override public int getPriority() { return 1; }
 
         @Override
         public void toggle() {
@@ -245,6 +262,7 @@ public class ClientBase implements ClientModInitializer {
             super("ShieldBreaker");
             this.enabled = false;
         }
+        @Override public int getPriority() { return 8; }
 
         @Override
         public void toggle() {
@@ -263,6 +281,7 @@ public class ClientBase implements ClientModInitializer {
             super("AutoMace");
             this.enabled = false;
         }
+        @Override public int getPriority() { return 10; }
 
         @Override
         public void toggle() {

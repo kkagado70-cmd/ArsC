@@ -40,7 +40,7 @@ public class ShieldBreaker {
     private static long   globalTicks          = 0L;
     private static double maxReach             = 3.0D;
     private static boolean shieldStunActiveSync = false; // true SOMENTE durante o swing real
-    public  static volatile boolean justStunned = false;   // AutoMace lê para Stun Slam no mesmo tick
+    public  static volatile int justStunnedTicks = 0;   // B4: contador; AutoMace lê >0 e decrementa
     private static int    sessionStunCount     = 0;
     private static double fatigueLevel         = 0.0D;
     private static final double F_INC          = 0.001D;
@@ -169,8 +169,9 @@ public class ShieldBreaker {
         if (!validateTarget(mc, false)) { hardReset(); return; }
 
         // Usa 1.0f (partial tick padrão), não 0.5f
+        // B7: axe stun needs ≥0.85 for reliable shield break
         float strength = mc.player.getAttackStrengthScale(1.0f);
-        if (strength < 0.80f) return;
+        if (strength < 0.85f) return;
 
         if (RNG.nextDouble() < missChance) {
             cooldownTicks = 6 + RNG.nextInt(5);
@@ -181,8 +182,8 @@ public class ShieldBreaker {
 
         // shieldStunActiveSync = true SOMENTE no momento do swing real
         shieldStunActiveSync = true;
-        // justStunned: AutoMace lê para Stun Slam (mace smash no mesmo tick)
-        justStunned = true;
+        // B4/B15: justStunnedTicks=2 só se alvo está a ≤3.0 blocos
+        if (lockedTarget != null && mc.player.distanceTo(lockedTarget) <= 3.0D) justStunnedTicks = 2;
 
         // Um único simulateClickAttack — não chamar swing() separado (double swing)
         InteractionManager.simulateClickAttack(mc);
@@ -201,7 +202,7 @@ public class ShieldBreaker {
             currentState  = State.COOLDOWN;
             hardResetInventory(mc);
             shieldStunActiveSync = false;
-            justStunned = false;
+            justStunnedTicks = 0;
         }
     }
 
@@ -291,7 +292,9 @@ public class ShieldBreaker {
 
     private static boolean hasAxeOrSword(Minecraft mc) {
         if (mc.player == null) return false;
-        // Não bloqueia se o inventário tiver machado disponível
+        // B16: check mainhand first
+        String mh = mc.player.getMainHandItem().getItem().getDescriptionId().toLowerCase();
+        if (mh.contains("axe") || mh.contains("sword")) return true;
         for (int i = 0; i < 9; i++) {
             String n = mc.player.getInventory().getItem(i).getItem().getDescriptionId().toLowerCase();
             if (n.contains("axe") || n.contains("sword")) return true;
@@ -333,7 +336,7 @@ public class ShieldBreaker {
         axeSyncWait          = 0;
         lockedTarget         = null;
         shieldStunActiveSync = false;
-        justStunned          = false;
+        justStunnedTicks     = 0;
         savedSlot            = -1;
     }
 
