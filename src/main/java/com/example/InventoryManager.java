@@ -100,13 +100,13 @@ public class InventoryManager {
     private static void applySlotSelection(Minecraft client, int slot) {
         switch (selectionMode) {
             case DIRECT_ONLY -> {
-                client.player.getInventory().setSelectedSlot(slot);
+                SlotAccessor.set(client, slot);
             }
             case KEY_ONLY -> {
                 simulateHotbarKey(client, slot);
             }
             case DUAL -> {
-                client.player.getInventory().setSelectedSlot(slot);
+                SlotAccessor.set(client, slot);
                 simulateHotbarKey(client, slot);
             }
         }
@@ -121,7 +121,7 @@ public class InventoryManager {
 
     public static boolean verifySlotSelected(Minecraft client, int slot) {
         if (client == null || client.player == null) return false;
-        return client.player.getInventory().getSelectedSlot() == slot;
+        return SlotAccessor.get(client) == slot;
     }
 
     public static boolean verifySlotItem(Minecraft client, int slot, Item expectedItem) {
@@ -271,7 +271,7 @@ public class InventoryManager {
 
     public static void saveCurrentSlot(Minecraft client) {
         if (client == null || client.player == null) return;
-        savedSlotBeforeSequence = client.player.getInventory().getSelectedSlot();
+        savedSlotBeforeSequence = SlotAccessor.get(client);
     }
 
     public static void restoreSavedSlot(Minecraft client) {
@@ -321,7 +321,7 @@ public class InventoryManager {
 
     public static int getCurrentSlot(Minecraft client) {
         if (client == null || client.player == null) return -1;
-        return client.player.getInventory().getSelectedSlot();
+        return SlotAccessor.get(client);
     }
 
     public static ItemStack getCurrentItem(Minecraft client) {
@@ -411,7 +411,7 @@ public class InventoryManager {
 
     public static boolean selectIfNot(Minecraft client, int slot) {
         if (client == null || client.player == null) return false;
-        if (client.player.getInventory().getSelectedSlot() == slot) return true;
+        if (SlotAccessor.get(client) == slot) return true;
         return selectSlot(client, slot);
     }
 

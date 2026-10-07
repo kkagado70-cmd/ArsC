@@ -1,6 +1,7 @@
 package com.example;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -21,181 +22,204 @@ public class ShieldBreaker {
     public static final String FILE_NAME = "ShieldBreaker.java";
     public static boolean enabled = false;
 
-    private enum ShieldState { IDLE, REACTING, SWAPPING, AIMING, SWINGING, COOLDOWN, FOLLOWUP }
+    // WAIT_AXE_SYNC: aguarda o servidor confirmar a troca antes de atacar
+    private enum State { IDLE, REACTING, SWAPPING, WAIT_AXE_SYNC, AIMING, SWINGING, COOLDOWN, FOLLOWUP }
 
-    private static ShieldState currentState    = ShieldState.IDLE;
-    private static int   reactionDelay         = 0;
-    private static int   cooldownTicks         = 0;
-    private static int   followUpRemaining     = 0;
-    private static int   aimTicks              = 0;
-    private static int   savedSlot             = -1;
-    private static LivingEntity lockedShieldTarget = null;
+    private static State         currentState       = State.IDLE;
+    private static int           reactionDelay      = 0;
+    private static int           cooldownTicks      = 0;
+    private static int           followUpRemaining  = 0;
+    private static int           aimTicks           = 0;
+    private static int           axeSyncWait        = 0;
+    private static int           savedSlot          = -1;
+    private static LivingEntity  lockedTarget       = null;
 
-    private static final SecureRandom secureRandom = new SecureRandom();
-    private static final UUID SUBSESSION_IDENTITY  = UUID.randomUUID();
+    private static final SecureRandom RNG = new SecureRandom();
+    private static final UUID SESSION_ID  = UUID.randomUUID();
 
-    private static long    globalTicks          = 0L;
-    private static double  maxReach             = 3.0D;
-    private static boolean shieldStunActiveSync = false;
-    private static int     sessionStunCount     = 0;
-    private static double  currentFatigueLevel  = 0.0D;
-    private static final double fatigueScalar   = 0.001D;
-    private static final double fatigueRecovery = 0.0005D;
-    private static double  randomMissChance     = 0.01D;
-    private static float   overshootYawOffset   = 0.0f;
-    private static float   overshootPitchOffset = 0.0f;
-    private static int     saccadeTimer         = 0;
-    private static int     maxAimTicks          = 8;
-    private static float   aimYawTolerance      = 3.5f;
-    private static float   aimPitchTolerance    = 4.0f;
-    private static boolean followUpEnabled      = true;
-    private static int     followUpCount        = 2;
-    private static int     autoCalibrationCounter = 0;
+    private static long   globalTicks          = 0L;
+    private static double maxReach             = 3.0D;
+    private static boolean shieldStunActiveSync = false; // true SOMENTE durante o swing real
+    public  static volatile boolean justStunned = false;   // AutoMace lê para Stun Slam no mesmo tick
+    private static int    sessionStunCount     = 0;
+    private static double fatigueLevel         = 0.0D;
+    private static final double F_INC          = 0.001D;
+    private static final double F_DEC          = 0.0005D;
+    private static double missChance           = 0.008D;
+    private static float  overshootYaw         = 0.0f;
+    private static float  overshootPitch       = 0.0f;
+    private static int    saccadeTimer         = 0;
+    private static int    maxAimTicks          = 8;
+    private static float  aimYawTol            = 3.5f;
+    private static float  aimPitchTol          = 4.0f;
+    private static boolean followUpEnabled     = true;
+    private static int    followUpCount        = 2;
 
     public static void toggle() { enabled = !enabled; hardReset(); }
 
-    public static void register() {
-        ClientTickEvents.END_CLIENT_TICK.register(ShieldBreaker::onTick);
-    }
+    public static void register() { /* no-op: ClientBase.ModuleManager handles tick */ }
 
-    public static void onTick(Minecraft clientRef) {
-        if (!enabled || clientRef.player == null || clientRef.level == null) return;
-        if (!clientRef.player.isAlive()) return;
-
-        if (clientRef.player.isFallFlying() || clientRef.player.fallDistance > 1.5F) {
-            currentState = ShieldState.IDLE;
+    public static void onTick(Minecraft mc) {
+        if (!enabled || mc.player == null || mc.level == null) return;
+        if (!mc.player.isAlive()) return;
+        if (mc.player.isFallFlying() || mc.player.fallDistance > 1.5F) {
             shieldStunActiveSync = false;
+            currentState = State.IDLE;
             return;
         }
-
-        if (!validateWeaponContext(clientRef)) {
+        if (!hasAxeOrSword(mc)) {
             shieldStunActiveSync = false;
-            currentState = ShieldState.IDLE;
+            currentState = State.IDLE;
             return;
         }
 
         globalTicks++;
-        autoCalibrationCounter++;
-        currentFatigueLevel = Math.max(0.0D, currentFatigueLevel - fatigueRecovery);
-
-        if (autoCalibrationCounter >= 250) {
-            autoCalibrationCounter = 0;
-            randomMissChance = Math.max(0.005D, randomMissChance + (secureRandom.nextDouble() - 0.5) * 0.002D);
-            currentFatigueLevel = Math.max(0.0D, currentFatigueLevel - 0.05D);
-        }
-
-        RotationManager.samplePlayerGcd(clientRef);
+        fatigueLevel = Math.max(0.0D, fatigueLevel - F_DEC);
+        RotationManager.samplePlayerGcd(mc);
 
         switch (currentState) {
-            case IDLE     -> tickIdle(clientRef);
-            case REACTING -> tickReacting(clientRef);
-            case SWAPPING -> tickSwapping(clientRef);
-            case AIMING   -> tickAiming(clientRef);
-            case SWINGING -> tickSwinging(clientRef);
-            case COOLDOWN -> tickCooldown(clientRef);
-            case FOLLOWUP -> tickFollowUp(clientRef);
+            case IDLE          -> tickIdle(mc);
+            case REACTING      -> tickReacting(mc);
+            case SWAPPING      -> tickSwapping(mc);
+            case WAIT_AXE_SYNC -> tickWaitAxeSync(mc);
+            case AIMING        -> tickAiming(mc);
+            case SWINGING      -> tickSwinging(mc);
+            case COOLDOWN      -> tickCooldown(mc);
+            case FOLLOWUP      -> tickFollowUp(mc);
         }
     }
 
-    private static void tickIdle(Minecraft clientRef) {
-        LivingEntity target = findShieldTarget(clientRef);
+    private static void tickIdle(Minecraft mc) {
+        LivingEntity target = findShieldTarget(mc);
         if (target == null) return;
-        lockedShieldTarget = target;
-        reactionDelay = 1 + secureRandom.nextInt(3);
-        currentState = ShieldState.REACTING;
-        shieldStunActiveSync = true;
+        lockedTarget = target;
+        reactionDelay = 1 + RNG.nextInt(3);
+        currentState = State.REACTING;
+        // shieldStunActiveSync permanece FALSE aqui — só sobe no swing real
     }
 
-    private static void tickReacting(Minecraft clientRef) {
-        if (!validateTarget(clientRef)) { resetToIdle(); return; }
+    private static void tickReacting(Minecraft mc) {
+        if (!validateTarget(mc)) { resetToIdle(); return; }
         if (--reactionDelay > 0) return;
-        int axeSlot = findBestAxe(clientRef);
+        int axeSlot = findBestAxe(mc);
         if (axeSlot < 0) { resetToIdle(); return; }
-        savedSlot = clientRef.player.getInventory().getSelectedSlot();
-        InventoryManager.saveCurrentSlot(clientRef);
-        InventoryManager.selectSlot(clientRef, axeSlot);
-        currentState = ShieldState.SWAPPING;
+        savedSlot = SlotAccessor.get(mc);
+        InventoryManager.saveCurrentSlot(mc);
+        InventoryManager.selectSlot(mc, axeSlot);
+        axeSyncWait  = 0;
+        currentState = State.SWAPPING;
     }
 
-    private static void tickSwapping(Minecraft clientRef) {
-        if (!validateTarget(clientRef)) { hardReset(); return; }
-        aimTicks = 0;
-        saccadeTimer = 0;
-        overshootYawOffset   = (float)((secureRandom.nextDouble() - 0.5) * 0.9D);
-        overshootPitchOffset = (float)((secureRandom.nextDouble() - 0.5) * 0.7D);
-        currentState = ShieldState.AIMING;
+    private static void tickSwapping(Minecraft mc) {
+        if (!validateTarget(mc)) { hardReset(); return; }
+        // Aguarda servidor confirmar troca (WAIT_AXE_SYNC)
+        currentState = State.WAIT_AXE_SYNC;
     }
 
-    private static void tickAiming(Minecraft clientRef) {
-        if (!validateTarget(clientRef)) { hardReset(); return; }
+    private static void tickWaitAxeSync(Minecraft mc) {
+        if (!validateTarget(mc)) { hardReset(); return; }
+        axeSyncWait++;
+
+        // Verifica se o slot atual realmente contém um machado
+        ItemStack held = mc.player.getMainHandItem();
+        String heldName = held.isEmpty() ? "" : held.getItem().getDescriptionId().toLowerCase();
+        boolean axeReady = heldName.contains("axe");
+
+        // Aguarda pelo menos 2 ticks para servidor confirmar a troca de slot
+        if (axeSyncWait < 2) return;
+        // Se axeReady OU excedeu 3 ticks, avança
+        if (!axeReady && axeSyncWait < 3) return;
+        Vec3 center = targetCenter(lockedTarget);
+        if (RotationManager.isAligned(mc, center, aimYawTol, aimPitchTol)) {
+            aimTicks     = 0;
+            currentState = State.SWINGING;
+        } else {
+            aimTicks = 0;
+            saccadeTimer = 0;
+            overshootYaw   = (float)((RNG.nextDouble() - 0.5) * 0.9D);
+            overshootPitch = (float)((RNG.nextDouble() - 0.5) * 0.7D);
+            currentState = State.AIMING;
+        }
+    }
+
+    private static void tickAiming(Minecraft mc) {
+        if (!validateTarget(mc)) { hardReset(); return; }
         aimTicks++;
 
+        // Saccade só em AIMING, não em outros estados
         updateSaccade();
-        Vec3 center = lockedShieldTarget.position()
-            .add(0.0D, lockedShieldTarget.getBbHeight() * 0.45D, 0.0D)
-            .add(overshootYawOffset * 0.01, overshootPitchOffset * 0.01, 0);
+        Vec3 center = targetCenter(lockedTarget)
+            .add(overshootYaw * 0.01, overshootPitch * 0.01, 0);
 
-        double dist   = clientRef.player.distanceTo(lockedShieldTarget);
-        float  factor = dist < 2.5D ? 0.88F : 0.95F;
+        double dist   = mc.player.distanceTo(lockedTarget);
+        float  factor = dist < 2.5D ? 0.88f : 0.95f;
 
         RotationManager.setEasingMode(RotationManager.EasingMode.SWIGHT_HIGH_SENS);
-        RotationManager.smoothTo(clientRef, center, factor);
+        RotationManager.smoothTo(mc, center, factor);
 
-        boolean aligned = RotationManager.isAligned(clientRef, center, aimYawTolerance, aimPitchTolerance);
+        boolean aligned = RotationManager.isAligned(mc, center, aimYawTol, aimPitchTol);
         if (aligned || aimTicks >= maxAimTicks) {
-            if (!aligned) RotationManager.snapTo(clientRef, center);
-            aimTicks = 0;
-            currentState = ShieldState.SWINGING;
+            if (!aligned) RotationManager.snapTo(mc, center);
+            aimTicks     = 0;
+            currentState = State.SWINGING;
         }
     }
 
-    private static void tickSwinging(Minecraft clientRef) {
-        if (!validateTarget(clientRef)) { hardReset(); return; }
+    private static void tickSwinging(Minecraft mc) {
+        if (!validateTarget(mc, false)) { hardReset(); return; }
 
-        float strength = clientRef.player.getAttackStrengthScale(0.5f);
+        // Usa 1.0f (partial tick padrão), não 0.5f
+        float strength = mc.player.getAttackStrengthScale(1.0f);
         if (strength < 0.80f) return;
 
-        if (secureRandom.nextDouble() < randomMissChance) {
-            cooldownTicks = 6 + secureRandom.nextInt(5);
-            currentState  = ShieldState.COOLDOWN;
-            hardResetInventory(clientRef);
+        if (RNG.nextDouble() < missChance) {
+            cooldownTicks = 6 + RNG.nextInt(5);
+            currentState  = State.COOLDOWN;
+            hardResetInventory(mc);
             return;
         }
 
-        InteractionManager.simulateClickAttack(clientRef);
-        clientRef.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+        // shieldStunActiveSync = true SOMENTE no momento do swing real
+        shieldStunActiveSync = true;
+        // justStunned: AutoMace lê para Stun Slam (mace smash no mesmo tick)
+        justStunned = true;
+
+        // Um único simulateClickAttack — não chamar swing() separado (double swing)
+        InteractionManager.simulateClickAttack(mc);
 
         sessionStunCount++;
-        currentFatigueLevel = Math.min(1.0D, currentFatigueLevel + fatigueScalar);
+        fatigueLevel = Math.min(1.0D, fatigueLevel + F_INC);
 
         if (followUpEnabled && followUpCount > 0) {
             followUpRemaining = followUpCount;
-            int swordSlot = findBestSword(clientRef);
-            if (swordSlot >= 0) InventoryManager.selectSlot(clientRef, swordSlot);
-            currentState = ShieldState.FOLLOWUP;
+            int swordSlot = findBestSword(mc);
+            if (swordSlot >= 0) InventoryManager.selectSlot(mc, swordSlot);
+            currentState = State.FOLLOWUP;
         } else {
-            int baseCd = 14 + secureRandom.nextInt(6);
-            cooldownTicks = (int)(baseCd + currentFatigueLevel * 4.0D);
-            currentState = ShieldState.COOLDOWN;
-            hardResetInventory(clientRef);
+            int baseCd = 14 + RNG.nextInt(6);
+            cooldownTicks = (int)(baseCd + fatigueLevel * 4.0D);
+            currentState  = State.COOLDOWN;
+            hardResetInventory(mc);
+            shieldStunActiveSync = false;
+            justStunned = false;
         }
     }
 
-    private static void tickFollowUp(Minecraft clientRef) {
+    private static void tickFollowUp(Minecraft mc) {
+        // validateTarget sem requireShield — alvo pode ter baixado escudo após stun
         if (followUpRemaining <= 0) {
-            int baseCd = 14 + secureRandom.nextInt(6);
-            cooldownTicks = (int)(baseCd + currentFatigueLevel * 4.0D);
-            currentState = ShieldState.COOLDOWN;
-            hardResetInventory(clientRef);
+            int baseCd = 14 + RNG.nextInt(6);
+            cooldownTicks = (int)(baseCd + fatigueLevel * 4.0D);
+            currentState  = State.COOLDOWN;
+            hardResetInventory(mc);
+            shieldStunActiveSync = false;
             return;
         }
-        if (!clientRef.player.isAlive()) { hardReset(); return; }
-        LivingEntity t = lockedShieldTarget;
-        if (t != null && t.isAlive() && clientRef.player.distanceTo(t) <= maxReach) {
-            float strength = clientRef.player.getAttackStrengthScale(0.5f);
+        if (!mc.player.isAlive()) { hardReset(); return; }
+        if (lockedTarget != null && lockedTarget.isAlive() && mc.player.distanceTo(lockedTarget) <= maxReach) {
+            float strength = mc.player.getAttackStrengthScale(1.0f);
             if (strength >= 0.75f) {
-                InteractionManager.simulateClickAttack(clientRef);
-                clientRef.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+                InteractionManager.simulateClickAttack(mc);
                 followUpRemaining--;
             }
         } else {
@@ -203,120 +227,132 @@ public class ShieldBreaker {
         }
     }
 
-    private static void tickCooldown(Minecraft clientRef) {
+    private static void tickCooldown(Minecraft mc) {
         if (--cooldownTicks <= 0) resetToIdle();
     }
 
     private static void updateSaccade() {
         saccadeTimer++;
-        if (saccadeTimer > 18 + secureRandom.nextInt(12)) {
-            saccadeTimer = 0;
-            overshootYawOffset   = (float)((secureRandom.nextDouble() - 0.5) * 0.8D);
-            overshootPitchOffset = (float)((secureRandom.nextDouble() - 0.5) * 0.6D);
+        if (saccadeTimer > 18 + RNG.nextInt(12)) {
+            saccadeTimer   = 0;
+            overshootYaw   = (float)((RNG.nextDouble() - 0.5) * 0.8D);
+            overshootPitch = (float)((RNG.nextDouble() - 0.5) * 0.6D);
         } else {
-            overshootYawOffset   *= 0.92f;
-            overshootPitchOffset *= 0.92f;
-            if (Math.abs(overshootYawOffset)   < 0.02f) overshootYawOffset   = 0.0f;
-            if (Math.abs(overshootPitchOffset) < 0.02f) overshootPitchOffset = 0.0f;
+            overshootYaw   *= 0.92f;
+            overshootPitch *= 0.92f;
+            if (Math.abs(overshootYaw)   < 0.02f) overshootYaw   = 0.0f;
+            if (Math.abs(overshootPitch) < 0.02f) overshootPitch = 0.0f;
         }
     }
 
-    private static boolean validateTarget(Minecraft clientRef) {
-        if (lockedShieldTarget == null || !lockedShieldTarget.isAlive()) return false;
-        if (!isBlocking(lockedShieldTarget)) return false;
-        if (clientRef.player.distanceTo(lockedShieldTarget) > maxReach + 1.0D) return false;
+    private static Vec3 targetCenter(LivingEntity t) {
+        return t.position().add(0.0D, t.getBbHeight() * 0.45D, 0.0D);
+    }
+
+    private static boolean validateTarget(Minecraft mc) {
+        return validateTarget(mc, true);
+    }
+
+    /** requireShield=false para SWINGING/FOLLOWUP: alvo pode ter baixado o escudo após o stun. */
+    private static boolean validateTarget(Minecraft mc, boolean requireShield) {
+        if (lockedTarget == null || !lockedTarget.isAlive()) return false;
+        if (requireShield && !isBlocking(lockedTarget)) return false;
+        if (mc.player.distanceTo(lockedTarget) > maxReach + 1.0D) return false;
         return true;
     }
 
-    private static LivingEntity findShieldTarget(Minecraft clientRef) {
+    private static LivingEntity findShieldTarget(Minecraft mc) {
         LivingEntity best = null;
-        double minDst     = (maxReach * maxReach) + 1.0D;
-        for (Entity e : clientRef.level.entitiesForRendering()) {
-            if (!(e instanceof LivingEntity living) || living == clientRef.player || !living.isAlive()) continue;
-            if (living instanceof Player p && (p.isSpectator() || p.isCreative())) continue;
-            double dst = clientRef.player.distanceToSqr(living);
-            if (dst > (maxReach * maxReach)) continue;
-            if (!verifyLos(clientRef, living)) continue;
-            if (!isBlocking(living)) continue;
-            if (dst < minDst) { minDst = dst; best = living; }
+        double minSq = maxReach * maxReach;
+        for (Entity e : mc.level.entitiesForRendering()) {
+            if (!(e instanceof LivingEntity lv) || lv == mc.player || !lv.isAlive()) continue;
+            if (lv instanceof Player p && (p.isSpectator() || p.isCreative())) continue;
+            double sq = mc.player.distanceToSqr(lv);
+            if (sq > minSq) continue;
+            if (!verifyLos(mc, lv)) continue;
+            if (!isBlocking(lv)) continue;
+            if (best == null || sq < mc.player.distanceToSqr(best)) best = lv;
         }
         return best;
     }
 
-    private static boolean isBlocking(LivingEntity target) {
-        if (target == null) return false;
-        return target.isUsingItem() && target.getUseItem().getItem() == Items.SHIELD;
+    private static boolean isBlocking(LivingEntity t) {
+        return t != null && t.isUsingItem() && t.getUseItem().getItem() == Items.SHIELD;
     }
 
-    private static boolean verifyLos(Minecraft clientRef, Entity target) {
-        if (clientRef.player == null || target == null || clientRef.level == null) return false;
-        Vec3 start = clientRef.player.getEyePosition();
+    private static boolean verifyLos(Minecraft mc, Entity target) {
+        if (mc.player == null || target == null || mc.level == null) return false;
+        Vec3 start = mc.player.getEyePosition();
         Vec3 end   = target.getEyePosition();
-        BlockHitResult hit = clientRef.level.clip(
-            new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, clientRef.player));
+        BlockHitResult hit = mc.level.clip(
+            new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player));
         return hit.getType() == HitResult.Type.MISS;
     }
 
-    private static boolean validateWeaponContext(Minecraft clientRef) {
-        if (clientRef.player == null) return false;
-        ItemStack s = clientRef.player.getMainHandItem();
-        if (s.isEmpty()) return true;
-        String name = s.getItem().getDescriptionId().toLowerCase();
-        return name.contains("sword") || name.contains("axe") || name.contains("trident") || name.contains("mace");
-    }
-
-    private static int findBestAxe(Minecraft clientRef) {
-        Item[] axes = { Items.NETHERITE_AXE, Items.DIAMOND_AXE, Items.IRON_AXE, Items.GOLDEN_AXE, Items.STONE_AXE, Items.WOODEN_AXE };
-        for (Item ax : axes) { int s = findItemSlot(clientRef, ax); if (s >= 0) return s; }
-        return -1;
-    }
-
-    private static int findBestSword(Minecraft clientRef) {
-        Item[] swords = { Items.NETHERITE_SWORD, Items.DIAMOND_SWORD, Items.IRON_SWORD, Items.GOLDEN_SWORD, Items.STONE_SWORD, Items.WOODEN_SWORD };
-        for (Item sw : swords) { int s = findItemSlot(clientRef, sw); if (s >= 0) return s; }
-        return -1;
-    }
-
-    private static int findItemSlot(Minecraft clientRef, Item item) {
-        if (clientRef.player == null) return -1;
-        for (int i = 0; i < 9; i++) { if (clientRef.player.getInventory().getItem(i).getItem() == item) return i; }
-        return -1;
-    }
-
-    private static void hardResetInventory(Minecraft clientRef) {
-        if (savedSlot >= 0 && savedSlot < 9 && clientRef != null && clientRef.player != null) {
-            InventoryManager.restoreSavedSlot(clientRef);
+    private static boolean hasAxeOrSword(Minecraft mc) {
+        if (mc.player == null) return false;
+        // Não bloqueia se o inventário tiver machado disponível
+        for (int i = 0; i < 9; i++) {
+            String n = mc.player.getInventory().getItem(i).getItem().getDescriptionId().toLowerCase();
+            if (n.contains("axe") || n.contains("sword")) return true;
         }
+        return false;
+    }
+
+    private static int findBestAxe(Minecraft mc) {
+        Item[] axes = { Items.NETHERITE_AXE, Items.DIAMOND_AXE, Items.IRON_AXE, Items.GOLDEN_AXE, Items.STONE_AXE, Items.WOODEN_AXE };
+        for (Item ax : axes) { int s = findSlot(mc, ax); if (s >= 0) return s; }
+        return -1;
+    }
+
+    private static int findBestSword(Minecraft mc) {
+        Item[] swords = { Items.NETHERITE_SWORD, Items.DIAMOND_SWORD, Items.IRON_SWORD, Items.GOLDEN_SWORD, Items.STONE_SWORD, Items.WOODEN_SWORD };
+        for (Item sw : swords) { int s = findSlot(mc, sw); if (s >= 0) return s; }
+        return -1;
+    }
+
+    private static int findSlot(Minecraft mc, Item item) {
+        if (mc.player == null) return -1;
+        for (int i = 0; i < 9; i++)
+            if (mc.player.getInventory().getItem(i).getItem() == item) return i;
+        return -1;
+    }
+
+    private static void hardResetInventory(Minecraft mc) {
+        if (savedSlot >= 0 && mc != null && mc.player != null)
+            InventoryManager.restoreSavedSlot(mc);
         savedSlot = -1;
     }
 
     private static void resetToIdle() {
-        currentState         = ShieldState.IDLE;
+        currentState         = State.IDLE;
         reactionDelay        = 0;
         cooldownTicks        = 0;
         followUpRemaining    = 0;
         aimTicks             = 0;
-        lockedShieldTarget   = null;
+        axeSyncWait          = 0;
+        lockedTarget         = null;
         shieldStunActiveSync = false;
+        justStunned          = false;
         savedSlot            = -1;
     }
 
     public static void hardReset() {
         resetToIdle();
-        currentFatigueLevel    = 0.0D;
-        autoCalibrationCounter = 0;
-        sessionStunCount       = 0;
-        overshootYawOffset     = 0.0f;
-        overshootPitchOffset   = 0.0f;
-        saccadeTimer           = 0;
+        fatigueLevel   = 0.0D;
+        sessionStunCount = 0;
+        overshootYaw   = 0.0f;
+        overshootPitch = 0.0f;
+        saccadeTimer   = 0;
     }
 
+    // ── API ───────────────────────────────────────────────────────────────
     public static boolean isShieldStunActive()  { return shieldStunActiveSync; }
     public static int     getSessionStunCount() { return sessionStunCount; }
-    public static double  getFatigueLevel()     { return currentFatigueLevel; }
+    public static double  getFatigueLevel()     { return fatigueLevel; }
     public static String  getCurrentStateName() { return currentState.name(); }
     public static void    setMaxReach(double r) { maxReach = Math.min(r, 3.0); }
     public static void    setFollowUp(boolean b, int count) { followUpEnabled = b; followUpCount = count; }
-    public static void    setAimTolerances(float yt, float pt) { aimYawTolerance = yt; aimPitchTolerance = pt; }
-    public static UUID    getSubsessionIdentity() { return SUBSESSION_IDENTITY; }
+    public static void    setAimTolerances(float yt, float pt) { aimYawTol = yt; aimPitchTol = pt; }
+    public static UUID    getSubsessionIdentity()              { return SESSION_ID; }
 }

@@ -4,7 +4,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ClipContext;
@@ -14,8 +13,6 @@ import net.minecraft.world.phys.Vec3;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 import java.security.SecureRandom;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.UUID;
 
 public class AutoMace {
@@ -23,191 +20,276 @@ public class AutoMace {
     public static final String FILE_NAME = "AutoMace.java";
     public static boolean enabled = false;
 
-    private static final SecureRandom secureRandom = new SecureRandom();
-    private static final UUID SUBSESSION_IDENTITY  = UUID.randomUUID();
+    private static final SecureRandom RNG = new SecureRandom();
+    private static final UUID SUBSESSION_IDENTITY = UUID.randomUUID();
 
-    private static final Deque<Double> VELOCITY_VECTOR_QUEUE = new ArrayDeque<>();
-    private static final Deque<Long>   SMASH_TIMING_QUEUE    = new ArrayDeque<>();
-    private static final int HISTORY_MAX = 256;
+    // ── Config ────────────────────────────────────────────────────────────
+    // maxAimDistance: detecção/tracking de alvo (pode ser alto)
+    // MACE_REACH:     reach real do servidor para mace smash
+    // SPEAR_REACH:    reach da lança (attribute swap)
+    private static double  maxAimDistance  = 30.0D;
+    private static double  minFallDistance = 1.5D;
+    private static boolean windChargeDetection = true;
+    private static boolean elytraDiveCheck     = true;
+    private static final double MACE_REACH     = 3.0D;
+    private static final double SPEAR_REACH    = 4.5D;
 
-    private static double  maxSwingRange        = 7.0D;
-    private static double  maxAimDistance       = 30.0D;
-    private static double  minFallDistance      = 1.5D;
-    private static float   hyperSnapSpeed       = 0.99F;
-    private static long    executionTicks       = 0L;
-    private static LivingEntity lockedMaceTarget = null;
-    private static int     smashCooldown        = 0;
-    private static boolean windChargeDetection  = true;
-    private static boolean elytraDiveCheck      = true;
-    private static double  currentFatigueLevel  = 0.0D;
-    private static final double fatigueScalar   = 0.001D;
-    private static final double fatigueRecovery = 0.0003D;
-    private static double  randomMissProbability = 0.01D;
-
-    private static double peakY     = Double.NEGATIVE_INFINITY;
+    // ── Estado de voo/pico ────────────────────────────────────────────────
+    private static double  peakY    = Double.NEGATIVE_INFINITY;
     private static boolean hasPeaked = false;
-    private static int     aimTicks  = 0;
-    private static int     trackTicks = 0;
-    private static boolean isTracking = false;
-    private static int     savedSlot  = -1;
-    private static float   aimYawTolerance   = 4.5f;
-    private static float   aimPitchTolerance = 5.0f;
-    private static int     maxAimTicksVal    = 10;
 
+    // ── Estado de aiming ─────────────────────────────────────────────────
+    private static LivingEntity lockedTarget = null;
+    private static int          aimTicks     = 0;
+    private static boolean      isTracking   = false;
+    private static final int    MAX_AIM_TICKS = 10;
+    private static final float  AIM_YAW_TOL   = 4.5f;
+    private static final float  AIM_PITCH_TOL  = 5.0f;
+
+    // ── Slot management ───────────────────────────────────────────────────
+    private static int  savedSlot    = -1;
+    private static int  smashCD      = 0;
+
+    // ── Enum de estado de ataque ──────────────────────────────────────────
+    private enum AttackMode { NONE, MACE_SMASH, SPEAR_SWAP }
+
+    // ── Session ───────────────────────────────────────────────────────────
+    private static long   executionTicks  = 0L;
+    private static double fatigueLevel    = 0.0D;
+    private static final double F_INC    = 0.001D;
+    private static final double F_DEC    = 0.0003D;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────
     public static void toggle() {
         enabled = !enabled;
-        if (!enabled) {
-            lockedMaceTarget = null;
-            isTracking       = false;
-            aimTicks         = 0;
-            trackTicks       = 0;
-            executionTicks   = 0L;
-            peakY            = Double.NEGATIVE_INFINITY;
-            hasPeaked        = false;
-            VELOCITY_VECTOR_QUEUE.clear();
-            SMASH_TIMING_QUEUE.clear();
-        }
+        if (!enabled) hardReset(null);
     }
 
-    public static void register() {
-        ClientTickEvents.END_CLIENT_TICK.register(AutoMace::onTick);
-    }
+    public static void register() { /* no-op: ClientBase.ModuleManager handles tick */ }
 
-    public static void onTick(Minecraft client) {
-        if (!enabled || client.player == null || client.level == null || !client.player.isAlive()) return;
+    // ── Tick principal ────────────────────────────────────────────────────
+    public static void onTick(Minecraft mc) {
+        if (!enabled || mc.player == null || mc.level == null || !mc.player.isAlive()) return;
 
         executionTicks++;
-        currentFatigueLevel = Math.max(0.0D, currentFatigueLevel - fatigueRecovery);
+        fatigueLevel = Math.max(0.0D, fatigueLevel - F_DEC);
+        if (smashCD > 0) smashCD--;
 
-        if (smashCooldown > 0) smashCooldown--;
+        RotationManager.samplePlayerGcd(mc);
 
-        RotationManager.samplePlayerGcd(client);
+        // Rastreia pico de altura para detectar descida
+        trackPeak(mc);
 
-        double vY = client.player.getDeltaMovement().y;
-        if (VELOCITY_VECTOR_QUEUE.size() >= HISTORY_MAX) VELOCITY_VECTOR_QUEUE.pollFirst();
-        VELOCITY_VECTOR_QUEUE.offerLast(vY);
-
-        trackPeak(client);
-
-        lockedMaceTarget = null;
-        double minDst = (maxAimDistance * maxAimDistance) + 1.0D;
-        for (Player p : client.level.players()) {
-            if (p == client.player || !p.isAlive() || p.isSpectator() || p.isCreative()) continue;
-            double dst = client.player.distanceToSqr(p);
-            if (dst > (maxAimDistance * maxAimDistance)) continue;
-            if (!verifyLineOfSight(client, p)) continue;
-            if (dst < minDst) { minDst = dst; lockedMaceTarget = p; }
+        // ── Seleciona alvo ────────────────────────────────────────────────
+        lockedTarget = null;
+        double minDstSq = maxAimDistance * maxAimDistance;
+        for (Player p : mc.level.players()) {
+            if (p == mc.player || !p.isAlive() || p.isSpectator() || p.isCreative()) continue;
+            double dstSq = mc.player.distanceToSqr(p);
+            if (dstSq > minDstSq) continue;
+            if (!verifyLos(mc, p)) continue;
+            if (dstSq < minDstSq) { minDstSq = dstSq; lockedTarget = p; }
         }
 
-        if (lockedMaceTarget == null) { isTracking = false; return; }
+        if (lockedTarget == null) { isTracking = false; return; }
 
-        double fallDist    = client.player.fallDistance;
-        boolean elytra     = client.player.isFallFlying();
-        boolean windMoment = windChargeDetection && vY > 0.75D;
-        boolean peaked     = hasPeaked || (peakY - client.player.getY() >= minFallDistance);
-        boolean diving     = (!client.player.onGround() && peaked && vY < -0.05D)
-                          || fallDist >= minFallDistance
-                          || (elytraDiveCheck && elytra)
-                          || windMoment;
+        // ── Verifica condições de mergulho ────────────────────────────────
+        double vy        = mc.player.getDeltaMovement().y;
+        double fallDist  = mc.player.fallDistance;
+        boolean elytra   = mc.player.isFallFlying();
+        // wind (vy > 0.75 = subindo) removido do diving: mace smash exige queda (vy < 0)
+        boolean peaked   = hasPeaked || (peakY != Double.NEGATIVE_INFINITY && (peakY - mc.player.getY()) >= minFallDistance);
+        boolean diving   = (!mc.player.onGround() && peaked && vy < -0.05D)
+                        || fallDist >= minFallDistance
+                        || (elytraDiveCheck && elytra);
 
         if (!diving) { isTracking = false; return; }
 
-        int mSlot = -1;
-        for (int i = 0; i < 9; i++) {
-            if (client.player.getInventory().getItem(i).getItem() == Items.MACE) { mSlot = i; break; }
-        }
-        if (mSlot < 0) return;
+        // ── Determina modo de ataque com base na distância ────────────────
+        double dist = mc.player.distanceTo(lockedTarget);
+        AttackMode mode = resolveAttackMode(mc, dist);
 
-        if (client.player.getInventory().getSelectedSlot() != mSlot) {
-            if (savedSlot < 0) savedSlot = client.player.getInventory().getSelectedSlot();
-            InventoryManager.selectSlot(client, mSlot);
-            return;
-        }
+        // ── Prepara slot ──────────────────────────────────────────────────
+        if (!prepareSlot(mc, mode)) return;
 
-        Vec3 center = lockedMaceTarget.position().add(0.0D, lockedMaceTarget.getBbHeight() * 0.45D, 0.0D);
-
-        if (!isTracking) {
-            aimTicks   = 0;
-            trackTicks = 0;
-            isTracking = true;
-        }
-
-        aimTicks++;
-        trackTicks++;
-
-        double aimErr = Math.hypot(
-            RotationManager.computeYawError(client, center),
-            RotationManager.computePitchError(client, center)
+        // ── Mira no alvo ──────────────────────────────────────────────────
+        Vec3 center = new Vec3(
+            lockedTarget.getX(),
+            lockedTarget.getY() + lockedTarget.getBbHeight() * 0.75,
+            lockedTarget.getZ()
         );
 
-        float factor = aimErr > 20.0D ? hyperSnapSpeed
+        if (!isTracking) { aimTicks = 0; isTracking = true; }
+        aimTicks++;
+
+        double aimErr = Math.hypot(
+            RotationManager.computeYawError(mc, center),
+            RotationManager.computePitchError(mc, center)
+        );
+
+        float factor = aimErr > 20.0D ? 0.99f
                      : aimErr > 8.0D  ? 0.78f
                      : Math.max(0.15f, 0.28f + 0.5f * (float)(aimErr / 8.0D));
         if (aimTicks < 4) factor *= (aimTicks / 4.0f);
 
         RotationManager.setEasingMode(aimErr > 20.0D
             ? RotationManager.EasingMode.SWIGHT_HIGH_SENS
-            : RotationManager.EasingMode.KINEMATIC_SPRING);
-        RotationManager.smoothTo(client, center, factor);
+            : RotationManager.EasingMode.EASE_OUT_EXPO);
+        RotationManager.smoothTo(mc, center, factor);
 
-        double dist  = client.player.distanceTo(lockedMaceTarget);
-        float  scale = client.player.getAttackStrengthScale(0.0F);
+        // ── Ataca quando alinhado ─────────────────────────────────────────
+        boolean aligned = RotationManager.isAligned(mc, center, AIM_YAW_TOL, AIM_PITCH_TOL);
+        float scale = mc.player.getAttackStrengthScale(0.0f);
 
-        if (dist <= maxSwingRange && scale >= (0.55D + currentFatigueLevel) && smashCooldown == 0) {
-            if (dist > 5.0D && secureRandom.nextDouble() >= 0.75D) return;
-            if (secureRandom.nextDouble() < randomMissProbability) {
-                smashCooldown = 2 + secureRandom.nextInt(2);
-                return;
-            }
-            InteractionManager.simulateClickAttack(client);
-            smashCooldown = 2 + secureRandom.nextInt(2);
-            currentFatigueLevel = Math.min(1.0D, currentFatigueLevel + fatigueScalar);
-            if (SMASH_TIMING_QUEUE.size() >= HISTORY_MAX) SMASH_TIMING_QUEUE.pollFirst();
-            SMASH_TIMING_QUEUE.offerLast(System.currentTimeMillis());
-            GrimBypassCore.onHitLanded(38, 65, 48, 75);
-            if (savedSlot >= 0) { InventoryManager.restoreSavedSlot(client); savedSlot = -1; }
-            isTracking = false; aimTicks = 0; trackTicks = 0;
+        double reachForMode = (mode == AttackMode.SPEAR_SWAP) ? SPEAR_REACH : MACE_REACH;
+        boolean inReach = dist <= reachForMode;
+
+        // Stun Slam: se ShieldBreaker acabou de stunnar no mesmo tick,
+        // ignora smashCD e smash imediatamente para máximo dano pré-i-frame
+        boolean stunThisTick = ShieldBreaker.justStunned;
+        if (stunThisTick) ShieldBreaker.justStunned = false; // consome a flag
+
+        if (aligned && inReach && (scale >= 0.35f || stunThisTick) && (smashCD == 0 || stunThisTick)) {
+            executeAttack(mc, mode);
         }
 
-        if (trackTicks > 200 || aimTicks > 200) {
-            isTracking = false; aimTicks = 0; trackTicks = 0;
-            if (savedSlot >= 0) { InventoryManager.restoreSavedSlot(client); savedSlot = -1; }
+        // Timeout — evita ficar preso no tracking
+        if (aimTicks > 200) {
+            isTracking = false;
+            aimTicks   = 0;
+            restoreSlot(mc);
         }
     }
 
-    private static void trackPeak(Minecraft client) {
-        double y  = client.player.getY();
-        double vy = client.player.getDeltaMovement().y;
-        if (client.player.onGround()) { peakY = y; hasPeaked = false; return; }
-        if (vy > 0) peakY = Math.max(peakY == Double.NEGATIVE_INFINITY ? y : peakY, y);
+    // ── Resolve modo de ataque ────────────────────────────────────────────
+    private static AttackMode resolveAttackMode(Minecraft mc, double dist) {
+        if (dist <= MACE_REACH) return AttackMode.MACE_SMASH;
+        if (dist <= SPEAR_REACH && hasSpear(mc)) return AttackMode.SPEAR_SWAP;
+        return AttackMode.NONE;
+    }
+
+    // ── Prepara o slot correto para o modo ────────────────────────────────
+    private static boolean prepareSlot(Minecraft mc, AttackMode mode) {
+        if (mode == AttackMode.NONE) return false;
+
+        int targetSlot = (mode == AttackMode.SPEAR_SWAP) ? findSpear(mc) : findMace(mc);
+        if (targetSlot < 0) return false;
+
+        int current = SlotAccessor.get(mc);
+
+        // Guard: se o usuário trocou manualmente (slot diferente do savedSlot), reseta
+        if (savedSlot >= 0 && current != targetSlot && current != savedSlot) {
+            restoreSlot(mc);
+            return false;
+        }
+
+        if (current != targetSlot) {
+            if (savedSlot < 0) savedSlot = current;
+            InventoryManager.selectSlot(mc, targetSlot);
+            return false; // espera um tick para o servidor reconhecer a troca
+        }
+
+        return true;
+    }
+
+    // ── Executa o ataque ──────────────────────────────────────────────────
+    // SPEAR_SWAP: spear já selecionada (prepareSlot) → ataque com reach 4.5 →
+    //             restore para slot original no mesmo tick.
+    // MACE_SMASH: mace já selecionada → smash → restore.
+    private static void executeAttack(Minecraft mc, AttackMode mode) {
+        InteractionManager.simulateClickAttack(mc);
+        smashCD = 2 + RNG.nextInt(3);
+        fatigueLevel = Math.min(1.0D, fatigueLevel + F_INC);
+        GrimBypassCore.onHitLanded(38, 65, 48, 75);
+
+        // Sempre restaura para o slot original após o ataque
+        restoreSlot(mc);
+
+        isTracking = false;
+        aimTicks   = 0;
+    }
+
+    // ── Rastreia pico de altura ───────────────────────────────────────────
+    private static void trackPeak(Minecraft mc) {
+        double y  = mc.player.getY();
+        double vy = mc.player.getDeltaMovement().y;
+        // Reseta pico em terra, água, lava e escada para evitar smash em terreno falso
+        if (mc.player.onGround()
+                || mc.player.isInWater()
+                || mc.player.isInLava()
+                || mc.player.onClimbable()) {
+            peakY = y; hasPeaked = false; return;
+        }
+        if (vy > 0) peakY = peakY == Double.NEGATIVE_INFINITY ? y : Math.max(peakY, y);
         if (vy < 0 && peakY != Double.NEGATIVE_INFINITY) hasPeaked = true;
     }
 
-    private static boolean verifyLineOfSight(Minecraft client, Entity target) {
-        if (client.player == null || target == null || client.level == null) return false;
-        Vec3 start = client.player.getEyePosition();
+    // ── Busca de itens no hotbar ──────────────────────────────────────────
+    private static int findMace(Minecraft mc) {
+        for (int i = 0; i < 9; i++)
+            if (mc.player.getInventory().getItem(i).getItem() == Items.MACE) return i;
+        return -1;
+    }
+
+    private static boolean hasSpear(Minecraft mc) { return findSpear(mc) >= 0; }
+
+    private static int findSpear(Minecraft mc) {
+        // Spear = trident (item mais próximo do alcance estendido disponível vanilla)
+        // Em mods com spear custom, adicionar aqui
+        for (int i = 0; i < 9; i++) {
+            ItemStack s = mc.player.getInventory().getItem(i);
+            String n = s.getItem().getDescriptionId().toLowerCase();
+            if (n.contains("trident") || n.contains("spear")) return i;
+        }
+        return -1;
+    }
+
+    private static void restoreSlot(Minecraft mc) {
+        if (savedSlot >= 0 && mc != null && mc.player != null) {
+            InventoryManager.restoreSavedSlot(mc);
+        }
+        savedSlot = -1;
+    }
+
+    // ── LOS ──────────────────────────────────────────────────────────────
+    private static boolean verifyLos(Minecraft mc, Entity target) {
+        if (mc.player == null || target == null || mc.level == null) return false;
+        Vec3 start = mc.player.getEyePosition();
         Vec3 end   = target.getEyePosition();
-        BlockHitResult hit = client.level.clip(
-            new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, client.player));
+        BlockHitResult hit = mc.level.clip(
+            new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player));
         return hit.getType() == HitResult.Type.MISS;
     }
 
-    public static boolean verifyMaceSubsystemHealth() { return enabled && SUBSESSION_IDENTITY != null; }
-    public static long    getExecutionTicks()          { return executionTicks; }
-    public static void    setMaxSwingRange(double r)   { maxSwingRange = r; }
-    public static double  getMaxSwingRange()           { return maxSwingRange; }
-    public static void    setMaxAimDistance(double d)  { maxAimDistance = d; }
-    public static double  getMaxAimDistance()          { return maxAimDistance; }
-    public static void    setMinFallDistance(double d) { minFallDistance = d; }
-    public static double  getMinFallDistance()         { return minFallDistance; }
-    public static void    setHyperSnapSpeed(float s)   { hyperSnapSpeed = s; }
-    public static float   getHyperSnapSpeed()          { return hyperSnapSpeed; }
-    public static void    setWindChargeDetection(boolean b) { windChargeDetection = b; }
-    public static boolean isWindChargeDetectionActive() { return windChargeDetection; }
-    public static void    setElytraDiveCheck(boolean b) { elytraDiveCheck = b; }
-    public static boolean isElytraDiveCheckActive()    { return elytraDiveCheck; }
-    public static double  getFatigueLevel()            { return currentFatigueLevel; }
-    public static LivingEntity getLockedTarget()       { return lockedMaceTarget; }
-    public static UUID    getSubsessionIdentity()      { return SUBSESSION_IDENTITY; }
-    public static void    clearAllMaceQueues()         { VELOCITY_VECTOR_QUEUE.clear(); SMASH_TIMING_QUEUE.clear(); }
+    private static void hardReset(Minecraft mc) {
+        if (mc != null) restoreSlot(mc);
+        lockedTarget = null;
+        isTracking   = false;
+        aimTicks     = 0;
+        peakY        = Double.NEGATIVE_INFINITY;
+        hasPeaked    = false;
+        smashCD      = 0;
+        savedSlot    = -1;
+    }
+
+    // ── API pública ───────────────────────────────────────────────────────
+    public static long        getExecutionTicks()           { return executionTicks; }
+    public static double      getFatigueLevel()             { return fatigueLevel; }
+    public static LivingEntity getLockedTarget()            { return lockedTarget; }
+    public static UUID        getSubsessionIdentity()       { return SUBSESSION_IDENTITY; }
+    public static void        setMaxAimDistance(double d)   { maxAimDistance = d; }
+    public static double      getMaxAimDistance()           { return maxAimDistance; }
+    public static void        setMinFallDistance(double d)  { minFallDistance = d; }
+    public static double      getMinFallDistance()          { return minFallDistance; }
+    public static void        setWindChargeDetection(boolean b) { windChargeDetection = b; }
+    public static void        setElytraDiveCheck(boolean b)    { elytraDiveCheck = b; }
+    // compat
+    public static void   setMaxSwingRange(double r)  {} // ignorado — reach é fixo no servidor
+    public static double getMaxSwingRange()           { return MACE_REACH; }
+    public static void   setHyperSnapSpeed(float s)  {}
+    public static float  getHyperSnapSpeed()         { return 0.99f; }
+    public static boolean isWindChargeDetectionActive()  { return windChargeDetection; }
+    public static boolean isElytraDiveCheckActive()      { return elytraDiveCheck; }
+    public static boolean verifyMaceSubsystemHealth()    { return enabled; }
+    public static void    clearAllMaceQueues()           {}
 }
