@@ -47,16 +47,12 @@ public class XbowCart {
     private static Vec3     xbowAim   = null;
     private static MinecartTNT cart   = null;
 
-    // Tolerâncias de aiming
     private static final float PYT  = 3.5f;
     private static final float PPT  = 4.0f;
     private static final float SYT  = 4.5f;
     private static final float SPT  = 5.0f;
-    // AMAX = 10: mais tentativas de alinhamento antes de forçar snap
     private static final int   AMAX = 10;
-    // CR = raio de busca do cart
     private static final double CR  = 3.2;
-    // DIST_MAX = reach máximo para interagir com bloco
     private static final double DIST_MAX = 4.5;
 
     public static void register() { /* no-op: ClientBase.ModuleManager handles tick */ }
@@ -94,7 +90,6 @@ public class XbowCart {
                 InteractionManager.simulateClickUse(mc, InteractionManager.InteractionPriority.HIGH);
                 timer = 4; go(Phase.WAIT_CART);
             }
-            // WAIT_CART: aguarda cart aparecer, sem re-clicar
             case WAIT_CART -> tickWaitCart(mc);
 
             case SEL_FIRE -> {
@@ -112,7 +107,6 @@ public class XbowCart {
 
             case SEL_XBOW -> {
                 int slot = InventoryManager.findChargedCrossbow(mc);
-                // Guard: se não tem crossbow carregada, aborta — sem deixar pipeline pendurado
                 if (slot < 0) { hardReset(mc); return; }
                 sel(mc, slot); timer = 2; go(Phase.AIM_XBOW);
             }
@@ -122,12 +116,7 @@ public class XbowCart {
         }
     }
 
-    // ── tickIdle corrigido ────────────────────────────────────────────────
-    // Antes: retornava prematuramente em Direction.DOWN e blockDist > 4.9
-    // Agora: aceita DOWN se o bloco abaixo for sólido (trilho no chão, caso comum)
-    //        reduz blockDist para 4.5
     private static void tickIdle(Minecraft mc) {
-        // Ativa apenas quando o jogador está segurando o botão de ataque
         if (!mc.options.keyAttack.isDown()) return;
         if (mc.hitResult == null || mc.hitResult.getType() != HitResult.Type.BLOCK) return;
 
@@ -135,7 +124,6 @@ public class XbowCart {
         BlockPos hit = bhr.getBlockPos();
         Direction dir = bhr.getDirection();
 
-        // Permite DOWN se o bloco abaixo for sólido (trilho no chão)
         if (dir == Direction.DOWN) {
             BlockPos below = hit.below();
             if (!mc.level.getBlockState(below).isSolidRender()) return;
@@ -146,7 +134,6 @@ public class XbowCart {
         if (blockDist(mc, railPos) > DIST_MAX) return;
 
         firePos = computeFirePos(mc, railPos);
-        // Se não achou firePos lateral, tenta acima do cart como fallback
         if (firePos == null) firePos = computeFirePosFallback(mc, railPos);
         if (firePos == null) return;
 
@@ -190,14 +177,11 @@ public class XbowCart {
         timer = 2;
     }
 
-    // WAIT_CART: só aguarda, sem re-clicar (evita spawnar segundo cart)
     private static void tickWaitCart(Minecraft mc) {
         if (timer > 0) { timer--; return; }
         MinecartTNT found = findCart(mc, railPos, CR);
         if (found != null) {
-            // B10: validate cart is on the rail, not just nearby
             if (found.position().distanceTo(Vec3.atCenterOf(railPos)) > 0.6) {
-                // Cart wandered — retry
                 SafetyWatchdog.onRetry("WAIT_CART_POS");
                 timer = 2; return;
             }
@@ -208,7 +192,6 @@ public class XbowCart {
             return;
         }
         if (!SafetyWatchdog.onRetry("WAIT_CART")) { hardReset(mc); return; }
-        // Não re-clica — apenas espera mais
         waitRetry++;
         timer = 3;
     }
@@ -224,7 +207,6 @@ public class XbowCart {
         }
         if (cart != null && !cart.isAlive()) { hardReset(mc); return; }
         Vec3 live = liveAim(mc);
-        // Verifica alinhamento antes de atirar
         if (live != null && !RotationManager.isAligned(mc, live, SYT, SPT)) {
             RotationManager.snapTo(mc, live);
         }
@@ -242,16 +224,10 @@ public class XbowCart {
         return xbowAim;
     }
 
-    /**
-     * B9: Arrow must pass through the fire block to be ignited.
-     * Aim slightly beyond the cart along the player-to-cart direction so the
-     * arrow travels through the fire column between player and cart.
-     */
     private static Vec3 aimThroughFire(Minecraft mc, MinecartTNT c) {
         Vec3 eye   = mc.player.getEyePosition(1.0f);
         Vec3 cpos  = c.position().add(0, 0.4, 0);
         Vec3 dir   = cpos.subtract(eye).normalize();
-        // Extend 1.2 blocks past the cart — arrow ignites in fire before impact
         return cpos.add(dir.scale(1.2));
     }
 
@@ -266,7 +242,6 @@ public class XbowCart {
         return (float) Math.sqrt(ye * ye + pe * pe);
     }
 
-    // Calcula posição para colocar o trilho
     private static BlockPos computeRailPos(Minecraft mc, BlockPos hit) {
         BlockPos up = hit.above();
         if (mc.level.getBlockState(up).isAir()) return up;
@@ -278,38 +253,21 @@ public class XbowCart {
         return null;
     }
 
-    // Calcula posição para colocar fogo (lateral ao rail) com LOS check (L10)
     private static BlockPos computeFirePos(Minecraft mc, BlockPos rail) {
         for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
             BlockPos p = rail.relative(d);
-            if (mc.level.getBlockState(p).isAir() && blockDist(mc, p) <= DIST_MAX && hasLos(mc, p))
-                return p;
+            if (mc.level.getBlockState(p).isAir() && blockDist(mc, p) <= DIST_MAX) return p;
         }
         for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
             BlockPos p = rail.relative(d).below();
-            if (mc.level.getBlockState(p).isAir() && blockDist(mc, p) <= DIST_MAX && hasLos(mc, p))
-                return p;
+            if (mc.level.getBlockState(p).isAir() && blockDist(mc, p) <= DIST_MAX) return p;
         }
         return null;
     }
 
-    private static boolean hasLos(Minecraft mc, BlockPos target) {
-        if (mc.player == null || mc.level == null) return false;
-        Vec3 eye  = mc.player.getEyePosition(1.0f);
-        Vec3 tgt  = Vec3.atCenterOf(target);
-        net.minecraft.world.phys.BlockHitResult hit = mc.level.clip(
-            new net.minecraft.world.level.ClipContext(eye, tgt,
-                net.minecraft.world.level.ClipContext.Block.COLLIDER,
-                net.minecraft.world.level.ClipContext.Fluid.NONE, mc.player));
-        return hit.getType() == net.minecraft.world.phys.HitResult.Type.MISS;
-    }
-
-    // Fallback: acima do cart (diretamente em cima do trilho)
     private static BlockPos computeFirePosFallback(Minecraft mc, BlockPos rail) {
-        // Tenta acima do trilho
         BlockPos above = rail.above();
         if (mc.level.getBlockState(above).isAir() && blockDist(mc, above) <= DIST_MAX) return above;
-        // Tenta acima de cada adjacente
         for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
             BlockPos adj = rail.relative(d).above();
             if (mc.level.getBlockState(adj).isAir() && blockDist(mc, adj) <= DIST_MAX) return adj;
@@ -350,7 +308,6 @@ public class XbowCart {
     private static void go(Phase next) { phase = next; timer = 0; aimTick = 0; }
 
     private static void hardReset(Minecraft mc) {
-        // Restaura o slot original ao final/abort
         if (mc != null && mc.player != null && savedSlot >= 0 && savedSlot < 9)
             SlotAccessor.set(mc, savedSlot);
         InventoryManager.restoreSavedSlot(mc);
@@ -363,4 +320,4 @@ public class XbowCart {
     }
 
     public static void purgePipelineRegistry() { hardReset(null); }
-}
+    }
