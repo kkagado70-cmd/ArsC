@@ -88,7 +88,7 @@ public class TriggerBot {
         if (mc.player.isFallFlying()) return false;
         if (mc.player.isInWater())    return false;
         if (mc.player.isInLava())     return false;
-        if (mc.player.isOnLadder())   return false;
+        if (mc.player.onClimbable())   return false;
         if (mc.player.isPassenger())  return false;
         double vy = mc.player.getDeltaMovement().y;
         return vy < 0.0 && mc.player.fallDistance > 0.0;
