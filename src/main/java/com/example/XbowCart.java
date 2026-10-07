@@ -3,6 +3,7 @@ package com.example;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.vehicle.MinecartTNT;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemStack;
@@ -277,17 +278,30 @@ public class XbowCart {
         return null;
     }
 
-    // Calcula posição para colocar fogo (lateral ao rail)
+    // Calcula posição para colocar fogo (lateral ao rail) com LOS check (L10)
     private static BlockPos computeFirePos(Minecraft mc, BlockPos rail) {
         for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
             BlockPos p = rail.relative(d);
-            if (mc.level.getBlockState(p).isAir() && blockDist(mc, p) <= DIST_MAX) return p;
+            if (mc.level.getBlockState(p).isAir() && blockDist(mc, p) <= DIST_MAX && hasLos(mc, p))
+                return p;
         }
         for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
             BlockPos p = rail.relative(d).below();
-            if (mc.level.getBlockState(p).isAir() && blockDist(mc, p) <= DIST_MAX) return p;
+            if (mc.level.getBlockState(p).isAir() && blockDist(mc, p) <= DIST_MAX && hasLos(mc, p))
+                return p;
         }
         return null;
+    }
+
+    private static boolean hasLos(Minecraft mc, BlockPos target) {
+        if (mc.player == null || mc.level == null) return false;
+        Vec3 eye  = mc.player.getEyePosition(1.0f);
+        Vec3 tgt  = Vec3.atCenterOf(target);
+        net.minecraft.world.phys.BlockHitResult hit = mc.level.clip(
+            new net.minecraft.world.level.ClipContext(eye, tgt,
+                net.minecraft.world.level.ClipContext.Block.COLLIDER,
+                net.minecraft.world.level.ClipContext.Fluid.NONE, mc.player));
+        return hit.getType() == net.minecraft.world.phys.HitResult.Type.MISS;
     }
 
     // Fallback: acima do cart (diretamente em cima do trilho)

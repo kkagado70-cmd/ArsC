@@ -64,7 +64,8 @@ public class TriggerBot {
         LivingEntity target = crosshairTarget(mc);
         if (target == null || !holdingWeapon(mc)) return;
 
-        float strength  = mc.player.getAttackStrengthScale(0.5f);
+        // L4: 1.0f = standard partial tick for server-side damage calc
+        float strength  = mc.player.getAttackStrengthScale(1.0f);
         double threshold = (comboTicks > 0) ? thresholdCombo : thresholdNormal;
         if (strength < threshold) return;
 

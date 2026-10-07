@@ -35,9 +35,12 @@ public final class GrimBypassCore {
     public static boolean canAttack(double targetCps, double jitterMs) {
         long now = System.currentTimeMillis();
         if (now < postHitLockoutUntil) return false;
-        long minInterval = (long)(1000.0 / targetCps);
-        long jitter = (long)(RNG.nextGaussian() * jitterMs * 0.5);
-        return (now - lastAttackMs) >= (minInterval + jitter);
+        // L16: use fixed minInterval per call — not cumulative across calls
+        long minInterval = (long)(1000.0 / Math.max(targetCps, 1.0));
+        // Gaussian jitter ±jitterMs/2 for natural CPS variance
+        long jitter = (long)(RNG.nextGaussian() * (jitterMs * 0.3));
+        long elapsed = now - lastAttackMs;
+        return elapsed >= (minInterval + jitter);
     }
 
     /**

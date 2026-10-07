@@ -193,16 +193,17 @@ public class AutoMace {
     }
 
     // ── Executa o ataque ──────────────────────────────────────────────────
-    // SPEAR_SWAP: spear já selecionada (prepareSlot) → ataque com reach 4.5 →
-    //             restore para slot original no mesmo tick.
-    // MACE_SMASH: mace já selecionada → smash → restore.
+    // L7: SPEAR_SWAP no mesmo tick:
+    //   1. prepareSlot já selecionou a spear (reach 4.5)
+    //   2. simulateClickAttack envia o pacote de ataque com a spear na mão
+    //   3. restoreSlot imediatamente → servidor vê troca+ataque+restore em 0.05s
     private static void executeAttack(Minecraft mc, AttackMode mode) {
         InteractionManager.simulateClickAttack(mc);
         smashCD = 2 + RNG.nextInt(3);
         fatigueLevel = Math.min(1.0D, fatigueLevel + F_INC);
-        GrimBypassCore.onHitLanded(38, 65, 48, 75);
+        GrimBypassCore.onHitLanded(20, 40, 20, 40);
 
-        // Sempre restaura para o slot original após o ataque
+        // Restore imediato — mesmo tick
         restoreSlot(mc);
 
         isTracking = false;

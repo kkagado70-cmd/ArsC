@@ -6,41 +6,51 @@ import net.minecraft.world.entity.player.Inventory;
 import java.lang.reflect.Field;
 
 /**
- * Acessa Inventory.selected mesmo quando privado (1.21.11+).
- * READ  → getSelectedSlot()  se existir, senão reflection.
- * WRITE → reflection + ServerboundSetCarriedItemPacket para sync com servidor.
+ * Acessa Inventory.selected (privado em 1.21.11) via reflection.
+ * Nunca acessa o campo diretamente — compila sem erros de acesso.
+ * WRITE também envia ServerboundSetCarriedItemPacket para sync com servidor.
  */
 final class SlotAccessor {
-    private static final Field SEL;
+    private static final Field SEL_FIELD;
 
     static {
         Field f = null;
-        for (String name : new String[]{"selected", "f_35977_"}) {
-            try { f = Inventory.class.getDeclaredField(name); f.setAccessible(true); break; }
-            catch (NoSuchFieldException ignored) {}
+        // Tenta nomes conhecidos (Mojmap: "selected", intermediary: "f_35977_")
+        for (String name : new String[]{"selected", "f_35977_", "selectedSlot"}) {
+            try {
+                f = Inventory.class.getDeclaredField(name);
+                f.setAccessible(true);
+                break;
+            } catch (NoSuchFieldException ignored) {}
         }
-        SEL = f;
+        SEL_FIELD = f;
     }
 
     private SlotAccessor() {}
 
     static int get(Minecraft mc) {
         if (mc == null || mc.player == null) return -1;
-        try { return mc.player.getInventory().getSelectedSlot(); }
-        catch (NoSuchMethodError ignored) {}
-        if (SEL != null) {
-            try { return (int) SEL.get(mc.player.getInventory()); }
+        // Tenta método público primeiro (pode existir em alguns mappings)
+        try {
+            var method = Inventory.class.getMethod("getSelectedSlot");
+            return (int) method.invoke(mc.player.getInventory());
+        } catch (Exception ignored) {}
+        // Fallback: reflection sobre campo privado
+        if (SEL_FIELD != null) {
+            try { return (int) SEL_FIELD.get(mc.player.getInventory()); }
             catch (IllegalAccessException ignored) {}
         }
-        return mc.player.getInventory().selected;
+        return 0; // safe default
     }
 
     static void set(Minecraft mc, int slot) {
         if (mc == null || mc.player == null || slot < 0 || slot > 8) return;
-        if (SEL != null) {
-            try { SEL.set(mc.player.getInventory(), slot); }
+        // Write via reflection
+        if (SEL_FIELD != null) {
+            try { SEL_FIELD.set(mc.player.getInventory(), slot); }
             catch (IllegalAccessException ignored) {}
         }
+        // Sync with server
         if (mc.getConnection() != null) {
             mc.getConnection().send(
                 new net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket(slot));
