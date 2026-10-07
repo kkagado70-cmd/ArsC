@@ -1,18 +1,18 @@
 package com.example;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.vehicle.MinecartTNT;
-import net.minecraft.world.item.CrossbowItem;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.world.phys.HitResult;
-import net.minecraft.world.phys.Vec3;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.vehicle.TntMinecartEntity;   // ← Yarn: TntMinecartEntity
+import net.minecraft.item.CrossbowItem;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.block.Blocks;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.math.Box;
+import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.hit.HitResult;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 import java.util.Comparator;
@@ -41,11 +41,11 @@ public class XbowCart {
     private static int      savedSlot = -1;
     private static BlockPos railPos   = null;
     private static BlockPos firePos   = null;
-    private static Vec3     railAim   = null;
-    private static Vec3     cartAim   = null;
-    private static Vec3     fireAim   = null;
-    private static Vec3     xbowAim   = null;
-    private static MinecartTNT cart   = null;
+    private static Vec3d    railAim   = null;
+    private static Vec3d    cartAim   = null;
+    private static Vec3d    fireAim   = null;
+    private static Vec3d    xbowAim   = null;
+    private static TntMinecartEntity cart = null;   // ← Yarn
 
     private static final float PYT  = 3.5f;
     private static final float PPT  = 4.0f;
@@ -58,8 +58,8 @@ public class XbowCart {
     public static void register() { /* no-op: ClientBase.ModuleManager handles tick */ }
 
     public static void onTick(Minecraft mc) {
-        if (!enabled || mc.player == null || mc.level == null) return;
-        if (mc.screen != null) return;
+        if (!enabled || mc.player == null || mc.world == null) return;
+        if (mc.currentScreen != null) return;
 
         RotationManager.samplePlayerGcd(mc);
 
@@ -117,16 +117,16 @@ public class XbowCart {
     }
 
     private static void tickIdle(Minecraft mc) {
-        if (!mc.options.keyAttack.isDown()) return;
-        if (mc.hitResult == null || mc.hitResult.getType() != HitResult.Type.BLOCK) return;
+        if (!mc.options.attackKey.isPressed()) return;
+        if (mc.crosshairTarget == null || mc.crosshairTarget.getType() != HitResult.Type.BLOCK) return;
 
-        BlockHitResult bhr = (BlockHitResult) mc.hitResult;
+        BlockHitResult bhr = (BlockHitResult) mc.crosshairTarget;
         BlockPos hit = bhr.getBlockPos();
-        Direction dir = bhr.getDirection();
+        Direction dir = bhr.getSide();
 
         if (dir == Direction.DOWN) {
-            BlockPos below = hit.below();
-            if (!mc.level.getBlockState(below).isSolidRender()) return;
+            BlockPos below = hit.down();
+            if (!mc.world.getBlockState(below).isSolidBlock(mc.world, below)) return;
         }
 
         railPos = computeRailPos(mc, hit);
@@ -139,10 +139,10 @@ public class XbowCart {
 
         if (!InventoryManager.validateSequenceInventory(mc)) return;
 
-        railAim = Vec3.atCenterOf(railPos);
-        cartAim = Vec3.atCenterOf(railPos).add(0, 0.15, 0);
-        fireAim = Vec3.atCenterOf(firePos).add(0, 0.50, 0);
-        xbowAim = Vec3.atCenterOf(railPos).add(0, 0.85, 0);
+        railAim = Vec3d.ofCenter(railPos);
+        cartAim = Vec3d.ofCenter(railPos).add(0, 0.15, 0);
+        fireAim = Vec3d.ofCenter(firePos).add(0, 0.50, 0);
+        xbowAim = Vec3d.ofCenter(railPos).add(0, 0.85, 0);
 
         InventoryManager.saveCurrentSlot(mc);
         savedSlot = SlotAccessor.get(mc);
@@ -151,7 +151,7 @@ public class XbowCart {
         go(Phase.SEL_RAIL);
     }
 
-    private static void tickFlick(Minecraft mc, Vec3 target, float yt, float pt, Phase next) {
+    private static void tickFlick(Minecraft mc, Vec3d target, float yt, float pt, Phase next) {
         if (target == null) { hardReset(mc); return; }
         if (--timer > 0) return;
         aimTick++;
@@ -179,9 +179,9 @@ public class XbowCart {
 
     private static void tickWaitCart(Minecraft mc) {
         if (timer > 0) { timer--; return; }
-        MinecartTNT found = findCart(mc, railPos, CR);
+        TntMinecartEntity found = findCart(mc, railPos, CR);   // ← Yarn
         if (found != null) {
-            if (found.position().distanceTo(Vec3.atCenterOf(railPos)) > 0.6) {
+            if (found.getPos().distanceTo(Vec3d.ofCenter(railPos)) > 0.6) {
                 SafetyWatchdog.onRetry("WAIT_CART_POS");
                 timer = 2; return;
             }
@@ -201,12 +201,12 @@ public class XbowCart {
         int slot = InventoryManager.findChargedCrossbow(mc);
         if (slot < 0) { hardReset(mc); return; }
         sel(mc, slot);
-        ItemStack held = mc.player.getMainHandItem();
+        ItemStack held = mc.player.getMainHandStack();
         if (held.isEmpty() || !(held.getItem() instanceof CrossbowItem) || !CrossbowItem.isCharged(held)) {
             hardReset(mc); return;
         }
         if (cart != null && !cart.isAlive()) { hardReset(mc); return; }
-        Vec3 live = liveAim(mc);
+        Vec3d live = liveAim(mc);
         if (live != null && !RotationManager.isAligned(mc, live, SYT, SPT)) {
             RotationManager.snapTo(mc, live);
         }
@@ -215,39 +215,39 @@ public class XbowCart {
         go(Phase.COOLDOWN);
     }
 
-    private static Vec3 liveAim(Minecraft mc) {
+    private static Vec3d liveAim(Minecraft mc) {
         if (cart != null && cart.isAlive()) return aimThroughFire(mc, cart);
         if (railPos != null) {
-            MinecartTNT found = findCart(mc, railPos, CR);
+            TntMinecartEntity found = findCart(mc, railPos, CR);   // ← Yarn
             if (found != null) { cart = found; return aimThroughFire(mc, found); }
         }
         return xbowAim;
     }
 
-    private static Vec3 aimThroughFire(Minecraft mc, MinecartTNT c) {
-        Vec3 eye   = mc.player.getEyePosition(1.0f);
-        Vec3 cpos  = c.position().add(0, 0.4, 0);
-        Vec3 dir   = cpos.subtract(eye).normalize();
-        return cpos.add(dir.scale(1.2));
+    private static Vec3d aimThroughFire(Minecraft mc, TntMinecartEntity c) {   // ← Yarn
+        Vec3d eye   = mc.player.getEyePos();
+        Vec3d cpos  = c.getPos().add(0, 0.4, 0);
+        Vec3d dir   = cpos.subtract(eye).normalize();
+        return cpos.add(dir.multiply(1.2));
     }
 
-    private static Vec3 predictCart(MinecartTNT c) {
-        Vec3 p = c.position(); Vec3 v = c.getDeltaMovement();
+    private static Vec3d predictCart(TntMinecartEntity c) {   // ← Yarn
+        Vec3d p = c.getPos(); Vec3d v = c.getVelocity();
         return p.add(v.x * 1.9, 0.85, v.z * 1.9);
     }
 
-    private static float angDist(Minecraft mc, Vec3 aim) {
+    private static float angDist(Minecraft mc, Vec3d aim) {
         float ye = RotationManager.computeYawError(mc, aim);
         float pe = RotationManager.computePitchError(mc, aim);
         return (float) Math.sqrt(ye * ye + pe * pe);
     }
 
     private static BlockPos computeRailPos(Minecraft mc, BlockPos hit) {
-        BlockPos up = hit.above();
-        if (mc.level.getBlockState(up).isAir()) return up;
+        BlockPos up = hit.up();
+        if (mc.world.getBlockState(up).isAir()) return up;
         for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
-            BlockPos adj = hit.relative(d);
-            if (mc.level.getBlockState(adj).isAir() && mc.level.getBlockState(adj.below()).isSolidRender())
+            BlockPos adj = hit.offset(d);
+            if (mc.world.getBlockState(adj).isAir() && mc.world.getBlockState(adj.down()).isSolidBlock(mc.world, adj.down()))
                 return adj;
         }
         return null;
@@ -255,50 +255,50 @@ public class XbowCart {
 
     private static BlockPos computeFirePos(Minecraft mc, BlockPos rail) {
         for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
-            BlockPos p = rail.relative(d);
-            if (mc.level.getBlockState(p).isAir() && blockDist(mc, p) <= DIST_MAX) return p;
+            BlockPos p = rail.offset(d);
+            if (mc.world.getBlockState(p).isAir() && blockDist(mc, p) <= DIST_MAX) return p;
         }
         for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
-            BlockPos p = rail.relative(d).below();
-            if (mc.level.getBlockState(p).isAir() && blockDist(mc, p) <= DIST_MAX) return p;
+            BlockPos p = rail.offset(d).down();
+            if (mc.world.getBlockState(p).isAir() && blockDist(mc, p) <= DIST_MAX) return p;
         }
         return null;
     }
 
     private static BlockPos computeFirePosFallback(Minecraft mc, BlockPos rail) {
-        BlockPos above = rail.above();
-        if (mc.level.getBlockState(above).isAir() && blockDist(mc, above) <= DIST_MAX) return above;
+        BlockPos above = rail.up();
+        if (mc.world.getBlockState(above).isAir() && blockDist(mc, above) <= DIST_MAX) return above;
         for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
-            BlockPos adj = rail.relative(d).above();
-            if (mc.level.getBlockState(adj).isAir() && blockDist(mc, adj) <= DIST_MAX) return adj;
+            BlockPos adj = rail.offset(d).up();
+            if (mc.world.getBlockState(adj).isAir() && blockDist(mc, adj) <= DIST_MAX) return adj;
         }
         return null;
     }
 
     private static boolean isRailAt(Minecraft mc, BlockPos pos) {
-        if (mc.level == null || pos == null) return false;
-        var b = mc.level.getBlockState(pos).getBlock();
+        if (mc.world == null || pos == null) return false;
+        var b = mc.world.getBlockState(pos).getBlock();
         return b == Blocks.RAIL || b == Blocks.POWERED_RAIL || b == Blocks.DETECTOR_RAIL || b == Blocks.ACTIVATOR_RAIL;
     }
 
     private static boolean isFireAt(Minecraft mc, BlockPos pos) {
-        if (mc.level == null || pos == null) return false;
-        var b = mc.level.getBlockState(pos).getBlock();
+        if (mc.world == null || pos == null) return false;
+        var b = mc.world.getBlockState(pos).getBlock();
         return b == Blocks.FIRE || b == Blocks.SOUL_FIRE || b == Blocks.CAMPFIRE || b == Blocks.SOUL_CAMPFIRE;
     }
 
-    private static MinecartTNT findCart(Minecraft mc, BlockPos near, double r) {
-        if (mc.level == null || near == null) return null;
-        Vec3 c = Vec3.atCenterOf(near);
-        return mc.level.getEntitiesOfClass(MinecartTNT.class,
-                new AABB(c.x - r, c.y - r, c.z - r, c.x + r, c.y + r, c.z + r), Entity::isAlive)
-            .stream().min(Comparator.comparingDouble(e -> e.position().distanceTo(c))).orElse(null);
+    private static TntMinecartEntity findCart(Minecraft mc, BlockPos near, double r) {   // ← Yarn
+        if (mc.world == null || near == null) return null;
+        Vec3d c = Vec3d.ofCenter(near);
+        return mc.world.getEntitiesByClass(TntMinecartEntity.class,
+                new Box(c.x - r, c.y - r, c.z - r, c.x + r, c.y + r, c.z + r), Entity::isAlive)
+            .stream().min(Comparator.comparingDouble(e -> e.getPos().distanceTo(c))).orElse(null);
     }
 
     private static double blockDist(Minecraft mc, BlockPos pos) {
         if (mc.player == null) return 999;
-        Vec3 eye = mc.player.getEyePosition(1.0f);
-        return Math.sqrt(pos.distToCenterSqr(eye.x, eye.y, eye.z));
+        Vec3d eye = mc.player.getEyePos();
+        return Math.sqrt(pos.getSquaredDistance(eye.x, eye.y, eye.z));
     }
 
     private static void sel(Minecraft mc, int slot) {
@@ -320,4 +320,4 @@ public class XbowCart {
     }
 
     public static void purgePipelineRegistry() { hardReset(null); }
-    }
+}
