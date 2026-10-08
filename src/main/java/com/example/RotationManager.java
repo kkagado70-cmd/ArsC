@@ -1,6 +1,7 @@
 package com.example;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -127,10 +128,9 @@ public class RotationManager {
         nextYaw   = avoidExactInteger(nextYaw);
         nextPitch = avoidExactInteger(nextPitch);
 
+        // applyGCDRotation chama player.turn() que aplica os deltas internamente.
+        // setYRot/setXRot após turn() causavam rotação duplicada — removidos.
         applyGCDRotation(client, nextYaw - curYaw, nextPitch - curPitch);
-
-        client.player.setYRot(Mth.wrapDegrees(nextYaw));
-        client.player.setXRot(nextPitch);
 
         currentYaw   = nextYaw;
         currentPitch = nextPitch;
@@ -401,4 +401,14 @@ public class RotationManager {
     public static UUID getSubsessionIdentity() { return SUBSESSION_ID; }
     public static double getSampledGcd()     { return sampledGcd; }
     public static double getGcdSensitivity() { return gcdSensitivity; }
+
+    /**
+     * Força envio do packet de rotação atual para o servidor.
+     * Usar quando suspeitar que o servidor não recebeu a rotação via smoothTo.
+     */
+    public static void syncRotation(Minecraft client) {
+        if (client == null || client.player == null || client.getConnection() == null) return;
+        client.getConnection().send(new net.minecraft.network.protocol.game.ServerboundMovePlayerPacket.Rot(
+            client.player.getYRot(), client.player.getXRot(), client.player.onGround()));
+    }
 }

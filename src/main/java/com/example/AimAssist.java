@@ -77,18 +77,17 @@ public class AimAssist {
         GrimBypassCore.tickDrift(0.06f);
         if (switchCD > 0) switchCD--;
 
-        LivingEntity target = pickTarget(mc);
+        // Bug G fix: salvar previous ANTES de pickTarget modificar lockedTarget
+        LivingEntity previous = lockedTarget;
+        LivingEntity target   = pickTarget(mc);
 
-        // Alvo morreu ou saiu: limpa imediatamente
-        if (target != lockedTarget) {
+        if (target != null && target != previous) {
             reset();
             lockedTarget = target;
             switchCD = 3 + RNG.nextInt(4);
         }
 
-        if (target == null) return;
-        // Garante que o alvo ainda respira antes de mirar
-        if (!target.isAlive()) { release(); return; }
+        if (target == null || !target.isAlive()) { release(); return; }
 
         aimAt(mc, target);
         fatigue = Math.min(1.0, fatigue + F_INC);

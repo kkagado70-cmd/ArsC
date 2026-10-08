@@ -191,7 +191,8 @@ public class ClientBase implements ClientModInitializer {
                     try {
                         m.executeTickWrapper(client);
                     } catch (Throwable t) {
-                        // isolate per-module exceptions
+                        System.err.println("[Arsenal] Módulo " + m.getName() + " jogou exceção:");
+                        t.printStackTrace();
                     }
                 }
             }

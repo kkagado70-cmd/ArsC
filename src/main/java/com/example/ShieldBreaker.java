@@ -61,7 +61,19 @@ public class ShieldBreaker {
 
     public static void onTick(Minecraft mc) {
         if (!enabled || mc.player == null || mc.level == null) return;
-        if (!mc.player.isAlive()) return;
+
+        // Watchdog: stun ativo fora do swing real → limpa para não bloquear AimAssist/TriggerBot
+        if (shieldStunActiveSync
+                && currentState != State.SWINGING
+                && currentState != State.FOLLOWUP) {
+            shieldStunActiveSync = false;
+        }
+
+        if (!mc.player.isAlive()) {
+            shieldStunActiveSync = false;
+            currentState = State.IDLE;
+            return;
+        }
         if (mc.player.isFallFlying() || mc.player.fallDistance > 1.5F) {
             shieldStunActiveSync = false;
             currentState = State.IDLE;
@@ -103,7 +115,7 @@ public class ShieldBreaker {
         if (--reactionDelay > 0) return;
         int axeSlot = findBestAxe(mc);
         if (axeSlot < 0) { resetToIdle(); return; }
-        savedSlot = SlotAccessor.get(mc);
+        savedSlot = mc.player.getInventory().getSelectedSlot();
         InventoryManager.saveCurrentSlot(mc);
         InventoryManager.selectSlot(mc, axeSlot);
         axeSyncWait  = 0;

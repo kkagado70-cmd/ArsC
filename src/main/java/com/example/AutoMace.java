@@ -77,6 +77,13 @@ public class AutoMace {
 
         RotationManager.samplePlayerGcd(mc);
 
+        // Watchdog: isTracking travado → libera para não bloquear AimAssist
+        if (isTracking && aimTicks > 60) {
+            isTracking = false;
+            aimTicks   = 0;
+            restoreSlot(mc);
+        }
+
         // Rastreia pico de altura para detectar descida
         trackPeak(mc);
 
@@ -175,9 +182,9 @@ public class AutoMace {
         int targetSlot = (mode == AttackMode.SPEAR_SWAP) ? findSpear(mc) : findMace(mc);
         if (targetSlot < 0) return false;
 
-        int current = SlotAccessor.get(mc);
+        int current = mc.player.getInventory().getSelectedSlot();
 
-        // Guard: se o usuário trocou manualmente (slot diferente do savedSlot), reseta
+        // Guard: usuário trocou manualmente → aborta
         if (savedSlot >= 0 && current != targetSlot && current != savedSlot) {
             restoreSlot(mc);
             return false;
@@ -186,7 +193,7 @@ public class AutoMace {
         if (current != targetSlot) {
             if (savedSlot < 0) savedSlot = current;
             InventoryManager.selectSlot(mc, targetSlot);
-            return false; // espera um tick para o servidor reconhecer a troca
+            // Mesmo tick: NÃO retorna false — swap + attack acontecem no mesmo tick
         }
 
         return true;
