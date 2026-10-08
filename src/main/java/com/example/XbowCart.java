@@ -4,7 +4,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.vehicle.MinecartTNT;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -45,7 +45,7 @@ public class XbowCart {
     private static Vec3     cartAim   = null;
     private static Vec3     fireAim   = null;
     private static Vec3     xbowAim   = null;
-    private static MinecartTNT cart   = null;
+    private static Entity cart   = null;
 
     // Tolerâncias de aiming
     private static final float PYT  = 3.5f;
@@ -194,7 +194,7 @@ public class XbowCart {
     // WAIT_CART: só aguarda, sem re-clicar (evita spawnar segundo cart)
     private static void tickWaitCart(Minecraft mc) {
         if (timer > 0) { timer--; return; }
-        MinecartTNT found = findCart(mc, railPos, CR);
+        Entity found = findCart(mc, railPos, CR);
         if (found != null) {
             // B10: validate cart is on the rail, not just nearby
             if (found.position().distanceTo(Vec3.atCenterOf(railPos)) > 0.6) {
@@ -237,7 +237,7 @@ public class XbowCart {
     private static Vec3 liveAim(Minecraft mc) {
         if (cart != null && cart.isAlive()) return aimThroughFire(mc, cart);
         if (railPos != null) {
-            MinecartTNT found = findCart(mc, railPos, CR);
+            Entity found = findCart(mc, railPos, CR);
             if (found != null) { cart = found; return aimThroughFire(mc, found); }
         }
         return xbowAim;
@@ -248,7 +248,7 @@ public class XbowCart {
      * Aim slightly beyond the cart along the player-to-cart direction so the
      * arrow travels through the fire column between player and cart.
      */
-    private static Vec3 aimThroughFire(Minecraft mc, MinecartTNT c) {
+    private static Vec3 aimThroughFire(Minecraft mc, Entity c) {
         Vec3 eye   = mc.player.getEyePosition(1.0f);
         Vec3 cpos  = c.position().add(0, 0.4, 0);
         Vec3 dir   = cpos.subtract(eye).normalize();
@@ -256,7 +256,7 @@ public class XbowCart {
         return cpos.add(dir.scale(1.2));
     }
 
-    private static Vec3 predictCart(MinecartTNT c) {
+    private static Vec3 predictCart(Entity c) {
         Vec3 p = c.position(); Vec3 v = c.getDeltaMovement();
         return p.add(v.x * 1.9, 0.85, v.z * 1.9);
     }
@@ -330,11 +330,12 @@ public class XbowCart {
         return b == Blocks.FIRE || b == Blocks.SOUL_FIRE || b == Blocks.CAMPFIRE || b == Blocks.SOUL_CAMPFIRE;
     }
 
-    private static MinecartTNT findCart(Minecraft mc, BlockPos near, double r) {
+    private static Entity findCart(Minecraft mc, BlockPos near, double r) {
         if (mc.level == null || near == null) return null;
         Vec3 c = Vec3.atCenterOf(near);
-        return mc.level.getEntitiesOfClass(MinecartTNT.class,
-                new AABB(c.x - r, c.y - r, c.z - r, c.x + r, c.y + r, c.z + r), Entity::isAlive)
+        return mc.level.getEntitiesOfClass(Entity.class,
+                new AABB(c.x - r, c.y - r, c.z - r, c.x + r, c.y + r, c.z + r),
+                e -> e.getType() == EntityType.TNT_MINECART && e.isAlive())
             .stream().min(Comparator.comparingDouble(e -> e.position().distanceTo(c))).orElse(null);
     }
 
